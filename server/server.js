@@ -383,6 +383,10 @@ app.post('/api/platform/impersonate/stop', async (req, res) => {
   }
 });
 
+// Platform admin routes (cross-store, must bypass tenantResolver)
+const platformAdminRoutes = require('./routes/platformAdmin');
+app.use('/api', platformAdminRoutes);
+
 // ✅ Resolve Tenant for all other API endpoints
 app.use('/api/', tenantResolver);
 
