@@ -771,6 +771,139 @@ app.get('/api/blocked/check', (req, res) => {
 });
 
 
+
+// POST /api/platform/impersonation/session — Get impersonated store
+app.post('/api/platform/impersonation/session', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    const token = authHeader.split(' ')[1];
+    const { data: { user } } = await supabase.auth.getUser(token);
+    if (!user) return res.status(401).json({ error: 'Invalid token' });
+
+    const { data: superAdmin } = await supabase.from('super_admins').select('user_id').eq('user_id', user.id).maybeSingle();
+    if (!superAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+    const { token: impToken } = req.body;
+    if (!impToken) return res.status(400).json({ error: 'Token required' });
+
+    // Look up impersonation session
+    const { data: session, error } = await supabase
+      .from('impersonation_sessions')
+      .select('*, stores(id, name, subdomain, custom_domain, is_active, subscription_expires_at)')
+      .eq('session_token', impToken)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (error || !session) return res.status(404).json({ error: 'Session not found' });
+
+    // Check expiry
+    if (new Date(session.expires_at) < new Date()) {
+      return res.status(410).json({ error: 'Session expired' });
+    }
+
+    res.json({ store: session.stores, session });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// POST /api/platform/stores/:id/suspend
+app.post('/api/platform/stores/:id/suspend', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const { id } = req.params;
+    const { data, error } = await supabase.from('stores').update({ is_active: false }).eq('id', id).select().single();
+    if (error) throw error;
+    res.json({ success: true, store: data });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// POST /api/platform/stores/:id/recover
+app.post('/api/platform/stores/:id/recover', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const { id } = req.params;
+    const { data, error } = await supabase.from('stores').update({ is_active: true }).eq('id', id).select().single();
+    if (error) throw error;
+    res.json({ success: true, store: data });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// POST /api/platform/users/:userId/ban
+app.post('/api/platform/users/:userId/ban', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const { userId } = req.params;
+    const { reason, scope, store_id } = req.body;
+    const { data: profile } = await supabase.from('user_profiles').select('id').eq('user_id', userId).eq('store_id', store_id).maybeSingle();
+    if (profile) {
+      await supabase.from('user_profiles').update({ is_banned: true, ban_reason: reason || 'مخالفة' }).eq('id', profile.id);
+      await supabase.from('ban_logs').insert([{ user_id: userId, store_id, ban_scope: scope || 'ALL', ban_type: 'Custom', reason: reason || 'مخالفة', created_by: user.id }]);
+    }
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// POST /api/platform/users/:userId/unban
+app.post('/api/platform/users/:userId/unban', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const { userId } = req.params;
+    const { store_id } = req.body;
+    await supabase.from('user_profiles').update({ is_banned: false, ban_reason: null }).eq('user_id', userId).eq('store_id', store_id);
+    await supabase.from('ban_logs').update({ is_active: false, lifted_at: new Date().toISOString(), lifted_by: user.id }).eq('user_id', userId).eq('store_id', store_id).eq('is_active', true);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// GET /api/platform/resources/:resource — Generic resource lister
+app.get('/api/platform/resources/:resource', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+
+    const resourceMap = {
+      feature_flags: 'feature_flags',
+      apps: 'platform_apps',
+      themes: 'platform_themes',
+      role_templates: 'platform_role_templates',
+      suspensions: 'platform_suspensions',
+    };
+    const table = resourceMap[req.params.resource];
+    if (!table) return res.status(404).json({ error: 'Unknown resource' });
+
+    const { data, error } = await supabase.from(table).select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// GET /api/platform/store-admins/sync-from-roles
+app.post('/api/platform/store-admins/sync-from-roles', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+
+    let added = 0;
+    const { data: userRoles } = await supabase.from('user_roles').select('user_id, store_id').not('store_id', 'is', null);
+    for (const ur of userRoles || []) {
+      const { error: insErr } = await supabase.from('store_admins').upsert([{ user_id: ur.user_id, store_id: ur.store_id }], { onConflict: 'user_id,store_id', ignoreDuplicates: true });
+      if (!insErr) added++;
+    }
+    res.json({ success: true, synced: added, total: (userRoles || []).length });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// GET /api/logs/client-error — Accept client error logs
+app.post('/api/logs/client-error', async (req, res) => {
+  // Just accept and discard (no DB write to avoid failures)
+  res.json({ success: true });
+});
+
+
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, async () => {
   logger.info(`✅ Server running on port ${PORT}`);

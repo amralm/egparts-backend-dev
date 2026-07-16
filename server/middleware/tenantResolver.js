@@ -8,6 +8,14 @@ const supabase = createClient(
 
 module.exports = async function tenantResolver(req, res, next) {
   try {
+    // Bypass tenant resolver for platform/admin endpoints (no store context needed)
+    const bypassPaths = ['/platform/', '/health/', '/db-proxy', '/payments/status/', '/payments/active', '/blocked/check', '/auth/validate-admin', '/auth/qr-login', '/store-context', '/store-usage'];
+    if (bypassPaths.some(p => req.path.startsWith(p) || req.path.includes(p))) {
+      req.store = null;
+      req.context = { type: 'platform' };
+      return next();
+    }
+
     // Bypass tenant resolver for webhooks
     if (req.path.endsWith('/webhook') || req.path.includes('/webhook')) {
       return next();
@@ -61,7 +69,10 @@ module.exports = async function tenantResolver(req, res, next) {
       subdomain = 'egparts';
     }
 
-    // Query store status (cached/resolved in memory or database)
+    // Query store status (with subdomain validation for security)
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(subdomain)) {
+      return res.status(404).json({ success: false, error: 'المتجر غير موجود' });
+    }
     const { data: store, error } = await supabase
       .from('stores')
       .select('*')
