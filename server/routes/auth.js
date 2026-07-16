@@ -203,4 +203,71 @@ router.post('/reset-password', otpRateLimiter, async (req, res) => {
   }
 });
 
+// ===== Google OAuth =====
+// Google OAuth login - returns the Google auth URL
+router.post('/oauth/login', async (req, res) => {
+  try {
+    const { provider } = req.body || {};
+    if (provider !== 'google') return res.status(400).json({ error: 'Only Google OAuth is supported' });
+
+    const redirectUri = `${process.env.BACKEND_PUBLIC_URL || process.env.FRONTEND_URL}/api/auth/oauth/exchange`;
+    const redirectUrl = `https://accounts.google.com/o/oauth2/v2/auth?` + new URLSearchParams({
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      scope: 'openid email profile',
+      access_type: 'offline'
+    });
+
+    res.json({ url: redirectUrl });
+  } catch (err) {
+    logger.error('OAuth login error:', err);
+    res.status(500).json({ error: 'OAuth initiation failed' });
+  }
+});
+
+// Google OAuth exchange - exchanges code for user info
+router.get('/oauth/exchange', async (req, res) => {
+  try {
+    const { code } = req.query;
+    if (!code) return res.status(400).json({ error: 'Missing authorization code' });
+
+    const redirectUri = `${process.env.BACKEND_PUBLIC_URL || process.env.FRONTEND_URL}/api/auth/oauth/exchange`;
+
+    // Exchange code for tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code'
+      })
+    });
+    const tokens = await tokenRes.json();
+
+    if (!tokens.id_token) {
+      return res.status(400).json({ error: 'Failed to get ID token from Google' });
+    }
+
+    // Get user info from Google
+    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    const googleUser = await userRes.json();
+
+    res.json({
+      email: googleUser.email,
+      name: googleUser.name,
+      picture: googleUser.picture,
+      provider: 'google'
+    });
+  } catch (err) {
+    logger.error('OAuth exchange error:', err);
+    res.status(500).json({ error: 'OAuth exchange failed' });
+  }
+});
+
 module.exports = router;

@@ -256,4 +256,88 @@ router.get('/verify-redirect', async (req, res) => {
   }
 });
 
+// ===== Payment Settings =====
+router.get('/settings', async (req, res) => {
+  try {
+    const storeId = req.store.id;
+
+    const { data, error } = await supabase
+      .from('site_settings')
+      .select('key, value')
+      .eq('store_id', storeId)
+      .in('key', ['paymob_api_key', 'paymob_hmac_secret', 'paymob_iframe_id', 'paymob_integration_id']);
+
+    const settings = {};
+    if (data) {
+      data.forEach(row => { settings[row.key] = row.value; });
+    }
+
+    // Mask sensitive values
+    if (settings.paymob_api_key) {
+      settings.paymob_api_key_masked = settings.paymob_api_key.substring(0, 8) + '...';
+    }
+
+    res.json(settings);
+  } catch (err) {
+    console.error('Payment settings error:', err);
+    res.status(500).json({ error: 'Failed to load payment settings' });
+  }
+});
+
+router.post('/settings', async (req, res) => {
+  try {
+    const storeId = req.store.id;
+    const settings = req.body;
+
+    const upserts = Object.entries(settings).map(([key, value]) =>
+      supabase.from('site_settings').upsert({
+        store_id: storeId,
+        key,
+        value: String(value)
+      }, { onConflict: 'store_id,key' })
+    );
+
+    await Promise.all(upserts);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Save payment settings error:', err);
+    res.status(500).json({ error: 'Failed to save payment settings' });
+  }
+});
+
+// ===== COD Settings =====
+router.get('/methods/cod/settings', async (req, res) => {
+  try {
+    const { data } = await supabase
+      .from('site_settings')
+      .select('key, value')
+      .eq('store_id', req.store.id)
+      .in('key', ['cod_enabled', 'cod_instructions']);
+
+    const settings = {};
+    if (data) data.forEach(r => { settings[r.key] = r.value; });
+
+    res.json({ enabled: settings.cod_enabled !== 'false', instructions: settings.cod_instructions || '' });
+  } catch (err) {
+    console.error('COD settings error:', err);
+    res.status(500).json({ error: 'Failed to load COD settings' });
+  }
+});
+
+router.post('/methods/cod/toggle', async (req, res) => {
+  try {
+    const { enabled } = req.body;
+
+    await supabase.from('site_settings').upsert(
+      { store_id: req.store.id, key: 'cod_enabled', value: String(!!enabled) },
+      { onConflict: 'store_id,key' }
+    );
+
+    res.json({ success: true, enabled: !!enabled });
+  } catch (err) {
+    console.error('COD toggle error:', err);
+    res.status(500).json({ error: 'Failed to toggle COD' });
+  }
+});
+
 module.exports = router;
