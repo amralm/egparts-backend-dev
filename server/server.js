@@ -221,12 +221,12 @@ app.post('/api/auth/validate-admin', async (req, res) => {
     // Store admin check
     const { data: admin } = await supabase
       .from('store_admins')
-      .select('user_id, store_id, role')
+      .select('user_id, store_id')
       .eq('user_id', user.id)
       .eq('store_id', store_id)
       .maybeSingle();
     if (admin) {
-      return res.json({ isAuthorized: true, isSuperAdmin: false, role: admin.role || 'store_admin' });
+      return res.json({ isAuthorized: true, isSuperAdmin: false, role: 'store_admin' });
     }
     // Super admins have access to all stores
     const { data: isSuper } = await supabase
