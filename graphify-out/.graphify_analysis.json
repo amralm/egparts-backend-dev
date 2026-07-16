@@ -1,0 +1,270 @@
+{
+  "communities": {
+    "0": [
+      "admin_adminlayout_adminlayout"
+    ],
+    "1": [
+      "admin_adminlayout_cn"
+    ],
+    "2": [
+      "admin_auth_auth"
+    ],
+    "3": [
+      "admin_blockedips_blockedips"
+    ],
+    "4": [
+      "admin_coupons_coupons"
+    ],
+    "5": [
+      "admin_dashboard_dashboard"
+    ],
+    "6": [
+      "admin_loginlogs_loginlogs"
+    ],
+    "7": [
+      "admin_managebanners_managebanners"
+    ],
+    "8": [
+      "admin_managecontent_managecontent"
+    ],
+    "9": [
+      "admin_managereviews_managereviews"
+    ],
+    "10": [
+      "admin_products_products"
+    ],
+    "11": [
+      "admin_reviewsadmin_reviewsadmin"
+    ],
+    "12": [
+      "admin_settings_settings"
+    ],
+    "13": [
+      "admin_shippingadmin_shippingadmin"
+    ],
+    "14": [
+      "admin_systemhealth_systemhealth"
+    ],
+    "15": [
+      "admin_users_users"
+    ],
+    "16": [
+      "admin_warequests_warequests"
+    ],
+    "17": [
+      "components_bannedscreen_bannedscreen"
+    ],
+    "18": [
+      "components_cartdrawer_cartdrawer"
+    ],
+    "19": [
+      "components_confirmmodal_confirmmodal"
+    ],
+    "20": [
+      "components_imagecropper_imagecropper"
+    ],
+    "21": [
+      "components_ipblockguard_ipblockguard"
+    ],
+    "22": [
+      "components_layout_cn"
+    ],
+    "23": [
+      "components_layout_layout"
+    ],
+    "24": [
+      "components_livesearch_livesearch"
+    ],
+    "25": [
+      "components_ordermodal_ordermodal"
+    ],
+    "26": [
+      "components_productskeleton_productskeleton"
+    ],
+    "27": [
+      "components_protectedroute_protectedroute"
+    ],
+    "28": [
+      "components_socialprooftoast_socialprooftoast"
+    ],
+    "29": [
+      "components_toast_toast"
+    ],
+    "30": [
+      "context_cartcontext_cartprovider"
+    ],
+    "31": [
+      "context_cartcontext_usecart"
+    ],
+    "32": [
+      "context_wishlistcontext_usewishlist"
+    ],
+    "33": [
+      "context_wishlistcontext_wishlistprovider"
+    ],
+    "34": [
+      "hooks_useauth_useauth"
+    ],
+    "35": [
+      "hooks_useseo_useseo"
+    ],
+    "36": [
+      "lib_fetchwithretry_fetchwithretry"
+    ],
+    "37": [
+      "lib_ip_getclientip"
+    ],
+    "38": [
+      "pages_account_account"
+    ],
+    "39": [
+      "pages_catalog_catalog"
+    ],
+    "40": [
+      "pages_emailverified_emailverified"
+    ],
+    "41": [
+      "pages_favorites_favorites"
+    ],
+    "42": [
+      "pages_home_home"
+    ],
+    "43": [
+      "pages_orders_orders"
+    ],
+    "44": [
+      "pages_paymentfail_paymentfail"
+    ],
+    "45": [
+      "pages_paymentsuccess_paymentsuccess"
+    ],
+    "46": [
+      "pages_product_product"
+    ],
+    "47": [
+      "pages_support_support"
+    ],
+    "48": [
+      "pages_trackorder_trackorder"
+    ],
+    "49": [
+      "pages_userauth_userauth"
+    ],
+    "50": [
+      "utils_whatsapp_saverequestandopenwhatsapp"
+    ]
+  },
+  "cohesion": {
+    "0": 1.0,
+    "1": 1.0,
+    "2": 1.0,
+    "3": 1.0,
+    "4": 1.0,
+    "5": 1.0,
+    "6": 1.0,
+    "7": 1.0,
+    "8": 1.0,
+    "9": 1.0,
+    "10": 1.0,
+    "11": 1.0,
+    "12": 1.0,
+    "13": 1.0,
+    "14": 1.0,
+    "15": 1.0,
+    "16": 1.0,
+    "17": 1.0,
+    "18": 1.0,
+    "19": 1.0,
+    "20": 1.0,
+    "21": 1.0,
+    "22": 1.0,
+    "23": 1.0,
+    "24": 1.0,
+    "25": 1.0,
+    "26": 1.0,
+    "27": 1.0,
+    "28": 1.0,
+    "29": 1.0,
+    "30": 1.0,
+    "31": 1.0,
+    "32": 1.0,
+    "33": 1.0,
+    "34": 1.0,
+    "35": 1.0,
+    "36": 1.0,
+    "37": 1.0,
+    "38": 1.0,
+    "39": 1.0,
+    "40": 1.0,
+    "41": 1.0,
+    "42": 1.0,
+    "43": 1.0,
+    "44": 1.0,
+    "45": 1.0,
+    "46": 1.0,
+    "47": 1.0,
+    "48": 1.0,
+    "49": 1.0,
+    "50": 1.0
+  },
+  "gods": [
+    {
+      "id": "components_bannedscreen_bannedscreen",
+      "label": "BannedScreen",
+      "degree": 0
+    },
+    {
+      "id": "components_cartdrawer_cartdrawer",
+      "label": "CartDrawer",
+      "degree": 0
+    },
+    {
+      "id": "components_confirmmodal_confirmmodal",
+      "label": "ConfirmModal",
+      "degree": 0
+    },
+    {
+      "id": "components_ipblockguard_ipblockguard",
+      "label": "IPBlockGuard",
+      "degree": 0
+    },
+    {
+      "id": "components_imagecropper_imagecropper",
+      "label": "ImageCropper",
+      "degree": 0
+    },
+    {
+      "id": "components_layout_cn",
+      "label": "cn",
+      "degree": 0
+    },
+    {
+      "id": "components_layout_layout",
+      "label": "Layout",
+      "degree": 0
+    },
+    {
+      "id": "components_livesearch_livesearch",
+      "label": "LiveSearch",
+      "degree": 0
+    },
+    {
+      "id": "components_ordermodal_ordermodal",
+      "label": "OrderModal",
+      "degree": 0
+    },
+    {
+      "id": "components_productskeleton_productskeleton",
+      "label": "ProductSkeleton",
+      "degree": 0
+    }
+  ],
+  "surprises": [],
+  "questions": [
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `BannedScreen`, `CartDrawer`, `ConfirmModal` to the rest of the system?",
+      "why": "51 weakly-connected nodes found - possible documentation gaps or missing edges."
+    }
+  ]
+}

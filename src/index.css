@@ -1,0 +1,486 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-size: 14px;
+  }
+  body {
+    font-family: 'Tajawal', sans-serif;
+    min-height: max(884px, 100dvh);
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: var(--background);
+    color: var(--on-surface);
+  }
+  
+  /* ============================================
+     CSS VARIABLES — LAYOUT
+     ============================================ */
+  :root {
+    --admin-pad-x: 1.5rem;
+    --admin-pad-y: 1.5rem;
+    --admin-pad-b: 8rem;
+  }
+  @media (min-width: 768px) {
+    :root {
+      --admin-pad-x: 2rem;
+      --admin-pad-y: 2rem;
+      --admin-pad-b: 2rem;
+    }
+  }
+
+  /* ============================================
+     GLOBAL SCROLLBAR (STOREFRONT)
+     ============================================ */
+  html:not(.admin-panel) {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 153, 0, 0.4) transparent;
+  }
+  html:not(.admin-panel) ::-webkit-scrollbar { width: 8px; height: 8px; }
+  html:not(.admin-panel) ::-webkit-scrollbar-track { background: transparent; }
+  html:not(.admin-panel) ::-webkit-scrollbar-thumb { background: rgba(255, 153, 0, 0.3); border-radius: 6px; }
+  html:not(.admin-panel) ::-webkit-scrollbar-thumb:hover { background: rgba(255, 153, 0, 0.6); }
+
+  /* Fix Google Translate breaking layout */
+  font, span:not(.material-symbols-outlined) { font-family: inherit !important; }
+  font { display: inherit !important; vertical-align: inherit !important; }
+}
+
+@layer components {
+  .glass-panel {
+    background: rgba(19, 25, 33, 0.7);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  }
+  .neon-glow-primary {
+    box-shadow: 0 0 25px rgba(255, 153, 0, 0.2);
+  }
+  .premium-gradient {
+    background: linear-gradient(135deg, #131921 0%, #232F3E 100%);
+  }
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+.animate-float { animation: float 3s ease-in-out infinite; }
+
+@keyframes flame {
+  0%, 100% { transform: scale(1) rotate(0deg); color: #ff9900; text-shadow: 0 0 10px rgba(255,153,0,0.5); }
+  25% { transform: scale(1.1) rotate(-3deg); color: #ffb700; text-shadow: 0 0 15px rgba(255,183,0,0.7); }
+  50% { transform: scale(0.95) rotate(3deg); color: #ff5500; text-shadow: 0 0 5px rgba(255,85,0,0.3); }
+  75% { transform: scale(1.05) rotate(-1deg); color: #ffaa00; text-shadow: 0 0 12px rgba(255,170,0,0.6); }
+}
+.animate-flame { animation: flame 0.4s infinite ease-in-out alternate; display: inline-block; }
+
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+
+@keyframes cart-bounce {
+  0%, 100% { transform: scale(1); }
+  30% { transform: scale(1.3); }
+  60% { transform: scale(0.9); }
+  80% { transform: scale(1.1); }
+}
+.cart-bounce { animation: cart-bounce 0.5s ease-in-out; }
+
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ============================================
+   CSS VARIABLES — LIGHT MODE (:root)
+   ============================================ */
+:root {
+  --background: #ffffff;
+  --surface: #ffffff;
+  --surface-dim: #f5f7fa;
+  --surface-bright: #ffffff;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f9fafb;
+  --surface-container: #ffffff;
+  --surface-container-high: #f3f4f6;
+  --surface-container-highest: #e5e7eb;
+  --on-surface: #000000;
+  --on-surface-variant: #1f2937;
+  --on-background: #000000;
+  --primary: #dc2626;
+  --primary-container: #dc2626;
+  --on-primary: #ffffff;
+  --error: #b91c1c;
+  --error-container: #fee2e2;
+  --outline: #e5e7eb;
+  --secondary: #4b5563;
+  --secondary-container: #f3f4f6;
+}
+
+/* ============================================
+   CSS VARIABLES — DARK MODE (.dark)
+   ============================================ */
+.dark {
+  --background: #0e141c;
+  --surface: #0e141c;
+  --surface-dim: #0e141c;
+  --surface-bright: #343a42;
+  --surface-container-lowest: #090f16;
+  --surface-container-low: #161c24;
+  --surface-container: #1a2028;
+  --surface-container-high: #242a33;
+  --surface-container-highest: #2f353e;
+  --on-surface: #dde3ee;
+  --on-surface-variant: #dbc2ad;
+  --on-background: #dde3ee;
+  --primary: #ff4d4d;
+  --primary-container: #dc2626;
+  --on-primary: #ffffff;
+  --error: #ffb4ab;
+  --error-container: #93000a;
+  --outline: #a38d7a;
+  --secondary: #bbc7db;
+  --secondary-container: #3c4858;
+}
+
+/* Glass panel in light mode */
+html:not(.dark) .glass-panel {
+  background: rgba(255, 255, 255, 0.88) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 1px 10px rgba(0, 0, 0, 0.06) !important;
+}
+
+html:not(.dark) .premium-gradient {
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%) !important;
+}
+
+html:not(.dark) [class*="bg-gradient"] [class*="text-white/"] {
+  color: #ffffff !important;
+}
+
+/* Make sure headings default to dark */
+html:not(.dark) h1, html:not(.dark) h2, html:not(.dark) h3, 
+html:not(.dark) h4, html:not(.dark) h5, html:not(.dark) h6 {
+  color: #000000 !important;
+}
+
+/* ── HEADER ── */
+html:not(.dark) header {
+  background-color: rgba(255, 255, 255, 0.88) !important;
+  border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 1px 10px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ── FOOTER ── */
+html:not(.dark) footer {
+  background-color: var(--surface-container-high) !important;
+  border-color: var(--outline) !important;
+}
+
+/* ── MOBILE BOTTOM NAV ── */
+html:not(.dark) nav.fixed {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* ── BORDERS: replace white/X → neutral ── */
+html:not(.dark) .border-white\/5,
+html:not(.dark) .border-white\/10,
+html:not(.dark) .border-white\/\[0\.02\],
+html:not(.dark) .border-white\/\[0\.03\] {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ── HOVER STATES ── */
+html:not(.dark) .hover\:bg-white\/5:hover,
+html:not(.dark) .hover\:bg-white\/10:hover {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* ── SEMI-TRANSPARENT & HARDCODED DARK BACKGROUNDS ── */
+html:not(.dark) .bg-white\/5,
+html:not(.dark) .bg-white\/\[0\.02\],
+html:not(.dark) .bg-white\/\[0\.03\] {
+  background-color: rgba(0, 0, 0, 0.025) !important;
+}
+
+html:not(.dark) [class*="bg-black/"],
+html.admin-panel:not(.dark) [class*="bg-black/"],
+html:not(.dark) [class*="bg-[#131921]"],
+html.admin-panel:not(.dark) [class*="bg-[#131921]"],
+html:not(.dark) [class*="bg-[#0e141c]"],
+html.admin-panel:not(.dark) [class*="bg-[#0e141c]"],
+html:not(.dark) [class*="bg-slate-900"],
+html.admin-panel:not(.dark) [class*="bg-slate-900"],
+html:not(.dark) [class*="bg-gray-900"],
+html.admin-panel:not(.dark) [class*="bg-gray-900"] {
+  background-color: rgba(255, 255, 255, 0.6) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* But if it's a solid background without opacity, make it surface colored */
+html:not(.dark) .bg-black,
+html.admin-panel:not(.dark) .bg-black,
+html:not(.dark) .bg-\[\#131921\],
+html.admin-panel:not(.dark) .bg-\[\#131921\] {
+  background-color: var(--surface) !important;
+}
+
+/* Modal Backdrops specifically using bg-black/60 or similar shouldn't be white */
+html:not(.dark) .fixed[class*="bg-black/"],
+html.admin-panel:not(.dark) .fixed[class*="bg-black/"] {
+  background-color: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* ── INPUT FIELDS ── */
+html:not(.dark) input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]):not([type="file"]),
+html:not(.dark) textarea,
+html:not(.dark) select {
+  background-color: #ffffff !important;
+  border-color: #d1d5db !important;
+  color: var(--on-surface) !important;
+}
+html:not(.dark) input::placeholder,
+html:not(.dark) textarea::placeholder {
+  color: #9ca3af !important;
+}
+html:not(.dark) input:focus,
+html:not(.dark) textarea:focus,
+html:not(.dark) select:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08) !important;
+}
+
+/* ── DROPDOWN/MODAL BACKGROUNDS ── */
+html:not(.dark) .backdrop-blur-md,
+html:not(.dark) .backdrop-blur-xl,
+html:not(.dark) .backdrop-blur-2xl,
+html:not(.dark) .backdrop-blur-3xl {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+
+/* ── HEAVY SHADOWS → LIGHTER ── */
+html:not(.dark) [class*="shadow-[0_8px_30px"],
+html:not(.dark) [class*="shadow-[0_0_30px"],
+html:not(.dark) [class*="shadow-[0_20px"] {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ============================================
+   ADMIN PANEL — CSS VARIABLES
+   ============================================ */
+html.admin-panel:not(.dark) {
+  --background: #f9fafb;
+  --surface: #ffffff;
+  --surface-dim: #f3f4f6;
+  --surface-bright: #ffffff;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f9fafb;
+  --surface-container: #ffffff;
+  --surface-container-high: #f3f4f6;
+  --surface-container-highest: #e5e7eb;
+  --on-surface: #111827;
+  --on-surface-variant: #374151;
+  --on-background: #111827;
+  --primary: #dc2626;
+  --primary-container: #fee2e2;
+  --on-primary: #ffffff;
+  --error: #ef4444;
+  --error-container: #fef2f2;
+  --outline: #e5e7eb;
+  --secondary: #4b5563;
+  --secondary-container: #f3f4f6;
+}
+
+html.admin-panel.dark {
+  --background: #0f172a;
+  --surface: #1e293b;
+  --surface-dim: #0f172a;
+  --surface-bright: #334155;
+  --surface-container-lowest: #020617;
+  --surface-container-low: #0f172a;
+  --surface-container: #1e293b;
+  --surface-container-high: #334155;
+  --surface-container-highest: #475569;
+  --on-surface: #f8fafc;
+  --on-surface-variant: #cbd5e1;
+  --on-background: #f8fafc;
+  --primary: #3b82f6;
+  --primary-container: #1e3a8a;
+  --on-primary: #ffffff;
+  --error: #f87171;
+  --error-container: #7f1d1d;
+  --outline: #475569;
+  --secondary: #94a3b8;
+  --secondary-container: #334155;
+}
+
+/* Admin body override */
+html.admin-panel:not(.dark) body {
+  background: var(--background) !important;
+  color: var(--on-surface) !important;
+}
+
+/* Admin glass panel override */
+html.admin-panel:not(.dark) .glass-panel {
+  background-color: var(--surface) !important;
+  border-color: var(--outline) !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+}
+
+/* Admin table */
+html.admin-panel:not(.dark) tr:hover {
+  background-color: #f3f4f6 !important;
+}
+html.admin-panel:not(.dark) th {
+  background-color: #f9fafb !important;
+  color: var(--on-surface-variant) !important;
+}
+
+/* ============================================
+   ADMIN PANEL SCROLLBAR (MODERN & PREMIUM)
+   ============================================ */
+html.admin-panel {
+  scrollbar-width: thin;
+  scrollbar-color: var(--outline) transparent;
+}
+html.admin-panel ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+html.admin-panel ::-webkit-scrollbar-track {
+  background: transparent;
+}
+html.admin-panel ::-webkit-scrollbar-thumb {
+  background-color: var(--outline);
+  border-radius: 6px;
+  border: 3px solid var(--background); /* Fakes padding-box without iOS bugs */
+  transition: background-color 0.2s ease;
+}
+html.admin-panel ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--on-surface-variant);
+}
+
+/* ── ADMIN TEXT-WHITE BLANKET FIX ──
+   In admin light mode, bare `text-white` on non-colored surfaces is invisible.
+   Override it to on-surface, but preserve white text on colored backgrounds
+   (buttons, badges, gradients) by excluding those elements.
+*/
+html.admin-panel:not(.dark) [class*="text-white"] {
+  color: var(--on-surface) !important;
+}
+/* Restore white text on elements that explicitly need it (buttons, badges, colored bg) */
+html.admin-panel:not(.dark) button[class*="text-white"],
+html.admin-panel:not(.dark) [class*="bg-primary"][class*="text-white"],
+html.admin-panel:not(.dark) [class*="bg-error"][class*="text-white"],
+html.admin-panel:not(.dark) [class*="bg-green"][class*="text-white"],
+html.admin-panel:not(.dark) [class*="bg-blue"][class*="text-white"],
+html.admin-panel:not(.dark) [class*="bg-emerald"][class*="text-white"],
+html.admin-panel:not(.dark) [class*="bg-red"][class*="text-white"],
+html.admin-panel:not(.dark) [class*="bg-gradient"][class*="text-white"],
+html.admin-panel:not(.dark) [class*="bg-amber"][class*="text-white"],
+html.admin-panel:not(.dark) [class*="bg-orange"][class*="text-white"],
+html.admin-panel:not(.dark) a[class*="text-white"],
+html.admin-panel:not(.dark) [class*="text-white/20"],
+html.admin-panel:not(.dark) [class*="text-white/30"],
+html.admin-panel:not(.dark) [class*="text-white/40"],
+html.admin-panel:not(.dark) [class*="text-white/50"],
+html.admin-panel:not(.dark) [class*="text-white/70"] {
+  color: white !important;
+}
+/* Inputs and textareas already handled above; override any text-white inside them */
+html.admin-panel:not(.dark) input[class*="text-white"],
+html.admin-panel:not(.dark) textarea[class*="text-white"] {
+  color: var(--on-surface) !important;
+}
+
+/* Ensure the border color matches the container background if scrolling inside a panel */
+html.admin-panel .bg-surface-container-low::-webkit-scrollbar-thumb {
+  border-color: var(--surface-container-low);
+}
+html.admin-panel .bg-surface-container::-webkit-scrollbar-thumb {
+  border-color: var(--surface-container);
+}
+
+/* ============================================
+   SKELETON LOADERS
+   ============================================ */
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 37%, rgba(255,255,255,0.03) 63%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+}
+html:not(.dark) .skeleton {
+  background: linear-gradient(90deg, rgba(0,0,0,0.05) 25%, rgba(0,0,0,0.1) 37%, rgba(0,0,0,0.05) 63%);
+  background-size: 200% 100%;
+}
+.skeleton-text { height: 1rem; border-radius: 0.25rem; }
+.skeleton-title { height: 1.5rem; border-radius: 0.375rem; }
+.skeleton-circle { border-radius: 50%; }
+.skeleton-rect { border-radius: 0.75rem; }
+
+/* ============================================
+   GLOBAL UTILITIES
+   ============================================ */
+/* Keep material icons white inside primary buttons */
+.bg-primary .material-symbols-outlined {
+  color: var(--on-primary) !important;
+}
+a.bg-primary span {
+  color: var(--on-primary) !important;
+}
+
+/* ============================================
+   SCROLLBAR UTILITIES
+   ============================================ */
+/* Hide scrollbar while keeping scroll (filter chip rows, etc.) */
+.hide-scrollbar, .scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar, .scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Kanban board: keep it within the viewport so the horizontal scrollbar
+   stays reachable at the bottom of the visible area instead of forcing
+   the user to scroll all the way down a tall container. */
+.kanban-scroll {
+  max-height: calc(100vh - 220px);
+  overflow: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: var(--outline) transparent;
+}
+.kanban-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+.kanban-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.kanban-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--outline);
+  border-radius: 6px;
+}
+.kanban-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--on-surface-variant);
+}
+.kanban-scroll > * {
+  scroll-snap-align: start;
+}
+  
+/* Custom Horizontal Scrollbar */  
+.custom-scrollbar-horizontal::-webkit-scrollbar { height: 8px; }  
+.custom-scrollbar-horizontal::-webkit-scrollbar-track { background: transparent; }  
+.custom-scrollbar-horizontal::-webkit-scrollbar-thumb { background: var(--outline); border-radius: 4px; }  
+.custom-scrollbar-horizontal::-webkit-scrollbar-thumb:hover { background: var(--on-surface-variant); } 

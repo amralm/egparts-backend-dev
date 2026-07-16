@@ -1,0 +1,520 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "label": "BannedScreen",
+      "file_type": "code",
+      "source_file": "src/components/BannedScreen.jsx",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "components_bannedscreen_bannedscreen",
+      "community": 17,
+      "norm_label": "bannedscreen"
+    },
+    {
+      "label": "CartDrawer",
+      "file_type": "code",
+      "source_file": "src/components/CartDrawer.jsx",
+      "source_location": "L12",
+      "_origin": "ast",
+      "id": "components_cartdrawer_cartdrawer",
+      "community": 18,
+      "norm_label": "cartdrawer"
+    },
+    {
+      "label": "ConfirmModal",
+      "file_type": "code",
+      "source_file": "src/components/ConfirmModal.jsx",
+      "source_location": "L3",
+      "_origin": "ast",
+      "id": "components_confirmmodal_confirmmodal",
+      "community": 19,
+      "norm_label": "confirmmodal"
+    },
+    {
+      "label": "IPBlockGuard",
+      "file_type": "code",
+      "source_file": "src/components/IPBlockGuard.jsx",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "components_ipblockguard_ipblockguard",
+      "community": 21,
+      "norm_label": "ipblockguard"
+    },
+    {
+      "label": "ImageCropper",
+      "file_type": "code",
+      "source_file": "src/components/ImageCropper.jsx",
+      "source_location": "L3",
+      "_origin": "ast",
+      "id": "components_imagecropper_imagecropper",
+      "community": 20,
+      "norm_label": "imagecropper"
+    },
+    {
+      "label": "cn",
+      "file_type": "code",
+      "source_file": "src/components/Layout.jsx",
+      "source_location": "L14",
+      "_origin": "ast",
+      "id": "components_layout_cn",
+      "community": 22,
+      "norm_label": "cn"
+    },
+    {
+      "label": "Layout",
+      "file_type": "code",
+      "source_file": "src/components/Layout.jsx",
+      "source_location": "L18",
+      "_origin": "ast",
+      "id": "components_layout_layout",
+      "community": 23,
+      "norm_label": "layout"
+    },
+    {
+      "label": "LiveSearch",
+      "file_type": "code",
+      "source_file": "src/components/LiveSearch.jsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "components_livesearch_livesearch",
+      "community": 24,
+      "norm_label": "livesearch"
+    },
+    {
+      "label": "OrderModal",
+      "file_type": "code",
+      "source_file": "src/components/OrderModal.jsx",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "components_ordermodal_ordermodal",
+      "community": 25,
+      "norm_label": "ordermodal"
+    },
+    {
+      "label": "ProductSkeleton",
+      "file_type": "code",
+      "source_file": "src/components/ProductSkeleton.jsx",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "components_productskeleton_productskeleton",
+      "community": 26,
+      "norm_label": "productskeleton"
+    },
+    {
+      "label": "ProtectedRoute",
+      "file_type": "code",
+      "source_file": "src/components/ProtectedRoute.jsx",
+      "source_location": "L6",
+      "_origin": "ast",
+      "id": "components_protectedroute_protectedroute",
+      "community": 27,
+      "norm_label": "protectedroute"
+    },
+    {
+      "label": "SocialProofToast",
+      "file_type": "code",
+      "source_file": "src/components/SocialProofToast.jsx",
+      "source_location": "L53",
+      "_origin": "ast",
+      "id": "components_socialprooftoast_socialprooftoast",
+      "community": 28,
+      "norm_label": "socialprooftoast"
+    },
+    {
+      "label": "Toast",
+      "file_type": "code",
+      "source_file": "src/components/Toast.jsx",
+      "source_location": "L3",
+      "_origin": "ast",
+      "id": "components_toast_toast",
+      "community": 29,
+      "norm_label": "toast"
+    },
+    {
+      "label": "CartProvider",
+      "file_type": "code",
+      "source_file": "src/context/CartContext.jsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "context_cartcontext_cartprovider",
+      "community": 30,
+      "norm_label": "cartprovider"
+    },
+    {
+      "label": "useCart",
+      "file_type": "code",
+      "source_file": "src/context/CartContext.jsx",
+      "source_location": "L89",
+      "_origin": "ast",
+      "id": "context_cartcontext_usecart",
+      "community": 31,
+      "norm_label": "usecart"
+    },
+    {
+      "label": "WishlistProvider",
+      "file_type": "code",
+      "source_file": "src/context/WishlistContext.jsx",
+      "source_location": "L7",
+      "_origin": "ast",
+      "id": "context_wishlistcontext_wishlistprovider",
+      "community": 33,
+      "norm_label": "wishlistprovider"
+    },
+    {
+      "label": "useWishlist",
+      "file_type": "code",
+      "source_file": "src/context/WishlistContext.jsx",
+      "source_location": "L61",
+      "_origin": "ast",
+      "id": "context_wishlistcontext_usewishlist",
+      "community": 32,
+      "norm_label": "usewishlist"
+    },
+    {
+      "label": "useAuth",
+      "file_type": "code",
+      "source_file": "src/hooks/useAuth.js",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "hooks_useauth_useauth",
+      "community": 34,
+      "norm_label": "useauth"
+    },
+    {
+      "label": "useSEO",
+      "file_type": "code",
+      "source_file": "src/hooks/useSEO.js",
+      "source_location": "L3",
+      "_origin": "ast",
+      "id": "hooks_useseo_useseo",
+      "community": 35,
+      "norm_label": "useseo"
+    },
+    {
+      "label": "fetchWithRetry",
+      "file_type": "code",
+      "source_file": "src/lib/fetchWithRetry.js",
+      "source_location": "L3",
+      "_origin": "ast",
+      "id": "lib_fetchwithretry_fetchwithretry",
+      "community": 36,
+      "norm_label": "fetchwithretry"
+    },
+    {
+      "label": "getClientIP",
+      "file_type": "code",
+      "source_file": "src/lib/ip.js",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "lib_ip_getclientip",
+      "community": 37,
+      "norm_label": "getclientip"
+    },
+    {
+      "label": "Account",
+      "file_type": "code",
+      "source_file": "src/pages/Account.jsx",
+      "source_location": "L11",
+      "_origin": "ast",
+      "id": "pages_account_account",
+      "community": 38,
+      "norm_label": "account"
+    },
+    {
+      "label": "Catalog",
+      "file_type": "code",
+      "source_file": "src/pages/Catalog.jsx",
+      "source_location": "L10",
+      "_origin": "ast",
+      "id": "pages_catalog_catalog",
+      "community": 39,
+      "norm_label": "catalog"
+    },
+    {
+      "label": "EmailVerified",
+      "file_type": "code",
+      "source_file": "src/pages/EmailVerified.jsx",
+      "source_location": "L7",
+      "_origin": "ast",
+      "id": "pages_emailverified_emailverified",
+      "community": 40,
+      "norm_label": "emailverified"
+    },
+    {
+      "label": "Favorites",
+      "file_type": "code",
+      "source_file": "src/pages/Favorites.jsx",
+      "source_location": "L9",
+      "_origin": "ast",
+      "id": "pages_favorites_favorites",
+      "community": 41,
+      "norm_label": "favorites"
+    },
+    {
+      "label": "Home",
+      "file_type": "code",
+      "source_file": "src/pages/Home.jsx",
+      "source_location": "L10",
+      "_origin": "ast",
+      "id": "pages_home_home",
+      "community": 42,
+      "norm_label": "home"
+    },
+    {
+      "label": "Orders",
+      "file_type": "code",
+      "source_file": "src/pages/Orders.jsx",
+      "source_location": "L8",
+      "_origin": "ast",
+      "id": "pages_orders_orders",
+      "community": 43,
+      "norm_label": "orders"
+    },
+    {
+      "label": "PaymentFail",
+      "file_type": "code",
+      "source_file": "src/pages/PaymentFail.jsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "pages_paymentfail_paymentfail",
+      "community": 44,
+      "norm_label": "paymentfail"
+    },
+    {
+      "label": "PaymentSuccess",
+      "file_type": "code",
+      "source_file": "src/pages/PaymentSuccess.jsx",
+      "source_location": "L8",
+      "_origin": "ast",
+      "id": "pages_paymentsuccess_paymentsuccess",
+      "community": 45,
+      "norm_label": "paymentsuccess"
+    },
+    {
+      "label": "Product",
+      "file_type": "code",
+      "source_file": "src/pages/Product.jsx",
+      "source_location": "L8",
+      "_origin": "ast",
+      "id": "pages_product_product",
+      "community": 46,
+      "norm_label": "product"
+    },
+    {
+      "label": "Support",
+      "file_type": "code",
+      "source_file": "src/pages/Support.jsx",
+      "source_location": "L3",
+      "_origin": "ast",
+      "id": "pages_support_support",
+      "community": 47,
+      "norm_label": "support"
+    },
+    {
+      "label": "TrackOrder",
+      "file_type": "code",
+      "source_file": "src/pages/TrackOrder.jsx",
+      "source_location": "L10",
+      "_origin": "ast",
+      "id": "pages_trackorder_trackorder",
+      "community": 48,
+      "norm_label": "trackorder"
+    },
+    {
+      "label": "UserAuth",
+      "file_type": "code",
+      "source_file": "src/pages/UserAuth.jsx",
+      "source_location": "L9",
+      "_origin": "ast",
+      "id": "pages_userauth_userauth",
+      "community": 49,
+      "norm_label": "userauth"
+    },
+    {
+      "label": "cn",
+      "file_type": "code",
+      "source_file": "src/pages/admin/AdminLayout.jsx",
+      "source_location": "L7",
+      "_origin": "ast",
+      "id": "admin_adminlayout_cn",
+      "community": 1,
+      "norm_label": "cn"
+    },
+    {
+      "label": "AdminLayout",
+      "file_type": "code",
+      "source_file": "src/pages/admin/AdminLayout.jsx",
+      "source_location": "L11",
+      "_origin": "ast",
+      "id": "admin_adminlayout_adminlayout",
+      "community": 0,
+      "norm_label": "adminlayout"
+    },
+    {
+      "label": "Auth",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Auth.jsx",
+      "source_location": "L6",
+      "_origin": "ast",
+      "id": "admin_auth_auth",
+      "community": 2,
+      "norm_label": "auth"
+    },
+    {
+      "label": "BlockedIPs",
+      "file_type": "code",
+      "source_file": "src/pages/admin/BlockedIPs.jsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "admin_blockedips_blockedips",
+      "community": 3,
+      "norm_label": "blockedips"
+    },
+    {
+      "label": "Coupons",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Coupons.jsx",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "admin_coupons_coupons",
+      "community": 4,
+      "norm_label": "coupons"
+    },
+    {
+      "label": "Dashboard",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Dashboard.jsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "admin_dashboard_dashboard",
+      "community": 5,
+      "norm_label": "dashboard"
+    },
+    {
+      "label": "LoginLogs",
+      "file_type": "code",
+      "source_file": "src/pages/admin/LoginLogs.jsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "admin_loginlogs_loginlogs",
+      "community": 6,
+      "norm_label": "loginlogs"
+    },
+    {
+      "label": "ManageBanners",
+      "file_type": "code",
+      "source_file": "src/pages/admin/ManageBanners.jsx",
+      "source_location": "L6",
+      "_origin": "ast",
+      "id": "admin_managebanners_managebanners",
+      "community": 7,
+      "norm_label": "managebanners"
+    },
+    {
+      "label": "ManageContent",
+      "file_type": "code",
+      "source_file": "src/pages/admin/ManageContent.jsx",
+      "source_location": "L47",
+      "_origin": "ast",
+      "id": "admin_managecontent_managecontent",
+      "community": 8,
+      "norm_label": "managecontent"
+    },
+    {
+      "label": "ManageReviews",
+      "file_type": "code",
+      "source_file": "src/pages/admin/ManageReviews.jsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "admin_managereviews_managereviews",
+      "community": 9,
+      "norm_label": "managereviews"
+    },
+    {
+      "label": "Products",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Products.jsx",
+      "source_location": "L380",
+      "_origin": "ast",
+      "id": "admin_products_products",
+      "community": 10,
+      "norm_label": "products"
+    },
+    {
+      "label": "ReviewsAdmin",
+      "file_type": "code",
+      "source_file": "src/pages/admin/ReviewsAdmin.jsx",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "admin_reviewsadmin_reviewsadmin",
+      "community": 11,
+      "norm_label": "reviewsadmin"
+    },
+    {
+      "label": "Settings",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Settings.jsx",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "admin_settings_settings",
+      "community": 12,
+      "norm_label": "settings"
+    },
+    {
+      "label": "ShippingAdmin",
+      "file_type": "code",
+      "source_file": "src/pages/admin/ShippingAdmin.jsx",
+      "source_location": "L4",
+      "_origin": "ast",
+      "id": "admin_shippingadmin_shippingadmin",
+      "community": 13,
+      "norm_label": "shippingadmin"
+    },
+    {
+      "label": "SystemHealth",
+      "file_type": "code",
+      "source_file": "src/pages/admin/SystemHealth.jsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "admin_systemhealth_systemhealth",
+      "community": 14,
+      "norm_label": "systemhealth"
+    },
+    {
+      "label": "Users",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Users.jsx",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "admin_users_users",
+      "community": 15,
+      "norm_label": "users"
+    },
+    {
+      "label": "WARequests",
+      "file_type": "code",
+      "source_file": "src/pages/admin/WARequests.jsx",
+      "source_location": "L28",
+      "_origin": "ast",
+      "id": "admin_warequests_warequests",
+      "community": 16,
+      "norm_label": "warequests"
+    },
+    {
+      "label": "saveRequestAndOpenWhatsApp",
+      "file_type": "code",
+      "source_file": "src/utils/whatsapp.js",
+      "source_location": "L5",
+      "_origin": "ast",
+      "id": "utils_whatsapp_saverequestandopenwhatsapp",
+      "community": 50,
+      "norm_label": "saverequestandopenwhatsapp"
+    }
+  ],
+  "links": [],
+  "hyperedges": [],
+  "built_at_commit": "a8d945143e58e5919119a48fe3b21d8c80592473"
+}

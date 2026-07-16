@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EG-PARTS - Community &amp; Contact</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&amp;family=Manrope:wght@400;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-bright": "#343a42",
+                        "on-surface": "#dde3ee",
+                        "surface-container-lowest": "#090f16",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#1a2028",
+                        "surface-container-high": "#242a33",
+                        "tertiary-fixed": "#ffdbce",
+                        "inverse-on-surface": "#2b3139",
+                        "outline-variant": "#554434",
+                        "on-error": "#690005",
+                        "error-container": "#93000a",
+                        "secondary-fixed": "#d7e3f7",
+                        "primary-container": "#ff9900",
+                        "secondary": "#bbc7db",
+                        "surface-container-low": "#161c24",
+                        "inverse-primary": "#8a5100",
+                        "on-secondary-fixed-variant": "#3c4858",
+                        "on-primary-fixed": "#2c1600",
+                        "on-primary": "#4a2800",
+                        "on-tertiary-fixed-variant": "#7f2b00",
+                        "surface-dim": "#0e141c",
+                        "outline": "#a38d7a",
+                        "background": "#0e141c",
+                        "primary": "#ffc082",
+                        "error": "#ffb4ab",
+                        "on-primary-container": "#653a00",
+                        "on-background": "#dde3ee",
+                        "on-primary-fixed-variant": "#693c00",
+                        "on-secondary-container": "#aab6c9",
+                        "surface-variant": "#2f353e",
+                        "on-surface-variant": "#dbc2ad",
+                        "tertiary": "#ffbea6",
+                        "on-secondary": "#253140",
+                        "secondary-fixed-dim": "#bbc7db",
+                        "inverse-surface": "#dde3ee",
+                        "surface-tint": "#ffb86f",
+                        "surface-container-highest": "#2f353e",
+                        "on-tertiary": "#5a1c00",
+                        "surface": "#0e141c",
+                        "tertiary-container": "#ff966c",
+                        "primary-fixed": "#ffdcbd",
+                        "on-tertiary-container": "#7b2900",
+                        "tertiary-fixed-dim": "#ffb599",
+                        "on-tertiary-fixed": "#370e00",
+                        "secondary-container": "#3c4858",
+                        "primary-fixed-dim": "#ffb86f",
+                        "on-secondary-fixed": "#101c2b"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "md": "24px",
+                        "gutter": "24px",
+                        "margin": "32px",
+                        "xs": "4px",
+                        "base": "8px",
+                        "lg": "48px",
+                        "xl": "80px",
+                        "sm": "12px"
+                    },
+                    fontFamily: {
+                        "headline-xl": ["Space Grotesk"],
+                        "body-md": ["Manrope"],
+                        "headline-md": ["Space Grotesk"],
+                        "label-sm": ["Manrope"],
+                        "body-lg": ["Manrope"],
+                        "headline-lg": ["Space Grotesk"]
+                    },
+                    fontSize: {
+                        "headline-xl": ["48px", { lineHeight: "1.1", letterSpacing: "-0.02em", fontWeight: "700" }],
+                        "body-md": ["16px", { lineHeight: "1.6", fontWeight: "400" }],
+                        "headline-md": ["24px", { lineHeight: "1.3", fontWeight: "500" }],
+                        "label-sm": ["12px", { lineHeight: "1.0", letterSpacing: "0.05em", fontWeight: "600" }],
+                        "body-lg": ["18px", { lineHeight: "1.6", fontWeight: "400" }],
+                        "headline-lg": ["32px", { lineHeight: "1.2", fontWeight: "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .glass-panel {
+            background: rgba(35, 47, 62, 0.7);
+            backdrop-filter: blur(16px);
+            border: 1px solid linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%);
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 30px rgba(255, 153, 0, 0.3);
+        }
+        .neon-glow-green {
+            box-shadow: 0 0 30px rgba(34, 197, 94, 0.3);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body-md min-h-screen flex flex-col pb-[90px] md:pb-0 pt-[80px]">
+<!-- TopAppBar -->
+<header class="bg-[#131921]/80 backdrop-blur-xl font-['Space_Grotesk'] tracking-tight docked full-width top-0 border-b border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.5)] fixed top-0 w-full z-[100] flex justify-between items-center px-6 py-4">
+<button class="text-gray-400 hover:text-white transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined text-[28px]" data-icon="menu">menu</span>
+</button>
+<h1 class="text-2xl font-black text-white bg-clip-text bg-gradient-to-r from-orange-400 to-amber-600">EG-PARTS</h1>
+<button class="text-gray-400 hover:text-white transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined text-[28px]" data-icon="search">search</span>
+</button>
+</header>
+<main class="flex-grow container mx-auto px-gutter max-w-[1200px] flex flex-col gap-lg py-md">
+<!-- WhatsApp Join Section -->
+<section class="glass-panel rounded-xl p-margin flex flex-col md:flex-row items-center gap-margin relative overflow-hidden neon-glow-green">
+<div class="absolute inset-0 bg-gradient-to-br from-green-500/10 to-transparent pointer-events-none"></div>
+<div class="flex-1 z-10 flex flex-col gap-md">
+<h2 class="font-headline-lg text-headline-lg text-on-background">Join the Elite Community</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Get instant access to technical support, exclusive boutique offers, and real-time stock alerts for premium appliance parts.</p>
+<ul class="flex flex-col gap-sm">
+<li class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-green-400" data-icon="check_circle">check_circle</span>
+<span class="font-body-md text-body-md">Priority Technical Support</span>
+</li>
+<li class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-green-400" data-icon="check_circle">check_circle</span>
+<span class="font-body-md text-body-md">Flash Sales &amp; Exclusive Discounts</span>
+</li>
+<li class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-green-400" data-icon="check_circle">check_circle</span>
+<span class="font-body-md text-body-md">Direct Access to Sourcing Experts</span>
+</li>
+</ul>
+<button class="mt-sm bg-[#25D366] hover:bg-[#1DA851] text-white font-headline-md text-headline-md px-lg py-md rounded-lg flex items-center justify-center gap-sm transition-all duration-300 shadow-[0_0_30px_rgba(37,211,102,0.4)] w-full md:w-auto">
+<span class="material-symbols-outlined" data-icon="forum">forum</span>
+                    Join WhatsApp Group
+                </button>
+</div>
+<div class="w-full md:w-1/3 z-10 flex justify-center">
+<div class="w-[200px] h-[200px] bg-surface-container rounded-full flex items-center justify-center border-2 border-green-500/30 neon-glow-green relative">
+<div class="absolute inset-0 bg-[#25D366] opacity-10 rounded-full animate-pulse"></div>
+<span class="material-symbols-outlined text-[80px] text-[#25D366]" data-icon="group">group</span>
+</div>
+</div>
+</section>
+<!-- Bento Grid: Contact & FAQ -->
+<section class="grid grid-cols-1 md:grid-cols-2 gap-md">
+<!-- Contact Form -->
+<div class="glass-panel rounded-xl p-md flex flex-col gap-md border border-white/5 shadow-lg">
+<h3 class="font-headline-md text-headline-md text-on-background flex items-center gap-sm">
+<span class="material-symbols-outlined text-primary" data-icon="send">send</span>
+                    Direct Inquiry
+                </h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Need a specific part? Send details directly to our WhatsApp sourcing team.</p>
+<form class="flex flex-col gap-sm">
+<div class="flex flex-col gap-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant">Appliance Type &amp; Brand</label>
+<input class="bg-surface-dim border border-outline-variant rounded-md px-sm py-sm text-on-background focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors" placeholder="e.g., Samsung Refrigerator" type="text"/>
+</div>
+<div class="flex flex-col gap-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant">Model Number</label>
+<input class="bg-surface-dim border border-outline-variant rounded-md px-sm py-sm text-on-background focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors" placeholder="Enter model number" type="text"/>
+</div>
+<div class="flex flex-col gap-xs">
+<label class="font-label-sm text-label-sm text-on-surface-variant">Part Description</label>
+<textarea class="bg-surface-dim border border-outline-variant rounded-md px-sm py-sm text-on-background focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-colors resize-none" placeholder="Describe the part you need..." rows="3"></textarea>
+</div>
+<button class="mt-sm bg-primary-container text-on-primary-container font-headline-md text-headline-md px-md py-sm rounded-md flex items-center justify-center gap-sm hover:bg-primary transition-colors neon-glow-primary" type="button">
+                        Send to WhatsApp
+                        <span class="material-symbols-outlined" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</form>
+</div>
+<!-- FAQ -->
+<div class="glass-panel rounded-xl p-md flex flex-col gap-md border border-white/5 shadow-lg">
+<h3 class="font-headline-md text-headline-md text-on-background flex items-center gap-sm">
+<span class="material-symbols-outlined text-tertiary" data-icon="help">help</span>
+                    Technical FAQ
+                </h3>
+<div class="flex flex-col gap-sm divide-y divide-white/5">
+<div class="py-sm">
+<h4 class="font-headline-md text-headline-md text-on-surface text-[18px] mb-xs">Are your parts original?</h4>
+<p class="font-body-md text-body-md text-on-surface-variant text-sm">We source strictly OEM and high-quality aftermarket components, marked clearly for transparency.</p>
+</div>
+<div class="py-sm">
+<h4 class="font-headline-md text-headline-md text-on-surface text-[18px] mb-xs">How fast is shipping?</h4>
+<p class="font-body-md text-body-md text-on-surface-variant text-sm">In-stock items ship within 24 hours. Specialized sourcing may take 3-5 business days.</p>
+</div>
+<div class="py-sm">
+<h4 class="font-headline-md text-headline-md text-on-surface text-[18px] mb-xs">Do you offer warranties?</h4>
+<p class="font-body-md text-body-md text-on-surface-variant text-sm">Yes, all electronic boards and compressors come with a 1- month warranty against defects.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Testimonials -->
+<section class="flex flex-col gap-md">
+<h3 class="font-headline-lg text-headline-lg text-on-background text-center">Boutique Member Experiences</h3>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-md">
+<div class="glass-panel rounded-lg p-md border border-white/5 flex flex-col gap-sm">
+<div class="flex items-center gap-xs text-primary">
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface italic">"Found a rare inverter board for an LG fridge instantly. The WhatsApp support verified the model number before shipping. Premium service."</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest mt-auto pt-sm border-t border-white/5">- Ahmed T., Technician</p>
+</div>
+<div class="glass-panel rounded-lg p-md border border-white/5 flex flex-col gap-sm">
+<div class="flex items-center gap-xs text-primary">
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface italic">"The group is fantastic for keeping up with new stock arrivals. Professional community."</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest mt-auto pt-sm border-t border-white/5">- Kareem M., Service Center</p>
+</div>
+<div class="glass-panel rounded-lg p-md border border-white/5 flex flex-col gap-sm">
+<div class="flex items-center gap-xs text-primary">
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star" data-weight="fill">star</span>
+<span class="material-symbols-outlined" data-icon="star_half" data-weight="fill">star_half</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface italic">"Sleek interface, fast replies. Finally a modern approach to appliance spare parts in Egypt."</p>
+<p class="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-widest mt-auto pt-sm border-t border-white/5">- Sarah R., Homeowner</p>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="bg-[#131921]/90 backdrop-blur-2xl font-['Space_Grotesk'] text-[11px] uppercase tracking-widest font-bold fixed bottom-0 w-full rounded-t-2xl border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.8)] fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 pb-6 md:hidden">
+<button class="flex flex-col items-center justify-center text-gray-500 hover:text-orange-300 transition-colors">
+<span class="material-symbols-outlined mb-1" data-icon="home">home</span>
+            Home
+        </button>
+<button class="flex flex-col items-center justify-center text-gray-500 hover:text-orange-300 transition-colors">
+<span class="material-symbols-outlined mb-1" data-icon="settings_input_component">settings_input_component</span>
+            Catalog
+        </button>
+<button class="flex flex-col items-center justify-center text-gray-500 hover:text-orange-300 transition-colors">
+<span class="material-symbols-outlined mb-1" data-icon="shopping_cart">shopping_cart</span>
+            Cart
+        </button>
+<button class="flex flex-col items-center justify-center text-orange-500 bg-orange-500/10 rounded-xl px-4 py-1 shadow-[0_0_15px_rgba(255,153,0,0.3)] hover:text-orange-300 transition-colors scale-110 transition-transform">
+<span class="material-symbols-outlined mb-1" data-icon="chat">chat</span>
+            Support
+        </button>
+</nav>
+</body></html>

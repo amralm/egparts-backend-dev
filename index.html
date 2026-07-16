@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EG-PARTS | سوق قطع غيار الأجهزة المنزلية</title>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=Manrope:wght@200..800&family=Tajawal:wght@300;400;500;700;800;900&display=swap" rel="stylesheet" />
+    <script>
+      (function() {
+        var path = window.location.pathname;
+        if (path.startsWith('/admin')) {
+          var theme = localStorage.getItem('admin_theme') || 'system';
+          var isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.classList.remove('light');
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.classList.add('light');
+          }
+          document.documentElement.classList.add('admin-panel');
+        } else {
+          document.documentElement.classList.add('dark');
+          document.documentElement.classList.remove('admin-panel');
+        }
+      })();
+    </script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  </head>
+  <body class="bg-background text-on-background min-h-screen selection:bg-primary-container selection:text-on-primary-container">
+    <div id="root">
+      <div id="initial-loader" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--background, #0a0a0a)">
+        <div style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.1);border-top-color:var(--primary, #dc2626);border-radius:50%;animation:spin .6s linear infinite"></div>
+      </div>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+    </div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

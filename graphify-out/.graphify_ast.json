@@ -1,0 +1,1186 @@
+{
+  "nodes": [
+    {
+      "id": "components_bannedscreen_bannedscreen",
+      "label": "BannedScreen",
+      "file_type": "code",
+      "source_file": "src/components/BannedScreen.jsx",
+      "source_location": "L4",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_cartdrawer_cartdrawer",
+      "label": "CartDrawer",
+      "file_type": "code",
+      "source_file": "src/components/CartDrawer.jsx",
+      "source_location": "L12",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_confirmmodal_confirmmodal",
+      "label": "ConfirmModal",
+      "file_type": "code",
+      "source_file": "src/components/ConfirmModal.jsx",
+      "source_location": "L3",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_ipblockguard_ipblockguard",
+      "label": "IPBlockGuard",
+      "file_type": "code",
+      "source_file": "src/components/IPBlockGuard.jsx",
+      "source_location": "L4",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_imagecropper_imagecropper",
+      "label": "ImageCropper",
+      "file_type": "code",
+      "source_file": "src/components/ImageCropper.jsx",
+      "source_location": "L3",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_layout_cn",
+      "label": "cn",
+      "file_type": "code",
+      "source_file": "src/components/Layout.jsx",
+      "source_location": "L14",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_layout_layout",
+      "label": "Layout",
+      "file_type": "code",
+      "source_file": "src/components/Layout.jsx",
+      "source_location": "L18",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_livesearch_livesearch",
+      "label": "LiveSearch",
+      "file_type": "code",
+      "source_file": "src/components/LiveSearch.jsx",
+      "source_location": "L5",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_ordermodal_ordermodal",
+      "label": "OrderModal",
+      "file_type": "code",
+      "source_file": "src/components/OrderModal.jsx",
+      "source_location": "L4",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_productskeleton_productskeleton",
+      "label": "ProductSkeleton",
+      "file_type": "code",
+      "source_file": "src/components/ProductSkeleton.jsx",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_protectedroute_protectedroute",
+      "label": "ProtectedRoute",
+      "file_type": "code",
+      "source_file": "src/components/ProtectedRoute.jsx",
+      "source_location": "L6",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_socialprooftoast_socialprooftoast",
+      "label": "SocialProofToast",
+      "file_type": "code",
+      "source_file": "src/components/SocialProofToast.jsx",
+      "source_location": "L53",
+      "_origin": "ast"
+    },
+    {
+      "id": "components_toast_toast",
+      "label": "Toast",
+      "file_type": "code",
+      "source_file": "src/components/Toast.jsx",
+      "source_location": "L3",
+      "_origin": "ast"
+    },
+    {
+      "id": "context_cartcontext_cartprovider",
+      "label": "CartProvider",
+      "file_type": "code",
+      "source_file": "src/context/CartContext.jsx",
+      "source_location": "L5",
+      "_origin": "ast"
+    },
+    {
+      "id": "context_cartcontext_usecart",
+      "label": "useCart",
+      "file_type": "code",
+      "source_file": "src/context/CartContext.jsx",
+      "source_location": "L89",
+      "_origin": "ast"
+    },
+    {
+      "id": "context_wishlistcontext_wishlistprovider",
+      "label": "WishlistProvider",
+      "file_type": "code",
+      "source_file": "src/context/WishlistContext.jsx",
+      "source_location": "L7",
+      "_origin": "ast"
+    },
+    {
+      "id": "context_wishlistcontext_usewishlist",
+      "label": "useWishlist",
+      "file_type": "code",
+      "source_file": "src/context/WishlistContext.jsx",
+      "source_location": "L61",
+      "_origin": "ast"
+    },
+    {
+      "id": "hooks_useauth_useauth",
+      "label": "useAuth",
+      "file_type": "code",
+      "source_file": "src/hooks/useAuth.js",
+      "source_location": "L5",
+      "_origin": "ast"
+    },
+    {
+      "id": "hooks_useseo_useseo",
+      "label": "useSEO",
+      "file_type": "code",
+      "source_file": "src/hooks/useSEO.js",
+      "source_location": "L3",
+      "_origin": "ast"
+    },
+    {
+      "id": "lib_fetchwithretry_fetchwithretry",
+      "label": "fetchWithRetry",
+      "file_type": "code",
+      "source_file": "src/lib/fetchWithRetry.js",
+      "source_location": "L3",
+      "_origin": "ast"
+    },
+    {
+      "id": "lib_ip_getclientip",
+      "label": "getClientIP",
+      "file_type": "code",
+      "source_file": "src/lib/ip.js",
+      "source_location": "L1",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_account_account",
+      "label": "Account",
+      "file_type": "code",
+      "source_file": "src/pages/Account.jsx",
+      "source_location": "L11",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_catalog_catalog",
+      "label": "Catalog",
+      "file_type": "code",
+      "source_file": "src/pages/Catalog.jsx",
+      "source_location": "L10",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_emailverified_emailverified",
+      "label": "EmailVerified",
+      "file_type": "code",
+      "source_file": "src/pages/EmailVerified.jsx",
+      "source_location": "L7",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_favorites_favorites",
+      "label": "Favorites",
+      "file_type": "code",
+      "source_file": "src/pages/Favorites.jsx",
+      "source_location": "L9",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_home_home",
+      "label": "Home",
+      "file_type": "code",
+      "source_file": "src/pages/Home.jsx",
+      "source_location": "L10",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_orders_orders",
+      "label": "Orders",
+      "file_type": "code",
+      "source_file": "src/pages/Orders.jsx",
+      "source_location": "L8",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_paymentfail_paymentfail",
+      "label": "PaymentFail",
+      "file_type": "code",
+      "source_file": "src/pages/PaymentFail.jsx",
+      "source_location": "L5",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_paymentsuccess_paymentsuccess",
+      "label": "PaymentSuccess",
+      "file_type": "code",
+      "source_file": "src/pages/PaymentSuccess.jsx",
+      "source_location": "L8",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_product_product",
+      "label": "Product",
+      "file_type": "code",
+      "source_file": "src/pages/Product.jsx",
+      "source_location": "L8",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_support_support",
+      "label": "Support",
+      "file_type": "code",
+      "source_file": "src/pages/Support.jsx",
+      "source_location": "L3",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_trackorder_trackorder",
+      "label": "TrackOrder",
+      "file_type": "code",
+      "source_file": "src/pages/TrackOrder.jsx",
+      "source_location": "L10",
+      "_origin": "ast"
+    },
+    {
+      "id": "pages_userauth_userauth",
+      "label": "UserAuth",
+      "file_type": "code",
+      "source_file": "src/pages/UserAuth.jsx",
+      "source_location": "L9",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_adminlayout_cn",
+      "label": "cn",
+      "file_type": "code",
+      "source_file": "src/pages/admin/AdminLayout.jsx",
+      "source_location": "L7",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_adminlayout_adminlayout",
+      "label": "AdminLayout",
+      "file_type": "code",
+      "source_file": "src/pages/admin/AdminLayout.jsx",
+      "source_location": "L11",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_auth_auth",
+      "label": "Auth",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Auth.jsx",
+      "source_location": "L6",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_blockedips_blockedips",
+      "label": "BlockedIPs",
+      "file_type": "code",
+      "source_file": "src/pages/admin/BlockedIPs.jsx",
+      "source_location": "L5",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_coupons_coupons",
+      "label": "Coupons",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Coupons.jsx",
+      "source_location": "L4",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_dashboard_dashboard",
+      "label": "Dashboard",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Dashboard.jsx",
+      "source_location": "L5",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_loginlogs_loginlogs",
+      "label": "LoginLogs",
+      "file_type": "code",
+      "source_file": "src/pages/admin/LoginLogs.jsx",
+      "source_location": "L5",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_managebanners_managebanners",
+      "label": "ManageBanners",
+      "file_type": "code",
+      "source_file": "src/pages/admin/ManageBanners.jsx",
+      "source_location": "L6",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_managecontent_managecontent",
+      "label": "ManageContent",
+      "file_type": "code",
+      "source_file": "src/pages/admin/ManageContent.jsx",
+      "source_location": "L47",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_managereviews_managereviews",
+      "label": "ManageReviews",
+      "file_type": "code",
+      "source_file": "src/pages/admin/ManageReviews.jsx",
+      "source_location": "L5",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_products_products",
+      "label": "Products",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Products.jsx",
+      "source_location": "L380",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_reviewsadmin_reviewsadmin",
+      "label": "ReviewsAdmin",
+      "file_type": "code",
+      "source_file": "src/pages/admin/ReviewsAdmin.jsx",
+      "source_location": "L4",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_settings_settings",
+      "label": "Settings",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Settings.jsx",
+      "source_location": "L4",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_shippingadmin_shippingadmin",
+      "label": "ShippingAdmin",
+      "file_type": "code",
+      "source_file": "src/pages/admin/ShippingAdmin.jsx",
+      "source_location": "L4",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_systemhealth_systemhealth",
+      "label": "SystemHealth",
+      "file_type": "code",
+      "source_file": "src/pages/admin/SystemHealth.jsx",
+      "source_location": "L5",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_users_users",
+      "label": "Users",
+      "file_type": "code",
+      "source_file": "src/pages/admin/Users.jsx",
+      "source_location": "L5",
+      "_origin": "ast"
+    },
+    {
+      "id": "admin_warequests_warequests",
+      "label": "WARequests",
+      "file_type": "code",
+      "source_file": "src/pages/admin/WARequests.jsx",
+      "source_location": "L28",
+      "_origin": "ast"
+    },
+    {
+      "id": "utils_whatsapp_saverequestandopenwhatsapp",
+      "label": "saveRequestAndOpenWhatsApp",
+      "file_type": "code",
+      "source_file": "src/utils/whatsapp.js",
+      "source_location": "L5",
+      "_origin": "ast"
+    }
+  ],
+  "edges": [
+    {
+      "source": "src_app",
+      "target": "pages_home_home",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "pages_catalog_catalog",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "pages_product_product",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "pages_support_support",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "pages_orders_orders",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "components_layout_layout",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_adminlayout_adminlayout",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_dashboard_dashboard",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_products_products",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L11",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_warequests_warequests",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_auth_auth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "pages_userauth_userauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "components_protectedroute_protectedroute",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L15",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "pages_favorites_favorites",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "pages_emailverified_emailverified",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_coupons_coupons",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L20",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_settings_settings",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_shippingadmin_shippingadmin",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_managereviews_managereviews",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L23",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_managebanners_managebanners",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L24",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_users_users",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L25",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_loginlogs_loginlogs",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L26",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_blockedips_blockedips",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_managecontent_managecontent",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "admin_systemhealth_systemhealth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "context_cartcontext_cartprovider",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L31",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "context_wishlistcontext_wishlistprovider",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "pages_account_account",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L34",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "pages_paymentsuccess_paymentsuccess",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L35",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "pages_paymentfail_paymentfail",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "pages_trackorder_trackorder",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L37",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "hooks_useauth_useauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L40",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "components_bannedscreen_bannedscreen",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app",
+      "target": "components_ipblockguard_ipblockguard",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "components_cartdrawer",
+      "target": "context_cartcontext_usecart",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/components/CartDrawer.jsx",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "components_cartdrawer",
+      "target": "hooks_useauth_useauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/components/CartDrawer.jsx",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "components_cartdrawer",
+      "target": "lib_fetchwithretry_fetchwithretry",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/components/CartDrawer.jsx",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "components_layout",
+      "target": "hooks_useauth_useauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/components/Layout.jsx",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "components_layout",
+      "target": "components_cartdrawer_cartdrawer",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/components/Layout.jsx",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "components_layout",
+      "target": "context_cartcontext_usecart",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/components/Layout.jsx",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "components_layout",
+      "target": "components_livesearch_livesearch",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/components/Layout.jsx",
+      "source_location": "L10",
+      "weight": 1.0
+    },
+    {
+      "source": "components_layout",
+      "target": "components_socialprooftoast_socialprooftoast",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/components/Layout.jsx",
+      "source_location": "L11",
+      "weight": 1.0
+    },
+    {
+      "source": "components_ordermodal",
+      "target": "hooks_useauth_useauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/components/OrderModal.jsx",
+      "source_location": "L2",
+      "weight": 1.0
+    },
+    {
+      "source": "components_protectedroute",
+      "target": "hooks_useauth_useauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/components/ProtectedRoute.jsx",
+      "source_location": "L2",
+      "weight": 1.0
+    },
+    {
+      "source": "context_toastcontext",
+      "target": "components_toast_toast",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/context/ToastContext.jsx",
+      "source_location": "L2",
+      "weight": 1.0
+    },
+    {
+      "source": "context_wishlistcontext",
+      "target": "hooks_useauth_useauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/context/WishlistContext.jsx",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "hooks_useauth",
+      "target": "lib_ip_getclientip",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/hooks/useAuth.js",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_account",
+      "target": "hooks_useauth_useauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Account.jsx",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_account",
+      "target": "hooks_useseo_useseo",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Account.jsx",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_account",
+      "target": "components_confirmmodal_confirmmodal",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Account.jsx",
+      "source_location": "L8",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_account",
+      "target": "lib_fetchwithretry_fetchwithretry",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Account.jsx",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_catalog",
+      "target": "context_cartcontext_usecart",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Catalog.jsx",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_catalog",
+      "target": "context_wishlistcontext_usewishlist",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Catalog.jsx",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_catalog",
+      "target": "hooks_useseo_useseo",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Catalog.jsx",
+      "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_catalog",
+      "target": "components_productskeleton_productskeleton",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Catalog.jsx",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_emailverified",
+      "target": "hooks_useseo_useseo",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/EmailVerified.jsx",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_favorites",
+      "target": "context_wishlistcontext_usewishlist",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Favorites.jsx",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_favorites",
+      "target": "context_cartcontext_usecart",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Favorites.jsx",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_favorites",
+      "target": "hooks_useauth_useauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Favorites.jsx",
+      "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_favorites",
+      "target": "components_productskeleton_productskeleton",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Favorites.jsx",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_home",
+      "target": "context_cartcontext_usecart",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Home.jsx",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_home",
+      "target": "context_wishlistcontext_usewishlist",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Home.jsx",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_home",
+      "target": "hooks_useseo_useseo",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Home.jsx",
+      "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_home",
+      "target": "components_productskeleton_productskeleton",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Home.jsx",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_orders",
+      "target": "utils_whatsapp_saverequestandopenwhatsapp",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Orders.jsx",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_orders",
+      "target": "hooks_useauth_useauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Orders.jsx",
+      "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_paymentfail",
+      "target": "hooks_useseo_useseo",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/PaymentFail.jsx",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_paymentsuccess",
+      "target": "hooks_useseo_useseo",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/PaymentSuccess.jsx",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_product",
+      "target": "context_cartcontext_usecart",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Product.jsx",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_product",
+      "target": "hooks_useseo_useseo",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Product.jsx",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_product",
+      "target": "hooks_useauth_useauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/Product.jsx",
+      "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_trackorder",
+      "target": "hooks_useseo_useseo",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/TrackOrder.jsx",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_trackorder",
+      "target": "hooks_useauth_useauth",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/TrackOrder.jsx",
+      "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "pages_userauth",
+      "target": "lib_fetchwithretry_fetchwithretry",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/UserAuth.jsx",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "admin_managebanners",
+      "target": "components_confirmmodal_confirmmodal",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/admin/ManageBanners.jsx",
+      "source_location": "L4",
+      "weight": 1.0
+    },
+    {
+      "source": "admin_products",
+      "target": "components_imagecropper_imagecropper",
+      "relation": "imports",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/pages/admin/Products.jsx",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "src_app_bannedguard",
+      "target": "hooks_useauth_useauth",
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "src/App.jsx",
+      "source_location": "L47",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}
