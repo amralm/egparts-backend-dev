@@ -385,6 +385,10 @@ app.post('/api/platform/impersonate/stop', async (req, res) => {
 
 // Platform admin routes (cross-store, must bypass tenantResolver)
 const platformAdminRoutes = require('./routes/platformAdmin');
+// PUBLIC ENDPOINTS — Must be BEFORE platformAdminRoutes (which requires auth)
+// These are already defined above (store-context, validate-admin, etc.)
+// platformAdminRoutes only affects /platform/* paths, so /api/health, /api/store-context etc. are fine
+
 app.use('/api', platformAdminRoutes);
 
 // ✅ Resolve Tenant for all other API endpoints

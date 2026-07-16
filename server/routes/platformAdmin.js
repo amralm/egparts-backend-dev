@@ -20,8 +20,11 @@ async function requireSuperAdmin(req, res, next) {
   }
 }
 
-// ALL platform routes require auth + super admin
-router.use(verifyUser, requireSuperAdmin);
+// Only /platform/* routes require auth + super admin
+router.use('/platform', verifyUser, requireSuperAdmin);
+router.use('/copilot', verifyUser, requireSuperAdmin);
+router.use('/orders/admin', verifyUser, requireSuperAdmin);
+router.use('/health/platform', verifyUser, requireSuperAdmin);
 
 // === BLOCKED IPs ===
 router.get('/platform/blocked-ips', async (req, res) => {
