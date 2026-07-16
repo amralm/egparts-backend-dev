@@ -165,6 +165,85 @@ app.use(cookieParser());
 // ✅ Blocked IP check route (Must bypass IP blocking checks so blocked users can verify their status)
 app.use('/api/blocked', tenantResolver, blockedRoutes);
 
+// ===================================================================
+// Bypass Endpoints — MUST be before tenantResolver
+// ===================================================================
+
+// Store Context — resolves store by subdomain (frontend StoreContext.jsx calls this)
+app.get('/api/store-context', async (req, res) => {
+  try {
+    const subdomain = (req.headers['x-store-subdomain'] || '').toLowerCase().trim();
+    if (!subdomain) {
+      return res.status(400).json({ error: 'Missing X-Store-Subdomain header' });
+    }
+    const { supabase } = require('./services/supabase');
+    const { data: store, error } = await supabase
+      .from('stores')
+      .select('id, name, subdomain, custom_domain, is_active, subscription_expires_at, site_settings, turnstile_site_key, logo_url, favicon_url')
+      .eq('subdomain', subdomain)
+      .single();
+    if (error || !store) {
+      return res.status(404).json({ error: 'Store not found' });
+    }
+    res.json(store);
+  } catch (err) {
+    console.error('Store context error:', err);
+    res.status(500).json({ error: 'Failed to load store context' });
+  }
+});
+
+// Admin Validation — checks admin permissions via Supabase JWT
+app.post('/api/auth/validate-admin', async (req, res) => {
+  try {
+    const { store_id } = req.body || {};
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (!token) {
+      return res.status(401).json({ isAuthorized: false, error: 'No auth token provided' });
+    }
+    const { supabase } = require('./services/supabase');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return res.status(401).json({ isAuthorized: false, error: 'Invalid or expired token' });
+    }
+    // Super admin check (no store_id = platform admin)
+    if (!store_id) {
+      const { data: sa } = await supabase
+        .from('super_admins')
+        .select('user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (sa) {
+        return res.json({ isAuthorized: true, isSuperAdmin: true, role: 'super_admin' });
+      }
+      return res.status(403).json({ isAuthorized: false, error: 'Not a super admin' });
+    }
+    // Store admin check
+    const { data: admin } = await supabase
+      .from('store_admins')
+      .select('user_id, store_id, role')
+      .eq('user_id', user.id)
+      .eq('store_id', store_id)
+      .maybeSingle();
+    if (admin) {
+      return res.json({ isAuthorized: true, isSuperAdmin: false, role: admin.role || 'store_admin' });
+    }
+    // Super admins have access to all stores
+    const { data: isSuper } = await supabase
+      .from('super_admins')
+      .select('user_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (isSuper) {
+      return res.json({ isAuthorized: true, isSuperAdmin: true, role: 'super_admin' });
+    }
+    return res.status(403).json({ isAuthorized: false, error: 'No admin access for this store' });
+  } catch (err) {
+    console.error('Admin validation error:', err);
+    res.status(500).json({ isAuthorized: false, error: 'Validation failed' });
+  }
+});
+
 // ✅ Resolve Tenant for all other API endpoints
 app.use('/api/', tenantResolver);
 
