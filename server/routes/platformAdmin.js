@@ -1,6 +1,27 @@
 const express = require('express');
 const router = express.Router();
 const { supabase } = require('../services/supabase');
+const { verifyUser } = require('../middleware/auth');
+const logger = require('../utils/logger');
+
+// ─── Super Admin Verification ───
+// All /platform/* routes require super_admin access
+async function requireSuperAdmin(req, res, next) {
+  const userId = req.user?.sub;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const { data: sa } = await supabase
+      .from('super_admins').select('user_id').eq('user_id', userId).maybeSingle();
+    if (!sa) return res.status(403).json({ error: 'Super admin access required' });
+    next();
+  } catch (err) {
+    logger.error('Super admin check failed:', err.message);
+    res.status(500).json({ error: 'Authorization check failed' });
+  }
+}
+
+// ALL platform routes require auth + super admin
+router.use(verifyUser, requireSuperAdmin);
 
 // === BLOCKED IPs ===
 router.get('/platform/blocked-ips', async (req, res) => {

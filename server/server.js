@@ -298,7 +298,7 @@ app.post('/api/auth/invitation/accept', async (req, res) => {
     // Add store admin role
     const { error: adminErr } = await supabase
       .from('store_admins')
-      .upsert({ user_id, store_id: invitation.store_id, role: invitation.role || 'store_admin' });
+      .upsert({ user_id, store_id: invitation.store_id });
 
     if (adminErr) {
       return res.status(500).json({ error: 'Failed to add admin role' });

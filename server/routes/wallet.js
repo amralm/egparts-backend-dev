@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const { supabase } = require('../services/supabase');
+const { verifyUser } = require('../middleware/auth');
 
-// Wallet info (public)
+// Wallet info (public — no auth needed, shows enabled/disabled status only)
 router.get('/wallet/info', async (req, res) => {
   try {
     const { data } = await supabase
@@ -48,8 +49,8 @@ router.get('/wallet/settings', async (req, res) => {
   }
 });
 
-// Wallet settings (admin POST)
-router.post('/wallet/settings', async (req, res) => {
+// Wallet settings (admin — requires auth)
+router.post('/wallet/settings', verifyUser, async (req, res) => {
   try {
     const entries = Object.entries(req.body);
     await Promise.all(entries.map(([key, value]) =>
@@ -65,8 +66,8 @@ router.post('/wallet/settings', async (req, res) => {
   }
 });
 
-// Initiate wallet payment
-router.post('/wallet/initiate', async (req, res) => {
+// Initiate wallet payment (requires auth)
+router.post('/wallet/initiate', verifyUser, async (req, res) => {
   try {
     const { order_id } = req.body;
     if (!order_id) return res.status(400).json({ error: 'Missing order_id' });
@@ -103,7 +104,7 @@ router.post('/wallet/initiate', async (req, res) => {
 });
 
 // Submit proof of payment
-router.post('/wallet/submit-proof', async (req, res) => {
+router.post('/wallet/submit-proof', verifyUser, async (req, res) => {
   try {
     const { order_id, image_url, transaction_ref } = req.body;
     if (!order_id || !image_url) return res.status(400).json({ error: 'Missing required fields' });
@@ -130,7 +131,7 @@ router.post('/wallet/submit-proof', async (req, res) => {
 });
 
 // List pending proofs (admin)
-router.get('/wallet/pending-proofs', async (req, res) => {
+router.get('/wallet/pending-proofs', verifyUser, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('payment_transactions')
@@ -148,7 +149,7 @@ router.get('/wallet/pending-proofs', async (req, res) => {
 });
 
 // Approve wallet payment
-router.post('/wallet/approve', async (req, res) => {
+router.post('/wallet/approve', verifyUser, async (req, res) => {
   try {
     const { transaction_id } = req.body;
     if (!transaction_id) return res.status(400).json({ error: 'Missing transaction_id' });
@@ -182,7 +183,7 @@ router.post('/wallet/approve', async (req, res) => {
 });
 
 // Reject wallet payment
-router.post('/wallet/reject', async (req, res) => {
+router.post('/wallet/reject', verifyUser, async (req, res) => {
   try {
     const { transaction_id } = req.body;
     if (!transaction_id) return res.status(400).json({ error: 'Missing transaction_id' });
@@ -201,7 +202,7 @@ router.post('/wallet/reject', async (req, res) => {
 });
 
 // Get proof image for an order
-router.get('/wallet/order-proof/:orderId', async (req, res) => {
+router.get('/wallet/order-proof/:orderId', verifyUser, async (req, res) => {
   try {
     const { data } = await supabase
       .from('payment_transactions')
