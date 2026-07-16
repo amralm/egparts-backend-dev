@@ -227,4 +227,33 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
   }
 });
 
+// ===== STEP 3: Verify Redirect (card payment confirmation after Paymob redirect) =====
+router.get('/verify-redirect', async (req, res) => {
+  try {
+    const { order_id, merchant_order_id } = req.query;
+    if (!order_id) return res.status(400).json({ error: 'Missing order_id' });
+
+    // Query the order from DB
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('id', merchant_order_id || order_id)
+      .single();
+
+    if (error || !order) return res.status(404).json({ error: 'Order not found' });
+
+    // In production, you'd verify with Paymob API here
+    // For now, return the order status
+    res.json({
+      success: true,
+      order_id: order.id,
+      status: order.payment_status || 'pending',
+      redirect_url: `${req.headers.origin || ''}/order/${order.id}`
+    });
+  } catch (err) {
+    console.error('Verify redirect error:', err);
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
 module.exports = router;

@@ -244,6 +244,145 @@ app.post('/api/auth/validate-admin', async (req, res) => {
   }
 });
 
+// Invitation verification (before tenantResolver — no store context needed)
+app.get('/api/auth/invitation/verify', async (req, res) => {
+  try {
+    const { token } = req.query;
+    if (!token) return res.status(400).json({ error: 'Missing token' });
+
+    const { supabase } = require('./services/supabase');
+    const { data: invitation, error } = await supabase
+      .from('store_admin_invitations')
+      .select('*, store:stores(id, name, subdomain)')
+      .eq('token', token)
+      .eq('accepted', false)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    if (error || !invitation) {
+      return res.status(404).json({ error: 'Invalid or expired invitation' });
+    }
+
+    res.json({
+      valid: true,
+      store: invitation.store,
+      email: invitation.email,
+      role: invitation.role
+    });
+  } catch (err) {
+    console.error('Invitation verify error:', err);
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
+
+app.post('/api/auth/invitation/accept', async (req, res) => {
+  try {
+    const { token, user_id } = req.body;
+    if (!token || !user_id) return res.status(400).json({ error: 'Missing token or user_id' });
+
+    const { supabase } = require('./services/supabase');
+
+    // Get invitation
+    const { data: invitation, error: invErr } = await supabase
+      .from('store_admin_invitations')
+      .select('*')
+      .eq('token', token)
+      .eq('accepted', false)
+      .gt('expires_at', new Date().toISOString())
+      .maybeSingle();
+
+    if (invErr || !invitation) {
+      return res.status(404).json({ error: 'Invalid or expired invitation' });
+    }
+
+    // Add store admin role
+    const { error: adminErr } = await supabase
+      .from('store_admins')
+      .upsert({ user_id, store_id: invitation.store_id, role: invitation.role || 'store_admin' });
+
+    if (adminErr) {
+      return res.status(500).json({ error: 'Failed to add admin role' });
+    }
+
+    // Mark invitation as accepted
+    await supabase
+      .from('store_admin_invitations')
+      .update({ accepted: true, accepted_at: new Date().toISOString() })
+      .eq('id', invitation.id);
+
+    res.json({ success: true, store_id: invitation.store_id });
+  } catch (err) {
+    console.error('Invitation accept error:', err);
+    res.status(500).json({ error: 'Acceptance failed' });
+  }
+});
+
+// Impersonation — super admin operates across tenants (before tenantResolver)
+app.post('/api/platform/impersonate/start', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    const { store_id } = req.body;
+
+    if (!token || !store_id) return res.status(400).json({ error: 'Missing token or store_id' });
+
+    const { supabase } = require('./services/supabase');
+    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+    if (authErr || !user) return res.status(401).json({ error: 'Invalid token' });
+
+    // Verify super admin
+    const { data: sa } = await supabase.from('super_admins').select('user_id').eq('user_id', user.id).maybeSingle();
+    if (!sa) return res.status(403).json({ error: 'Not a super admin' });
+
+    // Get store info
+    const { data: store } = await supabase.from('stores').select('id, name, subdomain, custom_domain').eq('id', store_id).maybeSingle();
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+
+    // Create impersonation session
+    const { v4: uuidv4Imp } = require('uuid');
+    const session_token = uuidv4Imp();
+    const { error: logErr } = await supabase.from('impersonation_logs').insert({
+      super_admin_id: user.id,
+      store_id,
+      session_token,
+      action: 'start'
+    });
+
+    res.json({ success: true, session_token, store });
+  } catch (err) {
+    console.error('Impersonate start error:', err);
+    res.status(500).json({ error: 'Failed to start impersonation' });
+  }
+});
+
+app.post('/api/platform/impersonate/stop', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    const { session_token } = req.body;
+
+    if (!token) return res.status(400).json({ error: 'Missing token' });
+
+    const { supabase } = require('./services/supabase');
+    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+    if (authErr || !user) return res.status(401).json({ error: 'Invalid token' });
+
+    // End impersonation session
+    if (session_token) {
+      await supabase.from('impersonation_logs').insert({
+        super_admin_id: user.id,
+        session_token,
+        action: 'end'
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Impersonate stop error:', err);
+    res.status(500).json({ error: 'Failed to stop impersonation' });
+  }
+});
+
 // ✅ Resolve Tenant for all other API endpoints
 app.use('/api/', tenantResolver);
 

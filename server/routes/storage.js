@@ -1,11 +1,19 @@
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+const multer = require('multer');
 const { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const { verifyUser } = require('../middleware/auth');
 const logger = require('../utils/logger');
+
+// Multer config — memory storage for direct R2 streaming
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10 MB max
+});
 
 const s3Client = new S3Client({
   region: 'auto',
@@ -43,6 +51,35 @@ const CATEGORY_CONFIGS = {
   categories: { visibility: 'public', folder: 'categories' },
   invoices: { visibility: 'private', folder: 'invoices' }
 };
+
+// 0. Direct file upload (multipart) — streams to R2
+router.post('/upload', verifyUser, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file provided' });
+    
+    const storeId = req.store?.id;
+    if (!storeId) {
+      return res.status(400).json({ error: 'Store context not resolved' });
+    }
+
+    const folder = (req.body.folder || 'uploads').replace(/[^a-zA-Z0-9_-]/g, '');
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const key = `stores/${storeId}/public/${folder}/${Date.now()}-${uuidv4()}${ext}`;
+    
+    await s3Client.send(new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME,
+      Key: key,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype,
+    }));
+    
+    const publicUrl = `${process.env.R2_PUBLIC_DOMAIN}/${key}`;
+    res.json({ url: publicUrl, key });
+  } catch (err) {
+    console.error('Upload error:', err);
+    res.status(500).json({ error: 'Upload failed' });
+  }
+});
 
 // 1. Request Upload Pre-Signed URL
 router.post('/presigned-url', verifyUser, uploadLimiter, async (req, res) => {
