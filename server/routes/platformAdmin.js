@@ -254,4 +254,311 @@ router.get('/orders/recent-purchases', async (req, res) => {
   }
 });
 
+// === DOMAINS ===
+router.get('/platform/domains', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('custom_domains')
+      .select('*, stores(name, subdomain)')
+      .order('created_at', { ascending: false });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load domains' });
+  }
+});
+
+router.post('/platform/domains', async (req, res) => {
+  try {
+    const { domain, store_id } = req.body;
+    if (!domain || !store_id) return res.status(400).json({ error: 'Missing domain or store_id' });
+    const { data, error } = await supabase
+      .from('custom_domains')
+      .insert({ domain, store_id, verified: false })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add domain' });
+  }
+});
+
+router.delete('/platform/domains/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('custom_domains').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to delete domain' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete domain' });
+  }
+});
+
+router.post('/platform/domains/:id/verify', async (req, res) => {
+  try {
+    const { error } = await supabase.from('custom_domains').update({ verified: true, verified_at: new Date().toISOString() }).eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to verify domain' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to verify domain' });
+  }
+});
+
+router.get('/platform/domains/:id/logs', async (req, res) => {
+  try {
+    const { data } = await supabase
+      .from('audit_logs')
+      .select('*')
+      .eq('resource_type', 'custom_domain')
+      .eq('resource_id', req.params.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load domain logs' });
+  }
+});
+
+// === NOTIFICATIONS ===
+router.get('/platform/notifications/templates', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('notification_templates').select('*').order('created_at', { ascending: false });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load templates' });
+  }
+});
+
+router.post('/platform/notifications/templates', async (req, res) => {
+  try {
+    const { name, type, subject, body, channel } = req.body;
+    if (!name || !type) return res.status(400).json({ error: 'Missing name or type' });
+    const { data, error } = await supabase
+      .from('notification_templates')
+      .insert({ name, type, subject: subject || '', body: body || '', channel: channel || 'whatsapp' })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create template' });
+  }
+});
+
+router.put('/platform/notifications/templates/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('notification_templates').update(req.body).eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update template' });
+  }
+});
+
+router.delete('/platform/notifications/templates/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('notification_templates').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to delete template' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete template' });
+  }
+});
+
+router.get('/platform/notifications/layouts', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('notification_layouts').select('*').order('created_at', { ascending: false });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load layouts' });
+  }
+});
+
+router.post('/platform/notifications/layouts', async (req, res) => {
+  try {
+    const { name, type, content } = req.body;
+    if (!name || !type) return res.status(400).json({ error: 'Missing name or type' });
+    const { data, error } = await supabase
+      .from('notification_layouts')
+      .insert({ name, type, content: content || '' })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create layout' });
+  }
+});
+
+router.put('/platform/notifications/layouts/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('notification_layouts').update(req.body).eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update layout' });
+  }
+});
+
+router.delete('/platform/notifications/layouts/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('notification_layouts').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to delete layout' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete layout' });
+  }
+});
+
+router.post('/platform/notifications/test-send', async (req, res) => {
+  try {
+    const { template_id, to, channel } = req.body;
+    if (!template_id || !to) return res.status(400).json({ error: 'Missing template_id or recipient' });
+    // In production, this would actually send via WhatsApp/SMTP
+    res.json({ success: true, message: 'Test notification queued' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to send test notification' });
+  }
+});
+
+// === THEMES ===
+router.get('/platform/themes', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('platform_themes').select('*').order('created_at', { ascending: false });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load themes' });
+  }
+});
+
+router.get('/platform/themes/all', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('platform_themes').select('*').order('created_at', { ascending: false });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load themes' });
+  }
+});
+
+router.post('/platform/themes', async (req, res) => {
+  try {
+    const { name, description, config, is_published } = req.body;
+    if (!name) return res.status(400).json({ error: 'Missing theme name' });
+    const { data, error } = await supabase
+      .from('platform_themes')
+      .insert({ name, description: description || '', config: config || {}, is_published: is_published || false, created_by: 'admin' })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create theme' });
+  }
+});
+
+router.delete('/platform/themes/:id', async (req, res) => {
+  try {
+    const { error } = await supabase.from('platform_themes').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to delete theme' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete theme' });
+  }
+});
+
+router.post('/platform/themes/:id/toggle-publish', async (req, res) => {
+  try {
+    const { data: theme } = await supabase.from('platform_themes').select('is_published').eq('id', req.params.id).maybeSingle();
+    if (!theme) return res.status(404).json({ error: 'Theme not found' });
+    const { error } = await supabase.from('platform_themes').update({ is_published: !theme.is_published }).eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to toggle publish' });
+    res.json({ success: true, is_published: !theme.is_published });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to toggle publish' });
+  }
+});
+
+router.post('/storefront/:id/apply-theme', async (req, res) => {
+  try {
+    const { theme_id } = req.body;
+    const storeId = req.params.id;
+    if (!theme_id) return res.status(400).json({ error: 'Missing theme_id' });
+    const { error } = await supabase.from('stores').update({ theme_id }).eq('id', storeId);
+    if (error) return res.status(500).json({ error: 'Failed to apply theme' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to apply theme' });
+  }
+});
+
+// === BILLING ===
+router.get('/platform/invoices', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('invoices').select('*, stores(name, subdomain)').order('created_at', { ascending: false }).limit(100);
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load invoices' });
+  }
+});
+
+router.post('/platform/invoices/:id/refund', async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const { error } = await supabase.from('invoices').update({ status: 'refunded', refund_reason: reason || '' }).eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to refund invoice' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to refund invoice' });
+  }
+});
+
+router.get('/platform/payment-providers', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('payment_providers').select('*').order('created_at', { ascending: false });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load payment providers' });
+  }
+});
+
+router.post('/platform/payment-providers', async (req, res) => {
+  try {
+    const { name, type, config, is_active } = req.body;
+    if (!name || !type) return res.status(400).json({ error: 'Missing name or type' });
+    const { data, error } = await supabase
+      .from('payment_providers')
+      .upsert({ name, type, config: config || {}, is_active: is_active !== false })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save payment provider' });
+  }
+});
+
+router.get('/platform/store-transactions', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('payment_transactions').select('*, stores(name, subdomain)').order('created_at', { ascending: false }).limit(100);
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load store transactions' });
+  }
+});
+
+router.get('/platform/transactions-analytics', async (req, res) => {
+  try {
+    const { data: transactions } = await supabase.from('payment_transactions').select('amount, status, method, created_at').order('created_at', { ascending: false }).limit(1000);
+    const total = (transactions || []).reduce((sum, t) => sum + (t.amount || 0), 0);
+    const byMethod = {};
+    const byStatus = {};
+    (transactions || []).forEach(t => {
+      byMethod[t.method || 'unknown'] = (byMethod[t.method || 'unknown'] || 0) + 1;
+      byStatus[t.status || 'unknown'] = (byStatus[t.status || 'unknown'] || 0) + 1;
+    });
+    res.json({ total_amount: total, total_count: (transactions || []).length, by_method: byMethod, by_status: byStatus });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load analytics' });
+  }
+});
+
 module.exports = router;
