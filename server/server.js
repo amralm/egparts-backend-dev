@@ -523,6 +523,254 @@ app.get('/', (req, res) => {
 // ✅ New Centralized Error Handler
 app.use(errorHandler);
 
+
+// ═══════════════════════════════════════════════════════════════
+// MISSING PLATFORM ENDPOINTS — Required by frontend
+// ═══════════════════════════════════════════════════════════════
+
+// Helper: verify super admin
+async function verifySuperAdmin(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  const token = authHeader.split(' ')[1];
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) return null;
+  const { data: sa } = await supabase.from('super_admins').select('user_id').eq('user_id', user.id).maybeSingle();
+  return sa ? user : null;
+}
+
+// GET /api/health/maintenance
+app.get('/api/health/maintenance', (req, res) => {
+  res.json({ maintenance: false });
+});
+
+// GET /api/store-usage
+app.get('/api/store-usage', async (req, res) => {
+  try {
+    if (!req.store?.id) return res.json({});
+    const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
+    const [ordersRes, productsRes] = await Promise.all([
+      supabase.from('orders').select('total', { count: 'exact' }).eq('store_id', req.store.id).gte('created_at', monthStart.toISOString()),
+      supabase.from('products').select('id', { count: 'exact', head: true }).eq('store_id', req.store.id),
+    ]);
+    res.json({ orders_this_month: ordersRes.count || 0, products_count: productsRes.count || 0 });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// GET /api/platform/stores
+app.get('/api/platform/stores', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const { data, error } = await supabase.from('stores')
+      .select('id, name, subdomain, custom_domain, is_active, subscription_expires_at, created_at')
+      .neq('id', '00000000-0000-0000-0000-000000000000')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: 'Failed to load stores' }); }
+});
+
+// GET /api/platform/users
+app.get('/api/platform/users', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const { data, error } = await supabase.from('user_profiles')
+      .select('*').order('created_at', { ascending: false }).limit(200);
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: 'Failed to load users' }); }
+});
+
+// GET /api/platform/store-admins
+app.get('/api/platform/store-admins', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+
+    // Auto-sync from user_roles
+    try {
+      const { data: ur } = await supabase.from('user_roles').select('user_id, store_id').not('store_id', 'is', null);
+      if (ur?.length) await supabase.from('store_admins').upsert(ur.map(r => ({ user_id: r.user_id, store_id: r.store_id })), { onConflict: 'user_id,store_id', ignoreDuplicates: true }).catch(() => {});
+    } catch (e) {}
+
+    const { data: saData, error } = await supabase.from('store_admins').select('id, user_id, store_id, created_at');
+    if (error) throw error;
+
+    const [{ data: profiles }, { data: stores }] = await Promise.all([
+      supabase.from('user_profiles').select('user_id, store_id, full_name, phone, email').catch(() => ({ data: [] })),
+      supabase.from('stores').select('id, name, subdomain, is_active').neq('id', '00000000-0000-0000-0000-000000000000').catch(() => ({ data: [] })),
+    ]);
+
+    const pMap = {}; (profiles || []).forEach(p => { pMap[`${p.user_id}::${p.store_id}`] = p; });
+    const sMap = {}; (stores || []).forEach(s => { sMap[s.id] = s; });
+
+    res.json((saData || []).map(sa => {
+      const p = pMap[`${sa.user_id}::${sa.store_id}`];
+      const s = sMap[sa.store_id];
+      return { id: sa.id, user_id: sa.user_id, store_id: sa.store_id, full_name: p?.full_name || '', phone: p?.phone || '', email: p?.email || '', store_name: s?.name || '', store_subdomain: s?.subdomain || '', store_active: s?.is_active ?? true, is_owner: false, created_at: sa.created_at };
+    }));
+  } catch (e) { res.status(500).json({ error: 'Failed to load store admins' }); }
+});
+
+// POST /api/platform/invitations
+app.post('/api/platform/invitations', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const { phone, store_id } = req.body;
+    if (!phone || !store_id) return res.status(400).json({ error: 'phone and store_id required' });
+    const cleanPhone = phone.replace(/[\s\+\-]/g, '');
+    const crypto = require('crypto');
+    const token = crypto.randomBytes(32).toString('hex');
+    const waPhone = cleanPhone.startsWith('2') ? cleanPhone : '2' + cleanPhone;
+    const { data: invitation, error } = await supabase.from('tenant_invitations').insert([{ phone: waPhone, store_id, token, status: 'pending', expires_at: new Date(Date.now() + 48*60*60*1000).toISOString(), invited_by: user.id, created_ip: req.ip }]).select().single();
+    if (error) throw error;
+    try { await whatsappService.sendMessage(waPhone, `مرحباً!\n\nتمت دعوتك لتكون مدير متجر على منصة EG-PARTS Cloud.\n\n🔗 ${process.env.FRONTEND_URL || 'https://egparts.store'}/accept-invitation?token=${token}\n\n⏰ صلاحية الرابط: 48 ساعة.`); } catch (e) {}
+    res.json({ success: true, invitation });
+  } catch (e) { res.status(500).json({ error: 'Failed: ' + e.message }); }
+});
+
+// GET /api/platform/invitations
+app.get('/api/platform/invitations', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const { data, error } = await supabase.from('tenant_invitations').select('*').order('created_at', { ascending: false }).limit(50);
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// GET /api/platform/audit-logs
+app.get('/api/platform/audit-logs', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+    const { data, error } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(limit);
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// GET /api/platform/plans
+app.get('/api/platform/plans', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const { data, error } = await supabase.from('plans').select('*').order('sort_order', { ascending: true });
+    if (error) { const { data: fb } = await supabase.from('plans').select('*').order('created_at', { ascending: true }); return res.json(fb || []); }
+    res.json(data || []);
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// GET /api/platform/settings
+app.get('/api/platform/settings', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const { data, error } = await supabase.from('system_settings').select('*');
+    if (error) return res.json({ maintenance_mode: 'false', allow_store_registration: 'true' });
+    const settings = {}; (data || []).forEach(item => { settings[item.key] = item.value; });
+    res.json(settings);
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// GET /api/platform/tenants/metrics
+app.get('/api/platform/tenants/metrics', async (req, res) => {
+  try {
+    const user = await verifySuperAdmin(req);
+    if (!user) return res.status(403).json({ error: 'Forbidden' });
+    const { data: stores, error } = await supabase.from('stores')
+      .select('id, name, subdomain, custom_domain, is_active, subscription_expires_at, created_at')
+      .neq('id', '00000000-0000-0000-0000-000000000000')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
+    const metrics = [];
+    for (const store of stores || []) {
+      const [ordersRes, productsRes] = await Promise.all([
+        supabase.from('orders').select('total', { count: 'exact' }).eq('store_id', store.id).gte('created_at', monthStart.toISOString()),
+        supabase.from('products').select('id', { count: 'exact', head: true }).eq('store_id', store.id),
+      ]);
+      let plan = null;
+      try { const { data: sub } = await supabase.from('store_subscriptions').select('plan_id, plans(id, code, display_name)').eq('store_id', store.id).order('created_at', { ascending: false }).limit(1).maybeSingle(); if (sub?.plans) plan = sub.plans; } catch (e) {}
+      metrics.push({ ...store, orders_this_month: ordersRes.count || 0, products_count: productsRes.count || 0, sales_this_month: (ordersRes.data || []).reduce((s, o) => s + Number(o.total || 0), 0), plan, plan_id: null, subscription_status: null });
+    }
+    res.json(metrics);
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// POST /api/db-proxy
+app.post('/api/db-proxy', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    const token = authHeader.split(' ')[1];
+    const { data: { user } } = await supabase.auth.getUser(token);
+    if (!user) return res.status(401).json({ error: 'Invalid token' });
+    if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
+
+    const ALLOWED_TABLES = new Set(['products','banners','coupons','categories','site_settings','shipping_zones','user_profiles','user_addresses','reviews','wishlists','orders','stores','user_notifications']);
+    const { table, action, payload, match } = req.body;
+    if (!table || !action) return res.status(400).json({ error: 'Table and action required' });
+    if (!ALLOWED_TABLES.has(table)) return res.status(403).json({ error: 'Table not allowed' });
+    if (!['insert','update','delete','upsert'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
+
+    const PROTECTED = ['id','created_at','updated_at','deleted_at'];
+    const strip = (obj) => { if (!obj || typeof obj !== 'object') return obj; const c = {...obj}; PROTECTED.forEach(f => delete c[f]); return c; };
+    let finalPayload = Array.isArray(payload) ? payload.map(strip) : strip(payload);
+    if ((action === 'insert' || action === 'upsert') && table !== 'stores') {
+      if (Array.isArray(finalPayload)) finalPayload = finalPayload.map(i => ({...i, store_id: req.store.id}));
+      else if (finalPayload) finalPayload = {...finalPayload, store_id: req.store.id};
+    }
+    if (action === 'update' && finalPayload && !Array.isArray(finalPayload)) delete finalPayload.store_id;
+    let query = supabase.from(table)[action](finalPayload);
+    if (action === 'update' || action === 'delete') {
+      const scopeCol = table === 'stores' ? 'id' : 'store_id';
+      query = query.eq(scopeCol, req.store.id);
+      if (match) for (const [k,v] of Object.entries(match)) if (k !== 'store_id') query = query.eq(k, v);
+    }
+    if (action !== 'delete') query = query.select();
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ success: false, error: error.message });
+    res.json({ success: true, data });
+  } catch (e) { res.status(500).json({ success: false, error: 'Internal server error' }); }
+});
+
+// GET /api/payments/status/:orderId
+app.get('/api/payments/status/:orderId', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    const token = authHeader.split(' ')[1];
+    const { data: { user } } = await supabase.auth.getUser(token);
+    if (!user) return res.status(401).json({ error: 'Invalid token' });
+    const { orderId } = req.params;
+    const { data: order, error } = await supabase.from('orders').select('id, payment_status, status, total, paymob_order_id, paymob_transaction_id').eq('id', orderId).maybeSingle();
+    if (error || !order) return res.status(404).json({ error: 'Order not found' });
+    res.json({ order_id: order.id, payment_status: order.payment_status, order_status: order.status, amount: order.total, paymob_order_id: order.paymob_order_id, transaction_id: order.paymob_transaction_id });
+  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+// GET /api/payments/active
+app.get('/api/payments/active', async (req, res) => {
+  try {
+    if (!req.store?.id) return res.json([]);
+    const { data: gateways } = await supabase.from('store_payment_gateways').select('provider_name, is_active').eq('store_id', req.store.id);
+    const active = (gateways || []).filter(g => g.is_active).map(g => g.provider_name);
+    res.json(active);
+  } catch (e) { res.json([]); }
+});
+
+// GET /api/blocked/check
+app.get('/api/blocked/check', (req, res) => {
+  res.json({ blocked: false });
+});
+
+
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, async () => {
   logger.info(`✅ Server running on port ${PORT}`);
