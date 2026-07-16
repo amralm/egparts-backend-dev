@@ -179,7 +179,7 @@ app.get('/api/store-context', async (req, res) => {
     const { supabase } = require('./services/supabase');
     const { data: store, error } = await supabase
       .from('stores')
-      .select('id, name, subdomain, custom_domain, is_active, subscription_expires_at, site_settings, turnstile_site_key, logo_url, favicon_url')
+      .select('id, name, subdomain, custom_domain, is_active, subscription_expires_at, status, created_at, updated_at')
       .eq('subdomain', subdomain)
       .single();
     if (error || !store) {
