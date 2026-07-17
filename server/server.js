@@ -746,19 +746,33 @@ app.get('/api/platform/store-admins', async (req, res) => {
     const user = await verifySuperAdmin(req);
     if (!user) return res.status(403).json({ error: 'Forbidden' });
 
-    // Auto-sync from user_roles
+    // Auto-sync from user_roles (best-effort, never fails the request)
     try {
-      const { data: ur } = await supabase.from('user_roles').select('user_id, store_id').not('store_id', 'is', null);
-      if (ur?.length) await supabase.from('store_admins').upsert(ur.map(r => ({ user_id: r.user_id, store_id: r.store_id })), { onConflict: 'user_id,store_id', ignoreDuplicates: true }).catch(() => {});
+      const urRes = await supabase.from('user_roles').select('user_id, store_id').not('store_id', 'is', null);
+      if (urRes.data?.length) {
+        try { await supabase.from('store_admins').upsert(urRes.data.map(r => ({ user_id: r.user_id, store_id: r.store_id })), { onConflict: 'user_id,store_id', ignoreDuplicates: true }); } catch (e) {}
+      }
     } catch (e) {}
 
-    const { data: saData, error } = await supabase.from('store_admins').select('id, user_id, store_id, created_at');
-    if (error) throw error;
+    // Fetch store_admins (resilient: return [] if table/columns mismatch)
+    let saData = [];
+    try {
+      const saRes = await supabase.from('store_admins').select('id, user_id, store_id, created_at');
+      if (saRes.error) logger.error('platform/store-admins query error:', saRes.error.message);
+      saData = saRes.data || [];
+    } catch (e) { logger.error('platform/store-admins query threw:', e?.message || String(e)); }
 
-    const [{ data: profiles }, { data: stores }] = await Promise.all([
-      supabase.from('user_profiles').select('user_id, store_id, full_name, phone, email').catch(() => ({ data: [] })),
-      supabase.from('stores').select('id, name, subdomain, is_active').neq('id', '00000000-0000-0000-0000-000000000000').catch(() => ({ data: [] })),
-    ]);
+    // Fetch profiles + stores in parallel (each wrapped so one failure doesn't break the other)
+    let profiles = [];
+    let stores = [];
+    try {
+      const [prRes, stRes] = await Promise.all([
+        supabase.from('user_profiles').select('user_id, store_id, full_name, phone, email'),
+        supabase.from('stores').select('id, name, subdomain, is_active').neq('id', '00000000-0000-0000-0000-000000000000'),
+      ]);
+      profiles = prRes?.data || [];
+      stores = stRes?.data || [];
+    } catch (e) { logger.error('platform/store-admins profiles/stores error:', e?.message || String(e)); }
 
     const pMap = {}; (profiles || []).forEach(p => { pMap[`${p.user_id}::${p.store_id}`] = p; });
     const sMap = {}; (stores || []).forEach(s => { sMap[s.id] = s; });
@@ -768,7 +782,7 @@ app.get('/api/platform/store-admins', async (req, res) => {
       const s = sMap[sa.store_id];
       return { id: sa.id, user_id: sa.user_id, store_id: sa.store_id, full_name: p?.full_name || '', phone: p?.phone || '', email: p?.email || '', store_name: s?.name || '', store_subdomain: s?.subdomain || '', store_active: s?.is_active ?? true, is_owner: false, created_at: sa.created_at };
     }));
-  } catch (e) { res.status(500).json({ error: 'Failed to load store admins' }); }
+  } catch (e) { logger.error('platform/store-admins failed:', e?.message || String(e)); res.status(500).json({ error: 'Failed to load store admins' }); }
 });
 
 // POST /api/platform/invitations
