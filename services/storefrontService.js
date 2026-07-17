@@ -9,13 +9,20 @@ async function getSettings(storeId) {
   if (error) throw error;
   if (!data?.theme_id) return data || {};
 
-  const { data: activeTheme, error: themeError } = await supabase
-    .from('platform_themes')
-    .select('id, name, name_en, light_tokens, dark_tokens')
-    .eq('id', data.theme_id)
-    .eq('is_published', true)
-    .maybeSingle();
-  if (themeError) throw themeError;
+  let activeTheme = null;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.theme_id);
+  
+  if (isUuid) {
+    const { data: themeData, error: themeError } = await supabase
+      .from('platform_themes')
+      .select('id, name, name_en, light_tokens, dark_tokens')
+      .eq('id', data.theme_id)
+      .eq('is_published', true)
+      .maybeSingle();
+    if (themeError) throw themeError;
+    activeTheme = themeData;
+  }
+  
   return { ...data, active_theme: activeTheme || null };
 }
 
