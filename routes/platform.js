@@ -2172,4 +2172,119 @@ router.post('/notifications/test-send', verifyPlatformAdmin, async (req, res) =>
   }
 });
 
+// ============================================================
+// 12. Login Logs & Blocked IPs
+// ============================================================
+
+// GET /api/platform/login-logs
+router.get('/login-logs', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const filter = req.query.filter || 'all';
+    const store_id = req.query.store_id;
+
+    let query = supabase
+      .from('user_login_logs')
+      .select('*, stores(name)', { count: 'exact' });
+
+    if (store_id) {
+      query = query.eq('store_id', store_id);
+    }
+
+    if (filter === 'guest') {
+      query = query.eq('login_method', 'guest');
+    } else if (filter === 'registered') {
+      query = query.neq('login_method', 'guest');
+    }
+
+    const { data: logs, count, error } = await query
+      .order('created_at', { ascending: false })
+      .range((page - 1) * limit, page * limit - 1);
+
+    if (error) throw error;
+
+    const formattedLogs = logs.map(log => ({
+      ...log,
+      store_name: log.stores?.name || 'Platform'
+    }));
+
+    res.json({ logs: formattedLogs, total: count || 0 });
+  } catch (err) {
+    logger.error('Failed to fetch login logs:', err.message);
+    res.status(500).json({ error: 'Failed to fetch login logs' });
+  }
+});
+
+// DELETE /api/platform/login-logs/:id
+router.delete('/login-logs/:id', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { error } = await supabase.from('user_login_logs').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Failed to delete login log:', err.message);
+    res.status(500).json({ error: 'Failed to delete log' });
+  }
+});
+
+// DELETE /api/platform/login-logs
+router.delete('/login-logs', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { error } = await supabase.from('user_login_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Failed to clear login logs:', err.message);
+    res.status(500).json({ error: 'Failed to clear logs' });
+  }
+});
+
+// GET /api/platform/blocked-ips
+router.get('/blocked-ips', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { data: ips, error } = await supabase.from('blocked_ips').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    res.json({ ips: ips || [] });
+  } catch (err) {
+    logger.error('Failed to fetch blocked IPs:', err.message);
+    res.status(500).json({ error: 'Failed to fetch blocked IPs' });
+  }
+});
+
+// POST /api/platform/blocked-ips/block
+router.post('/blocked-ips/block', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { ip_address, reason } = req.body;
+    if (!ip_address) return res.status(400).json({ error: 'IP is required' });
+
+    const { error } = await supabase.from('blocked_ips').insert([{
+      ip_address,
+      reason: reason || 'Blocked by platform admin',
+      blocked_by: req.user.id
+    }]);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Failed to block IP:', err.message);
+    res.status(500).json({ error: 'Failed to block IP' });
+  }
+});
+
+// POST /api/platform/blocked-ips/unblock
+router.post('/blocked-ips/unblock', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { ip_address } = req.body;
+    if (!ip_address) return res.status(400).json({ error: 'IP is required' });
+
+    const { error } = await supabase.from('blocked_ips').delete().eq('ip_address', ip_address);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Failed to unblock IP:', err.message);
+    res.status(500).json({ error: 'Failed to unblock IP' });
+  }
+});
+
 module.exports = router;
