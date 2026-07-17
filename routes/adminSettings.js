@@ -51,6 +51,12 @@ router.put('/', verifyPermission('settings.update'), async (req, res) => {
       req.body?.businessType,
       req.body?.guaranteeProductIds || []
     );
+    
+    // Invalidate cache
+    const { tenantCache } = require('../utils/cache');
+    if (req.store.subdomain) tenantCache.delete(req.store.subdomain);
+    if (req.store.custom_domain) tenantCache.delete(req.store.custom_domain);
+
     res.json({ success: true, settings });
   } catch (err) {
     logger.error('[admin-settings] save failed:', err.message);
@@ -63,6 +69,12 @@ router.patch('/theme', verifyPermission('settings.update'), async (req, res) => 
   if (!storeId) return;
   try {
     const settings = await settingsAdminService.applyPublishedTheme(storeId, req.body?.theme_id);
+    
+    // Invalidate cache
+    const { tenantCache } = require('../utils/cache');
+    if (req.store.subdomain) tenantCache.delete(req.store.subdomain);
+    if (req.store.custom_domain) tenantCache.delete(req.store.custom_domain);
+
     res.json({ success: true, settings });
   } catch (err) {
     logger.error('[admin-settings] apply theme failed:', err.message);

@@ -85,15 +85,25 @@ module.exports = async function tenantResolver(req, res, next) {
       return next();
     }
 
-    // Query store status (cached/resolved in memory or database)
-    const { data: store, error } = await supabase
-      .from('stores')
-      .select('*')
-      .or(`subdomain.eq.${subdomain},custom_domain.eq.${subdomain}`)
-      .single();
+    const { tenantCache } = require('../utils/cache');
+    
+    // Check cache first
+    let store = tenantCache.get(subdomain);
 
-    if (error || !store) {
-      return res.status(404).json({ success: false, error: 'المتجر غير موجود' });
+    if (!store) {
+      // Query store status
+      const { data, error } = await supabase
+        .from('stores')
+        .select('*')
+        .or(`subdomain.eq.${subdomain},custom_domain.eq.${subdomain}`)
+        .single();
+
+      if (error || !data) {
+        return res.status(404).json({ success: false, error: 'المتجر غير موجود' });
+      }
+      
+      store = data;
+      tenantCache.set(subdomain, store);
     }
 
     // Check subscription status

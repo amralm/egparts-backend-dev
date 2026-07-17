@@ -110,4 +110,20 @@ router.post('/cart/validate', async (req, res) => {
   }
 });
 
+router.get('/shipping-zones', async (req, res) => {
+  const storeId = requireStore(req, res);
+  if (!storeId) return;
+  try {
+    const { data } = await require('../services/supabase').supabase
+      .from('shipping_zones')
+      .select('*')
+      .eq('store_id', storeId)
+      .order('city_name', { ascending: true });
+    res.json({ success: true, zones: data || [] });
+  } catch (err) {
+    logger.error('[storefront] shipping zones failed:', err.message);
+    res.status(500).json({ success: false, error: 'Unable to load shipping zones.' });
+  }
+});
+
 module.exports = router;

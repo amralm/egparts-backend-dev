@@ -96,6 +96,41 @@ router.get('/admin/list', verifyPermission('orders.view'), async (req, res) => {
   }
 });
 
+router.get('/admin/:id/customer-address', verifyPermission('orders.view'), async (req, res) => {
+  if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
+  try {
+    const { data: order } = await supabase
+      .from('orders')
+      .select('user_id')
+      .eq('id', req.params.id)
+      .eq('store_id', req.store.id)
+      .maybeSingle();
+
+    if (!order || !order.user_id) return res.json({ success: true, address: null });
+
+    let { data } = await supabase
+      .from('user_addresses')
+      .select('title, phone, city, address, is_default')
+      .eq('user_id', order.user_id)
+      .eq('is_default', true)
+      .limit(1);
+
+    if (!data || data.length === 0) {
+      ({ data } = await supabase
+        .from('user_addresses')
+        .select('title, phone, city, address, is_default')
+        .eq('user_id', order.user_id)
+        .order('created_at', { ascending: false })
+        .limit(1));
+    }
+
+    res.json({ success: true, address: data && data[0] ? data[0] : null });
+  } catch (error) {
+    console.error('Admin order customer address error:', error.message);
+    res.status(500).json({ error: 'Failed to load customer address' });
+  }
+});
+
 router.patch('/admin/:id/status', verifyPermission('orders.update_status'), async (req, res) => {
   if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
 
@@ -106,7 +141,7 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), asyn
   try {
     const { data: oldOrder, error: oldErr } = await supabase
       .from('orders')
-      .select('id, status, payment_status, phone, order_number')
+      .select('id, status, payment_status, phone, order_number, user_id')
       .eq('id', id)
       .eq('store_id', req.store.id)
       .maybeSingle();
@@ -138,6 +173,22 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), asyn
         ? `Status updated via Admin: ${oldOrder.status} -> ${status}`
         : `Payment status updated via Admin: ${payment_status}`
     }]);
+
+    if (status && oldOrder.user_id) {
+      const STATUS_LABELS = {
+        pending: 'قيد المراجعة', confirmed: 'تم التأكيد', processing: 'جاري التجهيز',
+        shipped: 'تم الشحن', delivered: 'تم التسليم', cancelled: 'ملغي'
+      };
+      await supabase.from('user_notifications').insert([{
+        user_id: oldOrder.user_id,
+        store_id: req.store.id,
+        title: '📦 تم تحديث حالة طلبك',
+        message: `طلب EG-${oldOrder.order_number || id.split('-')[0]} تم نقله إلى: ${STATUS_LABELS[status] || status}`,
+        type: 'order_update',
+        order_id: id,
+        is_read: false
+      }]);
+    }
 
     if (status && oldOrder.phone) {
       await supabase.from('notification_queue').insert([{

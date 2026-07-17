@@ -14,6 +14,21 @@ router.get('/profile-status', verifyUser, async (req, res) => {
   }
 });
 
+router.get('/profile', verifyUser, async (req, res) => {
+  try {
+    const { data } = await require('../services/supabase').supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('user_id', req.user.sub)
+      .eq('store_id', req.store?.id || '00000000-0000-0000-0000-000000000000')
+      .single();
+    res.json({ success: true, profile: data || null });
+  } catch (err) {
+    logger.error('[account] profile fetch failed:', err.message);
+    res.status(500).json({ success: false, error: 'Unable to load profile.' });
+  }
+});
+
 router.patch('/profile', verifyUser, async (req, res) => {
   try {
     const profile = await accountService.updateProfile(req.store?.id, req.user.sub, req.body || {});

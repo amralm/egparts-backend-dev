@@ -791,29 +791,58 @@ router.get('/users', verifyPlatformAdmin, async (req, res) => {
 
     if (error) throw error;
 
-    const missingNameUserIds = [...new Set((profiles || [])
-      .filter((user) => !user.full_name && user.user_id)
-      .map((user) => user.user_id))];
+    const allUserIds = (profiles || []).map(u => u.user_id).filter(Boolean);
 
+    let userStoresMap = new Map();
     let namesByUserId = new Map();
-    if (missingNameUserIds.length > 0) {
+
+    if (allUserIds.length > 0) {
+      // Get orders to extract names and customer store associations
       const { data: orders } = await supabase
         .from('orders')
-        .select('user_id, full_name')
-        .in('user_id', missingNameUserIds)
-        .not('full_name', 'is', null);
+        .select('user_id, store_id, full_name, stores(id, name)')
+        .in('user_id', allUserIds);
 
       (orders || []).forEach((order) => {
-        if (order.user_id && order.full_name && !namesByUserId.has(order.user_id)) {
-          namesByUserId.set(order.user_id, order.full_name);
+        if (order.user_id) {
+          if (order.full_name && !namesByUserId.has(order.user_id)) {
+            namesByUserId.set(order.user_id, order.full_name);
+          }
+          if (order.store_id && order.stores) {
+            if (!userStoresMap.has(order.user_id)) {
+              userStoresMap.set(order.user_id, new Map());
+            }
+            // Use store_id as map key to ensure uniqueness
+            userStoresMap.get(order.user_id).set(order.store_id, order.stores);
+          }
+        }
+      });
+
+      // Get user_roles to capture admin/staff store associations
+      const { data: userRoles } = await supabase
+        .from('user_roles')
+        .select('user_id, store_id, stores(id, name)')
+        .in('user_id', allUserIds);
+      
+      (userRoles || []).forEach((ur) => {
+        if (ur.user_id && ur.store_id && ur.stores) {
+          if (!userStoresMap.has(ur.user_id)) {
+            userStoresMap.set(ur.user_id, new Map());
+          }
+          userStoresMap.get(ur.user_id).set(ur.store_id, ur.stores);
         }
       });
     }
 
-    const users = (profiles || []).map((user) => ({
-      ...user,
-      full_name: user.full_name || namesByUserId.get(user.user_id) || user.full_name
-    }));
+    const users = (profiles || []).map((user) => {
+      const storesMap = userStoresMap.get(user.user_id);
+      const stores = storesMap ? Array.from(storesMap.values()) : [];
+      return {
+        ...user,
+        full_name: user.full_name || namesByUserId.get(user.user_id) || user.full_name,
+        stores
+      };
+    });
 
     res.json({ success: true, users });
   } catch (err) {
