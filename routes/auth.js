@@ -142,40 +142,42 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
   }
 
   // Turnstile Verification
-  if (!turnstileToken) {
-    return res.status(400).json({ success: false, error: 'التحقق الأمني مطلوب (Turnstile Token Missing)' });
-  }
-
-  try {
-    const secretKey = (process.env.TURNSTILE_SECRET_KEY || '').trim();
-
-    if (!secretKey) {
-      logger.error('TURNSTILE_SECRET_KEY is not configured on the server.');
-      return res.status(500).json({ success: false, error: 'خدمة التحقق الأمني غير مهيأة' });
+  if (!global.DEV_MODE_ENABLED) {
+    if (!turnstileToken) {
+      return res.status(400).json({ success: false, error: 'التحقق الأمني مطلوب (Turnstile Token Missing)' });
     }
-    
-    const cfRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        secret: secretKey,
-        response: turnstileToken
-      })
-    });
-    const cfData = await cfRes.json();
-    
-    if (!cfData.success) {
-      logger.warn('Turnstile verification failed', cfData);
-      return res.status(403).json({ 
-        success: false, 
-        error: 'فشل التحقق الأمني، تأكد من أنك لست روبوت'
+
+    try {
+      const secretKey = (process.env.TURNSTILE_SECRET_KEY || '').trim();
+
+      if (!secretKey) {
+        logger.error('TURNSTILE_SECRET_KEY is not configured on the server.');
+        return res.status(500).json({ success: false, error: 'خدمة التحقق الأمني غير مهيأة' });
+      }
+      
+      const cfRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          secret: secretKey,
+          response: turnstileToken
+        })
       });
+      const cfData = await cfRes.json();
+      
+      if (!cfData.success) {
+        logger.warn('Turnstile verification failed', cfData);
+        return res.status(403).json({ 
+          success: false, 
+          error: 'فشل التحقق الأمني، تأكد من أنك لست روبوت'
+        });
+      }
+    } catch (err) {
+      logger.error('Turnstile verification error:', err);
+      return res.status(500).json({ success: false, error: 'خطأ داخلي أثناء التحقق الأمني' });
     }
-  } catch (err) {
-    logger.error('Turnstile verification error:', err);
-    return res.status(500).json({ success: false, error: 'خطأ داخلي أثناء التحقق الأمني' });
   }
 
   const localPhone = phone.startsWith('2') ? phone.slice(1) : phone;

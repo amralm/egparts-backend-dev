@@ -564,12 +564,9 @@ app.post('/api/auth/qr-login', async (req, res) => {
   const { safeCompare, QR_USER, QR_PASS } = require('./middleware/qrAuth');
   
   if (!username || !password) {
-    return res.status(400).json({ success: false, error: 'الرجاء إدخال اسم المستخدم وكلمة المرور' });
-  }
-
-  // Verify Turnstile â€” REQUIRED when TURNSTILE_SECRET_KEY is configured
+    return res.status(4  // Verify Turnstile — REQUIRED when TURNSTILE_SECRET_KEY is configured
   const secretKey = (process.env.TURNSTILE_SECRET_KEY || '').trim();
-  if (secretKey) {
+  if (secretKey && !global.DEV_MODE_ENABLED) {
     if (!turnstileToken) {
       return res.status(403).json({ success: false, error: 'يجب إتمام بوابة التحقق الأمني (Turnstile) أولاً' });
     }
@@ -581,7 +578,13 @@ app.post('/api/auth/qr-login', async (req, res) => {
       });
       const tsData = await tsRes.json();
       if (!tsData.success) {
-        return res.status(403).json({ success: false, error: 'ÙØ´Ù„ Ø§Ù„ØªØ­Ù‚Ù‚ Ø§Ù„Ø£Ù…Ù†ÙŠ (Turnstile) â€” Ø­Ø§ÙˆÙ„ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰' });
+        return res.status(403).json({ success: false, error: 'Ù Ø´Ù„ Ø§Ù„ØªØ­Ù‚Ù‚ Ø§Ù„Ø£Ù…Ù†ÙŠ (Turnstile) â€” Ø­Ø§ÙˆÙ„ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰' });
+      }
+    } catch (err) {
+      logger.error('Turnstile API error:', err.message);
+      return res.status(500).json({ success: false, error: 'تعذر الاتصال بخدمة التحقق — حاول مرة أخرى' });
+    }
+  }Ø±Ù‰' });
       }
     } catch (err) {
       logger.error('Turnstile API error:', err.message);
