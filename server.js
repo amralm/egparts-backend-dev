@@ -581,13 +581,7 @@ app.post('/api/auth/qr-login', async (req, res) => {
       });
       const tsData = await tsRes.json();
       if (!tsData.success) {
-        return res.status(403).json({ success: false, error: 'Ù Ø´Ù„ Ø§Ù„ØªØ­Ù‚Ù‚ Ø§Ù„Ø£Ù…Ù†ÙŠ (Turnstile) â€” Ø­Ø§ÙˆÙ„ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰' });
-      }
-    } catch (err) {
-      logger.error('Turnstile API error:', err.message);
-      return res.status(500).json({ success: false, error: 'تعذر الاتصال بخدمة التحقق — حاول مرة أخرى' });
-    }
-  }Ø±Ù‰' });
+        return res.status(403).json({ success: false, error: 'فشل التحقق الأمني (Turnstile) — حاول مرة أخرى' });
       }
     } catch (err) {
       logger.error('Turnstile API error:', err.message);
