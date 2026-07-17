@@ -9,9 +9,8 @@ BEGIN
   -- إذا كان الطلب من مستخدم عادي (وليس أدمن)
   IF auth.uid() IS NOT NULL AND (current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role') IS DISTINCT FROM 'admin' THEN
     -- يتم تجاهل أي تعديل على هذه الحقول الحساسة وإرجاعها لقيمتها القديمة
-    NEW.wallet_balance = OLD.wallet_balance;
-    NEW.total_spent = OLD.total_spent;
-    NEW.orders_count = OLD.orders_count;
+    NEW.role = OLD.role;
+    NEW.is_email_verified = OLD.is_email_verified;
     NEW.is_banned = OLD.is_banned;
   END IF;
   RETURN NEW;

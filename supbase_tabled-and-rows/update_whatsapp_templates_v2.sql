@@ -22,7 +22,7 @@ BEGIN
 
   -- Only queue a notification if the status actually changed
   IF OLD.status IS DISTINCT FROM NEW.status THEN
-    INSERT INTO public.notification_queue (recipient, payload, type, status, order_id)
+    INSERT INTO public.notification_queue (recipient, payload, type, status, order_id, store_id)
     VALUES (
       NEW.phone,
       jsonb_build_object('message', 
@@ -32,7 +32,8 @@ BEGIN
       ),
       'whatsapp',
       'pending',
-      NEW.id
+      NEW.id,
+      NEW.store_id
     );
   END IF;
   RETURN NEW;
@@ -51,7 +52,7 @@ CREATE TRIGGER tr_order_status_notification
 CREATE OR REPLACE FUNCTION public.handle_new_order_notification()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.notification_queue (recipient, payload, type, status, order_id)
+  INSERT INTO public.notification_queue (recipient, payload, type, status, order_id, store_id)
   VALUES (
     NEW.phone,
     jsonb_build_object('message', 
@@ -61,7 +62,8 @@ BEGIN
     ),
     'whatsapp',
     'pending',
-    NEW.id
+    NEW.id,
+    NEW.store_id
   );
   RETURN NEW;
 END;
