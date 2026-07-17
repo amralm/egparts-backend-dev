@@ -422,9 +422,11 @@ app.use('/api/auth', authRoutes);
 const storageRoutes = require('./routes/storage');
 const limitsRoutes = require('./routes/limits');
 const walletRoutes = require('./routes/wallet');
+const tenantSecurityRoutes = require('../routes/tenantSecurity');
 app.use('/api/storage', storageRoutes);
 app.use('/api', limitsRoutes);
 app.use('/api', walletRoutes);
+app.use('/api/security', tenantSecurityRoutes);
 
 // ✅ WhatsApp Auth Routes
 app.post('/api/auth/qr-login', async (req, res) => {
