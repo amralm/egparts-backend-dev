@@ -1350,7 +1350,7 @@ router.post('/stores/subscription', verifyPlatformAdmin, async (req, res) => {
 
 // 6. GET /api/platform/audit-logs - Retrieve global audit logs
 router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
-  const { store_id, action, limit = 50, offset = 0 } = req.query;
+  const { store_id, action, search, limit = 50, offset = 0 } = req.query;
   try {
     let query = supabase
       .from('audit_logs')
@@ -1366,6 +1366,14 @@ router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
 
     if (store_id) query = query.eq('store_id', store_id);
     if (action) query = query.eq('action', action);
+    if (search) {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search);
+      if (isUuid) {
+        query = query.or(`ip_address.ilike.%${search}%,user_id.eq.${search},entity_id.eq.${search}`);
+      } else {
+        query = query.or(`ip_address.ilike.%${search}%,entity_id.ilike.%${search}%`);
+      }
+    }
 
     const { data: logs, error } = await query;
     if (error) throw error;
@@ -1374,6 +1382,34 @@ router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
   } catch (err) {
     logger.error('Failed to query platform audit logs:', err.message);
     res.status(500).json({ error: 'Failed to retrieve global audit logs' });
+  }
+});
+
+// DELETE /api/platform/audit-logs - Purge global audit logs
+router.delete('/audit-logs', verifyPlatformAdmin, async (req, res) => {
+  const { mode, days } = req.body;
+  
+  try {
+    let query = supabase.from('audit_logs').delete();
+    
+    if (mode === 'older_than' && typeof days === 'number') {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      query = query.lt('created_at', cutoff.toISOString());
+    } else if (mode === 'all') {
+      query = query.neq('id', '00000000-0000-0000-0000-000000000000'); // Supabase requires a filter for deletes
+    } else {
+      return res.status(400).json({ error: 'Invalid purge mode' });
+    }
+    
+    const { error } = await query;
+    if (error) throw error;
+    
+    await auditPlatform(req, 'platform.audit_logs.purge', 'system', 'global', null, { mode, days });
+    res.json({ success: true, message: 'تم تنظيف السجلات بنجاح' });
+  } catch (err) {
+    logger.error('Failed to purge audit logs:', err.message);
+    res.status(500).json({ error: 'Failed to purge audit logs' });
   }
 });
 
