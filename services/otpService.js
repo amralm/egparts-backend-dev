@@ -109,6 +109,11 @@ class OTPService {
     // 5. Send via WhatsApp (Secured by EG-PARTS Cloud branding)
     const message = `رمز التحقق الخاص بك لمتجر ${storeName} (مؤمن بواسطة EG-PARTS Cloud) هو: ${code}\nصالح لمدة 5 دقائق. يرجى عدم مشاركة هذا الرمز مع الآخرين لسرية وأمان حسابك.`;
     
+    if (global.DEV_MODE_ENABLED) {
+      logger.info(`DEV MODE: OTP for ${phone} is ${code}`);
+      return true; // Bypass WhatsApp
+    }
+    
     try {
       await whatsappService.sendMessage(phone, message);
       logger.info(`OTP sent successfully to masked number: ${phone.slice(0, 6)}XXXX`);
