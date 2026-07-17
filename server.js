@@ -564,7 +564,10 @@ app.post('/api/auth/qr-login', async (req, res) => {
   const { safeCompare, QR_USER, QR_PASS } = require('./middleware/qrAuth');
   
   if (!username || !password) {
-    return res.status(4  // Verify Turnstile — REQUIRED when TURNSTILE_SECRET_KEY is configured
+    return res.status(400).json({ success: false, error: 'الرجاء إدخال اسم المستخدم وكلمة المرور' });
+  }
+
+  // Verify Turnstile — REQUIRED when TURNSTILE_SECRET_KEY is configured
   const secretKey = (process.env.TURNSTILE_SECRET_KEY || '').trim();
   if (secretKey && !global.DEV_MODE_ENABLED) {
     if (!turnstileToken) {
