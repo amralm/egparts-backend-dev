@@ -5,11 +5,13 @@ class Cache {
   }
 
   set(key, value, ttl = this.ttlMs) {
+    if (global.DEV_MODE_ENABLED) return; // Disable caching in dev mode
     const expires = Date.now() + ttl;
     this.cache.set(key, { value, expires });
   }
 
   get(key) {
+    if (global.DEV_MODE_ENABLED) return null; // Always miss cache in dev mode
     const item = this.cache.get(key);
     if (!item) return null;
     if (Date.now() > item.expires) {

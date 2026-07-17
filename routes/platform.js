@@ -346,6 +346,11 @@ router.post('/settings', verifyPlatformAdmin, async (req, res) => {
 
     await auditPlatform(req, 'platform.settings.update', 'system_setting', 'global', null, settings, null);
 
+    if (settings.dev_mode_enabled !== undefined) {
+      global.DEV_MODE_ENABLED = settings.dev_mode_enabled === 'true' || settings.dev_mode_enabled === true;
+      logger.level = global.DEV_MODE_ENABLED ? 'debug' : 'info';
+    }
+
     res.json({ success: true });
   } catch (err) {
     logger.error('Failed to update system settings:', err.message);

@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -102,6 +102,31 @@ const customDomainsCache = new Set();
 let lastCacheUpdate = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// âœ… Global Development Mode & Telemetry Middleware
+app.use((req, res, next) => {
+  if (global.DEV_MODE_ENABLED) {
+    const start = process.hrtime();
+    
+    // Cache Bypass
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
+    // Diagnostic Headers
+    res.setHeader('X-Debug-Request-ID', req.id || 'unknown');
+    res.setHeader('X-Dev-Mode', 'Active');
+    
+    // Telemetry
+    res.on('finish', () => {
+      const diff = process.hrtime(start);
+      const timeMs = (diff[0] * 1e3 + diff[1] * 1e-6).toFixed(2);
+      const memoryMB = Math.round(process.memoryUsage().rss / 1024 / 1024);
+      logger.debug(`[DEV] ${req.method} ${req.url} - ${timeMs}ms - Mem: ${memoryMB}MB`);
+    });
+  }
+  next();
+});
+
 app.use(async (req, res, next) => {
   const origin = req.headers.origin;
   if (origin) {
@@ -196,8 +221,8 @@ app.use(async (req, res, next) => {
     'Access-Control-Allow-Headers',
     'Content-Type, Authorization, Content-Length, X-Requested-With, x-store-subdomain, X-Store-Subdomain, x-original-host, X-Original-Host, X-Correlation-ID, X-Request-ID, x-impersonate-session, X-Impersonate-Session'
   );
-  // Expose correlation ID to the client for debugging
-  res.header('Access-Control-Expose-Headers', 'X-Correlation-ID');
+  // Expose correlation ID and developer diagnostics to the client for debugging
+  res.header('Access-Control-Expose-Headers', 'X-Correlation-ID, X-Dev-Mode, X-Debug-Request-ID');
 
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
@@ -797,6 +822,20 @@ const server = app.listen(PORT, async () => {
   }
   
   try {
+    // âœ… Load Global Development Mode Setting on Boot
+    const { data: settingsData } = await supabase.from('system_settings').select('*');
+    if (settingsData) {
+      const devModeSetting = settingsData.find(s => s.key === 'dev_mode_enabled');
+      if (devModeSetting && devModeSetting.value === 'true') {
+        global.DEV_MODE_ENABLED = true;
+        logger.level = 'debug';
+        logger.info('âš ï¸  Global Development Mode is ENABLED. Internal caching and CDN caching are disabled.');
+      } else {
+        global.DEV_MODE_ENABLED = false;
+        logger.level = 'info';
+      }
+    }
+
     // Feature Flag Check
     if (process.env.ENABLE_WHATSAPP === 'true') {
       await whatsappService.initialize();

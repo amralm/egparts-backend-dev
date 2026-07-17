@@ -18,7 +18,7 @@ function sanitizeBody(body) {
 const errorHandler = (err, req, res, next) => {
   const statusCode = err.statusCode || 500;
   
-  const message = (statusCode >= 500 && process.env.NODE_ENV === 'production')
+  const message = (statusCode >= 500 && !global.DEV_MODE_ENABLED)
     ? 'Internal Server Error'
     : (err.message || 'Internal Server Error');
 
@@ -32,6 +32,16 @@ const errorHandler = (err, req, res, next) => {
     }
   };
 
+  // Attach full context if DEV_MODE_ENABLED
+  if (global.DEV_MODE_ENABLED) {
+    errorResponse.error.stack = err.stack;
+    errorResponse.error.requestContext = {
+      body: sanitizeBody(req.body),
+      query: req.query,
+      headers: sanitizeBody(req.headers)
+    };
+  }
+
   logger.error(`${req.method} ${req.url} - ${err.message}`, {
     requestId: req.id,
     stack: err.stack,
@@ -42,14 +52,8 @@ const errorHandler = (err, req, res, next) => {
   // ✅ Fire-and-forget asynchronous DB logging
   (async () => {
     try {
-      const { supabase } = require('../services/supabase');
-      const { data: setting } = await supabase
-        .from('system_settings')
-        .select('value')
-        .eq('key', 'error_logging_enabled')
-        .single();
-
-      if (setting && setting.value === 'true') {
+      if (global.DEV_MODE_ENABLED) {
+        const { supabase } = require('../services/supabase');
         const storeId = req.store?.id || (req.user?.store_id) || 'platform';
         await supabase.from('client_error_logs').insert([{
           message: err.message,
@@ -65,9 +69,7 @@ const errorHandler = (err, req, res, next) => {
     }
   })();
 
-  if (process.env.NODE_ENV !== 'production') {
-    errorResponse.error.stack = err.stack;
-  }
+  // We already added stack above if DEV_MODE_ENABLED
 
   res.status(statusCode).json(errorResponse);
 };
