@@ -1360,7 +1360,7 @@ router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
           name,
           subdomain
         )
-      `)
+      `, { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(parseInt(offset, 10), parseInt(offset, 10) + parseInt(limit, 10) - 1);
 
@@ -1375,10 +1375,10 @@ router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
       }
     }
 
-    const { data: logs, error } = await query;
+    const { data: logs, count, error } = await query;
     if (error) throw error;
 
-    res.json(logs);
+    res.json({ data: logs, total: count || 0 });
   } catch (err) {
     logger.error('Failed to query platform audit logs:', err.message);
     res.status(500).json({ error: 'Failed to retrieve global audit logs' });
