@@ -20,10 +20,6 @@ export default function Auth() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!turnstileToken) {
-      setError('يرجى إكمال التحقق الأمني أولاً');
-      return;
-    }
     setError('');
     setLoading(true);
 
@@ -108,7 +104,7 @@ export default function Auth() {
             />
           </div>
 
-          <button disabled={loading || !turnstileToken} type="submit" className="w-full bg-primary hover:bg-primary-fixed text-on-primary font-bold py-3 rounded-lg shadow-[0_0_20px_rgba(255,153,0,0.4)] transition-all mt-6 text-lg disabled:opacity-50">
+          <button disabled={loading} type="submit" className="w-full bg-primary hover:bg-primary-fixed text-on-primary font-bold py-3 rounded-lg shadow-[0_0_20px_rgba(255,153,0,0.4)] transition-all mt-6 text-lg disabled:opacity-50">
             {loading ? 'جاري الدخول...' : 'تسجيل الدخول'}
           </button>
         </form>

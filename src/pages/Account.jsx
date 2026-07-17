@@ -720,7 +720,7 @@ export default function Account() {
                     )}
                     
                     <button 
-                      type="submit" disabled={savingProfile || isSendingOtp || (profileData.phone !== session?.user?.user_metadata?.phone && !turnstileToken)} 
+                      type="submit" disabled={savingProfile || isSendingOtp}
                       className="bg-primary text-on-primary px-8 py-3 rounded-xl font-bold disabled:opacity-50 hover:bg-red-700 transition-all"
                     >
                       {savingProfile || isSendingOtp ? 'جاري المعالجة...' : 'حفظ التغييرات'}
@@ -792,7 +792,7 @@ export default function Account() {
                       </div>
 
                       <div className="flex gap-3 justify-center">
-                        <button onClick={handleChangePwSendOtp} disabled={changingPassword || !turnstileToken} className="bg-primary text-on-primary px-8 py-3 rounded-xl font-bold disabled:opacity-50 hover:bg-red-700 transition-all">
+                        <button onClick={handleChangePwSendOtp} disabled={changingPassword} className="bg-primary text-on-primary px-8 py-3 rounded-xl font-bold disabled:opacity-50 hover:bg-red-700 transition-all">
                           {changingPassword ? 'جاري الإرسال...' : 'إرسال كود التحقق'}
                         </button>
                         <button onClick={cancelChangePassword} className="bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-900 dark:text-white font-bold px-6 py-3 rounded-xl transition-all">إلغاء</button>

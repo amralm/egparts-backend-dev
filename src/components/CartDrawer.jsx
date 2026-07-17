@@ -615,7 +615,7 @@ export default function CartDrawer() {
                         <div className="flex justify-center bg-black/20 p-4 rounded-xl border border-white/5">
                           <Turnstile siteKey={TURNSTILE_SITE_KEY} onSuccess={(token) => setTurnstileToken(token)} onExpire={() => setTurnstileToken(null)} onError={() => setTurnstileToken(null)} />
                         </div>
-                        <button disabled={isSendingOtp || !turnstileToken} onClick={handleSendOtp} className="w-full bg-primary hover:bg-red-700 text-white font-bold py-3.5 rounded-xl transition-all disabled:opacity-50">
+                        <button disabled={isSendingOtp} onClick={handleSendOtp} className="w-full bg-primary hover:bg-red-700 text-white font-bold py-3.5 rounded-xl transition-all disabled:opacity-50">
                           {isSendingOtp ? statusMessages[sendingStatus] : 'المتابعة للحصول على الكود'}
                         </button>
                       </div>

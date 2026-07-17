@@ -61,10 +61,6 @@ export default function UserAuth() {
   const handleInitialAction = async (e) => {
     e.preventDefault();
     if (loading || timer > 0) return;
-    if (!turnstileToken) {
-      showToast('error', 'يرجى إكمال التحقق الأمني أولاً');
-      return;
-    }
 
     setLoading(true);
     try {
@@ -207,10 +203,6 @@ export default function UserAuth() {
   const handleForgotSendOtp = async (e) => {
     e.preventDefault();
     if (loading || forgotTimer > 0) return;
-    if (!turnstileToken) {
-      showToast('error', 'يرجى إكمال التحقق الأمني أولاً');
-      return;
-    }
     if (!/^01[0125][0-9]{8}$/.test(forgotPhone)) {
       showToast('error', 'يرجى إدخال رقم هاتف مصري صحيح');
       return;
@@ -349,7 +341,7 @@ export default function UserAuth() {
               <div className="flex justify-center py-2">
                 <Turnstile siteKey="0x4AAAAAADF4VfOFuztpzj9u" onSuccess={(token) => setTurnstileToken(token)} onExpire={() => setTurnstileToken(null)} onError={() => setTurnstileToken(null)} />
               </div>
-              <button disabled={loading || !turnstileToken} type="submit" className="w-full bg-primary hover:bg-red-700 text-white font-black py-4 rounded-xl shadow-lg transition-all mt-2 disabled:opacity-50">
+              <button disabled={loading} type="submit" className="w-full bg-primary hover:bg-red-700 text-white font-black py-4 rounded-xl shadow-lg transition-all mt-2 disabled:opacity-50">
                 {loading ? 'جاري الاتصال بالخادم...' : 'إرسال كود التحقق'}
               </button>
               <div className="text-center">
@@ -474,7 +466,7 @@ export default function UserAuth() {
             </div>
 
             <button 
-              disabled={loading || !turnstileToken} 
+              disabled={loading} 
               type="submit" 
               className="w-full bg-primary hover:bg-red-700 text-white font-black py-4 rounded-xl shadow-lg transition-all mt-2 disabled:opacity-50"
             >
