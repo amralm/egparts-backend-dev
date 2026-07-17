@@ -27,14 +27,20 @@ router.get('/maintenance', async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('system_settings')
-      .select('value')
-      .eq('key', 'maintenance_mode')
-      .maybeSingle();
+      .select('key, value')
+      .in('key', ['maintenance_mode', 'dev_mode_enabled']);
 
-    const isMaintenance = !error && data && data.value === 'true';
-    res.json({ maintenance: isMaintenance });
+    const settings = {};
+    if (!error && data) {
+      data.forEach(s => { settings[s.key] = s.value; });
+    }
+
+    res.json({
+      maintenance: settings['maintenance_mode'] === 'true',
+      devMode: settings['dev_mode_enabled'] === 'true' || global.DEV_MODE_ENABLED === true
+    });
   } catch (err) {
-    res.json({ maintenance: false });
+    res.json({ maintenance: false, devMode: global.DEV_MODE_ENABLED === true });
   }
 });
 

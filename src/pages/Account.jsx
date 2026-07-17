@@ -10,9 +10,11 @@ import ConfirmModal from '../components/ConfirmModal';
 import fetchWithRetry, { RETRY_MESSAGES } from '../lib/fetchWithRetry';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { useStore } from '../context/StoreContext';
+import { useDevMode } from '../hooks/useDevMode';
 
 export default function Account() {
   const session = useAuth();
+  const devMode = useDevMode();
   const navigate = useNavigate();
   const { store } = useStore();
   const { settings } = useSettings();
@@ -708,7 +710,7 @@ export default function Account() {
                       </div>
                     </div>
                     
-                    {profileData.phone !== session?.user?.user_metadata?.phone && (
+                    {profileData.phone !== session?.user?.user_metadata?.phone && !devMode && (
                       <div className="flex justify-center">
                         <Turnstile 
                           siteKey="0x4AAAAAADF4VfOFuztpzj9u" 
@@ -782,14 +784,16 @@ export default function Account() {
                     <div className="text-center py-4">
                       <p className="text-gray-600 dark:text-on-surface-variant mb-4">سيتم إرسال كود تحقق إلى رقم هاتفك المسجل عبر واتساب</p>
                       
-                      <div className="flex justify-center mb-4">
-                        <Turnstile 
-                          siteKey="0x4AAAAAADF4VfOFuztpzj9u" 
-                          onSuccess={(token) => setTurnstileToken(token)}
-                          onExpire={() => setTurnstileToken(null)}
-                          onError={() => setTurnstileToken(null)}
-                        />
-                      </div>
+                      {!devMode && (
+                        <div className="flex justify-center mb-4">
+                          <Turnstile 
+                            siteKey="0x4AAAAAADF4VfOFuztpzj9u" 
+                            onSuccess={(token) => setTurnstileToken(token)}
+                            onExpire={() => setTurnstileToken(null)}
+                            onError={() => setTurnstileToken(null)}
+                          />
+                        </div>
+                      )}
 
                       <div className="flex gap-3 justify-center">
                         <button onClick={handleChangePwSendOtp} disabled={changingPassword} className="bg-primary text-on-primary px-8 py-3 rounded-xl font-bold disabled:opacity-50 hover:bg-red-700 transition-all">

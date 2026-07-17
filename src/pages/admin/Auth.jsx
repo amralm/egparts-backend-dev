@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { Turnstile } from '@marsidev/react-turnstile';
+import { useDevMode } from '../../hooks/useDevMode';
 
 export default function Auth() {
+  const devMode = useDevMode();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -95,14 +97,16 @@ export default function Auth() {
             </div>
           </div>
 
-          <div className="flex justify-center py-2">
-            <Turnstile 
-              siteKey="0x4AAAAAADF4VfOFuztpzj9u" 
-              onSuccess={(token) => setTurnstileToken(token)}
-              onExpire={() => setTurnstileToken(null)}
-              onError={() => setTurnstileToken(null)}
-            />
-          </div>
+          {!devMode && (
+            <div className="flex justify-center py-2">
+              <Turnstile 
+                siteKey="0x4AAAAAADF4VfOFuztpzj9u" 
+                onSuccess={(token) => setTurnstileToken(token)}
+                onExpire={() => setTurnstileToken(null)}
+                onError={() => setTurnstileToken(null)}
+              />
+            </div>
+          )}
 
           <button disabled={loading} type="submit" className="w-full bg-primary hover:bg-primary-fixed text-on-primary font-bold py-3 rounded-lg shadow-[0_0_20px_rgba(255,153,0,0.4)] transition-all mt-6 text-lg disabled:opacity-50">
             {loading ? 'جاري الدخول...' : 'تسجيل الدخول'}

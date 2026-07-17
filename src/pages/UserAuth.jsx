@@ -7,9 +7,11 @@ import { syncUserProfile } from '../services/authService';
 import fetchWithRetry, { RETRY_MESSAGES } from '../lib/fetchWithRetry';
 import { useSettings } from '../context/SettingsContext';
 import { useStore } from '../context/StoreContext';
+import { useDevMode } from '../hooks/useDevMode';
 
 export default function UserAuth() {
   const { store } = useStore();
+  const devMode = useDevMode();
   const [isLogin, setIsLogin] = useState(true);
   const [formData, setFormData] = useState({
     name: '',
@@ -338,9 +340,11 @@ export default function UserAuth() {
                   <input type="tel" required value={forgotPhone} onChange={e => setForgotPhone(e.target.value)} className="w-full bg-surface-container border border-on-surface/10 rounded-xl pl-12 pr-4 py-3 text-on-surface text-lg font-bold focus:outline-none focus:border-primary text-left" placeholder="01xxxxxxxxx" dir="ltr" />
                 </div>
               </div>
-              <div className="flex justify-center py-2">
-                <Turnstile siteKey="0x4AAAAAADF4VfOFuztpzj9u" onSuccess={(token) => setTurnstileToken(token)} onExpire={() => setTurnstileToken(null)} onError={() => setTurnstileToken(null)} />
-              </div>
+              {!devMode && (
+                <div className="flex justify-center py-2">
+                  <Turnstile siteKey="0x4AAAAAADF4VfOFuztpzj9u" onSuccess={(token) => setTurnstileToken(token)} onExpire={() => setTurnstileToken(null)} onError={() => setTurnstileToken(null)} />
+                </div>
+              )}
               <button disabled={loading} type="submit" className="w-full bg-primary hover:bg-red-700 text-white font-black py-4 rounded-xl shadow-lg transition-all mt-2 disabled:opacity-50">
                 {loading ? 'جاري الاتصال بالخادم...' : 'إرسال كود التحقق'}
               </button>
@@ -457,13 +461,16 @@ export default function UserAuth() {
             )}
 
             <div className="flex justify-center py-2">
-              <Turnstile 
-                siteKey="0x4AAAAAADF4VfOFuztpzj9u" 
-                onSuccess={(token) => setTurnstileToken(token)}
-                onExpire={() => setTurnstileToken(null)}
-                onError={() => setTurnstileToken(null)}
-              />
-            </div>
+            {!devMode && (
+              <div className="flex justify-center">
+                <Turnstile 
+                  siteKey="0x4AAAAAADF4VfOFuztpzj9u" 
+                  onSuccess={(token) => setTurnstileToken(token)}
+                  onExpire={() => setTurnstileToken(null)}
+                  onError={() => setTurnstileToken(null)}
+                />
+              </div>
+            )}
 
             <button 
               disabled={loading} 

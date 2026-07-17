@@ -10,12 +10,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Turnstile } from '@marsidev/react-turnstile';
 import fetchWithRetry, { RETRY_MESSAGES } from '../lib/fetchWithRetry';
 import { TURNSTILE_SITE_KEY } from '../lib/turnstile';
+import { useDevMode } from '../hooks/useDevMode';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://egparts-backend.onrender.com';
 
 export default function CartDrawer() {
   const { cart, isCartOpen, toggleCart, removeFromCart, updateQuantity, getCartTotal, clearCart } = useCart();
   const session = useAuth();
+  const devMode = useDevMode();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -612,9 +614,11 @@ export default function CartDrawer() {
                           <h3 className="text-xl font-bold text-on-surface mb-2">تأكيد أمني</h3>
                           <p className="text-sm text-on-surface-variant">لحماية حسابك، يرجى تأكيد أنك لست برنامجاً آلياً للمتابعة.</p>
                         </div>
-                        <div className="flex justify-center bg-black/20 p-4 rounded-xl border border-white/5">
-                          <Turnstile siteKey={TURNSTILE_SITE_KEY} onSuccess={(token) => setTurnstileToken(token)} onExpire={() => setTurnstileToken(null)} onError={() => setTurnstileToken(null)} />
-                        </div>
+                        {!devMode && (
+                          <div className="flex justify-center bg-black/20 p-4 rounded-xl border border-white/5">
+                            <Turnstile siteKey={TURNSTILE_SITE_KEY} onSuccess={(token) => setTurnstileToken(token)} onExpire={() => setTurnstileToken(null)} onError={() => setTurnstileToken(null)} />
+                          </div>
+                        )}
                         <button disabled={isSendingOtp} onClick={handleSendOtp} className="w-full bg-primary hover:bg-red-700 text-white font-bold py-3.5 rounded-xl transition-all disabled:opacity-50">
                           {isSendingOtp ? statusMessages[sendingStatus] : 'المتابعة للحصول على الكود'}
                         </button>
