@@ -347,8 +347,37 @@ router.post('/settings', verifyPlatformAdmin, async (req, res) => {
     await auditPlatform(req, 'platform.settings.update', 'system_setting', 'global', null, settings, null);
 
     if (settings.dev_mode_enabled !== undefined) {
-      global.DEV_MODE_ENABLED = settings.dev_mode_enabled === 'true' || settings.dev_mode_enabled === true;
-      logger.level = global.DEV_MODE_ENABLED ? 'debug' : 'info';
+      const isDev = settings.dev_mode_enabled === 'true' || settings.dev_mode_enabled === true;
+      global.DEV_MODE_ENABLED = isDev;
+      logger.level = isDev ? 'debug' : 'info';
+
+      // Cloudflare Bot Automation (Environment Option)
+      if (process.env.CLOUDFLARE_ZONE_ID && process.env.CLOUDFLARE_API_TOKEN) {
+        try {
+          const zone = process.env.CLOUDFLARE_ZONE_ID;
+          const token = process.env.CLOUDFLARE_API_TOKEN;
+          const botStatus = !isDev; // Off when dev mode is on
+          const secLevel = isDev ? 'essentially_off' : 'medium'; // essentially_off when dev mode is on
+
+          // Toggle Bot Fight Mode
+          fetch(`https://api.cloudflare.com/client/v4/zones/${zone}/bot_management`, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fight_mode: botStatus })
+          }).catch(err => logger.error('Cloudflare Bot API error:', err));
+
+          // Toggle WAF Security Level
+          fetch(`https://api.cloudflare.com/client/v4/zones/${zone}/settings/security_level`, {
+            method: 'PATCH',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: secLevel })
+          }).catch(err => logger.error('Cloudflare Security Level API error:', err));
+
+          logger.info(`Requested Cloudflare automation: Bot Fight Mode -> ${botStatus}, Security Level -> ${secLevel}`);
+        } catch (e) {
+          logger.error('Failed to trigger Cloudflare API automation:', e.message);
+        }
+      }
     }
 
     res.json({ success: true });
