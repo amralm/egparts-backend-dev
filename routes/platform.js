@@ -1406,11 +1406,11 @@ router.get('/invitations', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
-// POST /api/platform/invitations - Create owner invitation (via phone/WhatsApp)
+// POST /api/platform/invitations - Create owner invitation (via email/WhatsApp)
 router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
-  const { phone, store_id, role_id } = req.body;
-  if (!phone || !store_id) {
-    return res.status(400).json({ error: 'رقم الهاتف و store_id مطلوبان' });
+  const { email, phone, store_id, role_id } = req.body;
+  if ((!phone && !email) || !store_id) {
+    return res.status(400).json({ error: 'Please provide either email or phone, and a valid store_id' });
   }
 
   try {
@@ -1425,8 +1425,8 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
     const { data: invitation, error } = await supabase
       .from('tenant_invitations')
       .insert([{
-        email: null,
-        phone: phone.trim(),
+        email: email ? email.trim().toLowerCase() : null,
+        phone: phone ? phone.trim() : null,
         store_id,
         role_id: targetRoleId,
         token,
