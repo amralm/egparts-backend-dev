@@ -50,7 +50,7 @@ async function resolveStorePermissions(userId, storeId) {
     `)
     .eq('user_id', userId)
     .eq('store_id', storeId)
-    .eq('roles.role_type', 'tenant');
+    .in('roles.role_type', ['tenant', 'tenant_template']);
 
   if (error) throw error;
 
