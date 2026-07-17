@@ -790,17 +790,58 @@ app.post('/api/platform/invitations', async (req, res) => {
   try {
     const user = await verifySuperAdmin(req);
     if (!user) return res.status(403).json({ error: 'Forbidden' });
-    const { phone, store_id } = req.body;
+    const { phone, store_id, role_id } = req.body;
     if (!phone || !store_id) return res.status(400).json({ error: 'phone and store_id required' });
     const cleanPhone = phone.replace(/[\s\+\-]/g, '');
     const crypto = require('crypto');
     const token = crypto.randomBytes(32).toString('hex');
     const waPhone = cleanPhone.startsWith('2') ? cleanPhone : '2' + cleanPhone;
-    const { data: invitation, error } = await supabase.from('tenant_invitations').insert([{ phone: waPhone, store_id, token, status: 'pending', expires_at: new Date(Date.now() + 48*60*60*1000).toISOString(), invited_by: user.id, created_ip: req.ip }]).select().single();
+
+    // Resolve role_id: use provided, else fetch default admin role from user_roles table
+    let finalRoleId = role_id;
+    if (!finalRoleId) {
+      try {
+        const { data: existingRole } = await supabase
+          .from('user_roles')
+          .select('role_id')
+          .eq('store_id', store_id)
+          .limit(1)
+          .maybeSingle();
+        if (existingRole?.role_id) finalRoleId = existingRole.role_id;
+      } catch (e) {}
+    }
+    if (!finalRoleId) {
+      // Last resort: fetch any role from roles table
+      try {
+        const { data: anyRole } = await supabase
+          .from('roles')
+          .select('id')
+          .limit(1)
+          .maybeSingle();
+        if (anyRole?.id) finalRoleId = anyRole.id;
+      } catch (e) {}
+    }
+
+    const insertPayload = {
+      phone: waPhone,
+      store_id,
+      token,
+      status: 'pending',
+      expires_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      invited_by: user.id,
+      created_ip: req.ip,
+    };
+    if (finalRoleId) insertPayload.role_id = finalRoleId;
+
+    const { data: invitation, error } = await supabase
+      .from('tenant_invitations')
+      .insert([insertPayload])
+      .select()
+      .single();
     if (error) throw error;
     try { await whatsappService.sendMessage(waPhone, `مرحباً!\n\nتمت دعوتك لتكون مدير متجر على منصة EG-PARTS Cloud.\n\n🔗 ${process.env.FRONTEND_URL || 'https://egparts.store'}/accept-invitation?token=${token}\n\n⏰ صلاحية الرابط: 48 ساعة.`); } catch (e) {}
     res.json({ success: true, invitation });
-  } catch (e) { res.status(500).json({ error: 'Failed: ' + e.message }); }
+  } catch (e) { logger.error('platform/invitations create failed:', e?.message || String(e)); res.status(500).json({ error: 'Failed: ' + e.message }); }
 });
 
 // GET /api/platform/invitations
