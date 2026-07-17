@@ -11,6 +11,12 @@ const { banCheckMiddleware } = require('./middleware/banCheck');
 const { verifyAdminOrLocal } = require('./middleware/qrAuth');
 const cookieParser = require('cookie-parser');
 const tenantResolver = require('./middleware/tenantResolver');
+// ✅ Module-level Supabase client (service role key, bypasses RLS)
+// Used by verifySuperAdmin() and all inline /api/platform/* endpoints below.
+// (Previously each function re-required it locally, but verifySuperAdmin and the
+//  inline platform endpoints did NOT — causing ReferenceError → 500 on every
+//  /api/platform/stores, /plans, /tenants/metrics, /users, /store-admins call.)
+const { supabase } = require('./services/supabase');
 
 const app = express();
 
@@ -717,9 +723,9 @@ app.get('/api/platform/stores', async (req, res) => {
       .select('id, name, subdomain, custom_domain, is_active, subscription_expires_at, created_at')
       .neq('id', '00000000-0000-0000-0000-000000000000')
       .order('created_at', { ascending: false });
-    if (error) throw error;
+    if (error) { logger.error('platform/stores query error:', error.message); throw error; }
     res.json(data || []);
-  } catch (e) { res.status(500).json({ error: 'Failed to load stores' }); }
+  } catch (e) { logger.error('platform/stores failed:', e?.message || String(e)); res.status(500).json({ error: 'Failed to load stores' }); }
 });
 
 // GET /api/platform/users
@@ -812,9 +818,9 @@ app.get('/api/platform/plans', async (req, res) => {
     const user = await verifySuperAdmin(req);
     if (!user) return res.status(403).json({ error: 'Forbidden' });
     const { data, error } = await supabase.from('plans').select('*').order('sort_order', { ascending: true });
-    if (error) { const { data: fb } = await supabase.from('plans').select('*').order('created_at', { ascending: true }); return res.json(fb || []); }
+    if (error) { const { data: fb, error: fbErr } = await supabase.from('plans').select('*').order('created_at', { ascending: true }); if (fbErr) logger.error('platform/plans fallback error:', fbErr.message); return res.json(fb || []); }
     res.json(data || []);
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) { logger.error('platform/plans failed:', e?.message || String(e)); res.status(500).json({ error: 'Failed' }); }
 });
 
 // GET /api/platform/settings
@@ -851,7 +857,7 @@ app.get('/api/platform/tenants/metrics', async (req, res) => {
       metrics.push({ ...store, orders_this_month: ordersRes.count || 0, products_count: productsRes.count || 0, sales_this_month: (ordersRes.data || []).reduce((s, o) => s + Number(o.total || 0), 0), plan, plan_id: null, subscription_status: null });
     }
     res.json(metrics);
-  } catch (e) { res.status(500).json({ error: 'Failed' }); }
+  } catch (e) { logger.error('platform/tenants/metrics failed:', e?.message || String(e)); res.status(500).json({ error: 'Failed' }); }
 });
 
 // POST /api/db-proxy
