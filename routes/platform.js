@@ -387,6 +387,39 @@ router.post('/settings', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
+// 2.5. POST /api/platform/settings/test-smtp - Test SMTP configuration
+router.post('/settings/test-smtp', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { host, port, secure, user, pass, recipient } = req.body;
+    if (!host || !user || !pass || !recipient) {
+      return res.status(400).json({ error: 'Missing required SMTP parameters' });
+    }
+    
+    const nodemailer = require('nodemailer');
+    const transporter = nodemailer.createTransport({
+      host,
+      port: port || 587,
+      secure: secure === true || secure === 'true',
+      auth: {
+        user,
+        pass
+      }
+    });
+
+    await transporter.sendMail({
+      from: user,
+      to: recipient,
+      subject: 'EGParts SMTP Test',
+      text: 'This is a test email from the EGParts platform to verify SMTP settings.',
+    });
+
+    res.json({ success: true, message: 'Test email sent successfully' });
+  } catch (err) {
+    logger.error('Failed to send test email:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to send test email: ' + err.message });
+  }
+});
+
 // 3. GET /api/platform/plans - Retrieve plans, features, and limits
 router.get('/plans', verifyPlatformAdmin, async (req, res) => {
   try {
@@ -2043,6 +2076,19 @@ router.post('/notifications/templates', verifyPlatformAdmin, async (req, res) =>
   }
 });
 
+// DELETE /api/platform/notifications/templates/:id - Delete a template
+router.delete('/notifications/templates/:id', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error } = await supabase.from('notification_templates').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Failed to delete notification template:', err.message);
+    res.status(500).json({ error: 'Failed to delete template' });
+  }
+});
+
 // GET /api/platform/notifications/layouts - List notification layouts
 router.get('/notifications/layouts', verifyPlatformAdmin, async (req, res) => {
   try {
@@ -2077,16 +2123,29 @@ router.post('/notifications/layouts', verifyPlatformAdmin, async (req, res) => {
     if (id) {
       query = supabase.from('notification_layouts').update(payload).eq('id', id);
     } else {
-      query = supabase.from('notification_layouts').insert([payload]);
+      query = supabase.from('notification_layouts').insert([payload]).select();
     }
 
-    const { error } = await query;
+    const { data, error } = await query.single();
     if (error) throw error;
 
-    res.json({ success: true });
+    res.json({ success: true, id: data.id });
   } catch (err) {
     logger.error('Failed to save notification layout:', err.message);
     res.status(500).json({ error: 'Failed to save layout' });
+  }
+});
+
+// DELETE /api/platform/notifications/layouts/:id - Delete a layout
+router.delete('/notifications/layouts/:id', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { error } = await supabase.from('notification_layouts').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Failed to delete notification layout:', err.message);
+    res.status(500).json({ error: 'Failed to delete layout' });
   }
 });
 
