@@ -3,3 +3,16 @@ node_modules/
 .DS_Store
 logs/
 auth_info_baileys/
+
+# Scratch & test scripts (not for production)
+scratch/
+test-*.js
+test_*.js
+check_*.js
+fix_*.js
+gen-*.js
+verify_*.js
+cleanup_*.js
+dist/
+recovery/
+supabase/.temp/
