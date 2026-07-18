@@ -1696,6 +1696,28 @@ router.post('/invitations/:id/revoke', verifyPlatformAdmin, async (req, res) => 
   }
 });
 
+// DELETE /api/platform/invitations/cleanup - Delete all revoked or expired invitations
+router.delete('/invitations/cleanup', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { error, data } = await supabase
+      .from('tenant_invitations')
+      .delete()
+      .in('status', ['revoked', 'expired'])
+      .select('id');
+
+    if (error) throw error;
+    
+    if (data && data.length > 0) {
+      await auditPlatform(req, 'platform.invitation.cleanup', 'tenant_invitation', 'bulk', { count: data.length }, null);
+    }
+    
+    res.json({ success: true, message: `Deleted ${data ? data.length : 0} inactive invitations`, count: data ? data.length : 0 });
+  } catch (err) {
+    logger.error('Failed to cleanup invitations:', err.message);
+    res.status(500).json({ error: 'Failed to cleanup invitations' });
+  }
+});
+
 // DELETE /api/platform/invitations/:id - Delete invitation completely
 router.delete('/invitations/:id', verifyPlatformAdmin, async (req, res) => {
   const { id } = req.params;
