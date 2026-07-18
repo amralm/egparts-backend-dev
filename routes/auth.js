@@ -776,6 +776,7 @@ router.get('/invitation/verify', async (req, res) => {
 
     res.json({
       success: true,
+      email: invitation.email,
       phone: invitation.phone,
       store_id: invitation.store_id
     });
@@ -813,7 +814,11 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
       return res.status(400).json({ error: 'انتهت صلاحية الدعوة' });
     }
 
-    const userEmail = email ? email.trim().toLowerCase() : null;
+    // Use the email stored in the invitation as the authoritative source.
+    // This prevents tampering: the user cannot change the email via the form.
+    const userEmail = invitation.email
+      ? invitation.email.trim().toLowerCase()
+      : (email ? email.trim().toLowerCase() : null);
 
     // 2. Manage Auth User creation (Idempotent check)
     let authUserId = null;
