@@ -24,6 +24,10 @@ async function recordOtpAudit(entry) {
 router.get('/health', async (req, res) => {
   const status = {
     server: 'ok',
+    client_ip: req.clientIp,
+    x_forwarded: req.headers['x-forwarded-for'],
+    cf_connecting: req.headers['cf-connecting-ip'],
+    req_ip: req.ip,
     whatsapp: whatsappService.getStatus(),
     db: 'unknown'
   };
