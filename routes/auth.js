@@ -85,6 +85,24 @@ const verifyRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Per-phone rate limiter for OTP verify (5 req / 15 min per phone) to prevent distributed brute force across IPs
+const perPhoneVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'تم إيقاف التحقق لهذا الرقم مؤقتاً لكثرة المحاولات الخاطئة. حاول بعد 15 دقيقة.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+  keyGenerator: (req) => {
+    try {
+      const { phone } = verifyOTPSchema.parse(req.body);
+      return `verify_${phone}`;
+    } catch {
+      return `verify_fallback_${req.ip}`;
+    }
+  },
+});
+
 // Rate limiter for sensitive write operations (5 req / 1 min per IP)
 const sensitiveWriteRateLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -241,8 +259,8 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
   res.json({ success: true, message: 'تم إرسال كود التحقق بنجاح' });
 });
 
-// Route: Verify OTP — IP rate limited (10 req/min)
-router.post('/verify-otp', verifyRateLimiter, async (req, res) => {
+// Route: Verify OTP — IP rate limited + Phone rate limited to prevent distributed brute force
+router.post('/verify-otp', verifyRateLimiter, perPhoneVerifyLimiter, async (req, res) => {
   const { phone, code } = verifyOTPSchema.parse(req.body);
 
   if (!req.store?.id) {

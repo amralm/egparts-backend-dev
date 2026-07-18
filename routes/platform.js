@@ -1095,6 +1095,7 @@ router.post('/users/:user_id/unban', verifyPlatformAdmin, async (req, res) => {
 
 router.post('/users/:user_id/reset-link', verifyPlatformAdmin, async (req, res) => {
   const userId = req.params.user_id;
+  const { phone } = req.body;
 
   try {
     const { data: userAuth, error: authError } = await supabase.auth.admin.getUserById(userId);
@@ -1118,6 +1119,21 @@ router.post('/users/:user_id/reset-link', verifyPlatformAdmin, async (req, res) 
     const resetLink = linkData.properties.action_link;
 
     await auditPlatform(req, 'platform.users.reset_link', 'user', userId, null, null);
+
+    // Send reset link via WhatsApp if phone is provided
+    if (phone && phone.trim()) {
+      const { sendNotification } = require('../services/notificationEngine');
+      sendNotification({
+        templateCode: 'platform_password_reset',
+        recipient: phone.trim(),
+        language: 'ar',
+        variables: {
+          reset_link: resetLink
+        }
+      }).catch(err => {
+        logger.error(`Failed to send WhatsApp reset link to ${phone}: ${err.message}`);
+      });
+    }
 
     res.json({ success: true, link: resetLink });
   } catch (err) {
