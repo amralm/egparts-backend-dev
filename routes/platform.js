@@ -1093,6 +1093,39 @@ router.post('/users/:user_id/unban', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
+router.post('/users/:user_id/reset-link', verifyPlatformAdmin, async (req, res) => {
+  const userId = req.params.user_id;
+
+  try {
+    const { data: userAuth, error: authError } = await supabase.auth.admin.getUserById(userId);
+
+    if (authError || !userAuth?.user?.email) {
+      return res.status(404).json({ error: 'User not found or has no email address' });
+    }
+
+    const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({
+      type: 'recovery',
+      email: userAuth.user.email,
+      options: {
+        redirectTo: `${process.env.FRONTEND_URL || 'https://egparts.store'}/reset-password`
+      }
+    });
+
+    if (linkError) {
+      throw linkError;
+    }
+
+    const resetLink = linkData.properties.action_link;
+
+    await auditPlatform(req, 'platform.users.reset_link', 'user', userId, null, null);
+
+    res.json({ success: true, link: resetLink });
+  } catch (err) {
+    logger.error('Failed to generate reset link:', err.message);
+    res.status(500).json({ error: 'Failed to generate reset link' });
+  }
+});
+
 // GET /api/platform/users/:user_id/details - Get platform user detail
 router.get('/users/:user_id/details', verifyPlatformAdmin, async (req, res) => {
   try {
