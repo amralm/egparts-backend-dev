@@ -266,7 +266,7 @@ const resetPasswordSchema = z.object({
 });
 
 // Route: Reset Password via OTP (forgot password)
-router.post('/reset-password', otpRateLimiter, verifyRateLimiter, async (req, res) => {
+router.post('/reset-password', sensitiveWriteRateLimiter, async (req, res) => {
   try {
     const { phone, code, new_password } = resetPasswordSchema.parse(req.body);
 
