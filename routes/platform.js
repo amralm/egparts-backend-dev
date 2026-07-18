@@ -856,63 +856,67 @@ router.get('/users', verifyPlatformAdmin, async (req, res) => {
   try {
     const { data: profiles, error } = await supabase
       .from('user_profiles')
-      .select('*')
+      .select('*, stores(id, name, subdomain)')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    const allUserIds = (profiles || []).map(u => u.user_id).filter(Boolean);
+    // Group by user_id — one row per store, so we merge stores and pick the newest profile
+    const userMap = new Map();
 
-    let userStoresMap = new Map();
-    let namesByUserId = new Map();
+    (profiles || []).forEach((row) => {
+      if (!row.user_id) return;
 
+      if (!userMap.has(row.user_id)) {
+        // First occurrence — use it as the base profile, start store list
+        userMap.set(row.user_id, {
+          ...row,
+          stores: row.stores ? [row.stores] : [],
+        });
+      } else {
+        // Duplicate user_id from a different store — just add the store
+        const existing = userMap.get(row.user_id);
+        if (row.stores && !existing.stores.some(s => s.id === row.stores.id)) {
+          existing.stores.push(row.stores);
+        }
+        // Keep the most recently updated profile data
+        if (new Date(row.updated_at) > new Date(existing.updated_at)) {
+          const stores = existing.stores;
+          userMap.set(row.user_id, { ...row, stores });
+        }
+      }
+    });
+
+    const allUserIds = Array.from(userMap.keys());
+
+    // Enrich with names from orders and additional store memberships from user_roles
     if (allUserIds.length > 0) {
-      // Get orders to extract names and customer store associations
-      const { data: orders } = await supabase
-        .from('orders')
-        .select('user_id, store_id, full_name, stores(id, name)')
-        .in('user_id', allUserIds);
+      const [ordersRes, rolesRes] = await Promise.all([
+        supabase.from('orders').select('user_id, store_id, full_name, stores(id, name, subdomain)').in('user_id', allUserIds),
+        supabase.from('user_roles').select('user_id, store_id, stores(id, name, subdomain)').in('user_id', allUserIds),
+      ]);
 
-      (orders || []).forEach((order) => {
-        if (order.user_id) {
-          if (order.full_name && !namesByUserId.has(order.user_id)) {
-            namesByUserId.set(order.user_id, order.full_name);
-          }
-          if (order.store_id && order.stores) {
-            if (!userStoresMap.has(order.user_id)) {
-              userStoresMap.set(order.user_id, new Map());
-            }
-            // Use store_id as map key to ensure uniqueness
-            userStoresMap.get(order.user_id).set(order.store_id, order.stores);
-          }
+      // Add names from orders
+      (ordersRes.data || []).forEach((order) => {
+        const user = userMap.get(order.user_id);
+        if (user && order.full_name && !user.full_name) {
+          user.full_name = order.full_name;
+        }
+        if (user && order.stores && !user.stores.some(s => s.id === order.store_id)) {
+          user.stores.push(order.stores);
         }
       });
 
-      // Get user_roles to capture admin/staff store associations
-      const { data: userRoles } = await supabase
-        .from('user_roles')
-        .select('user_id, store_id, stores(id, name)')
-        .in('user_id', allUserIds);
-      
-      (userRoles || []).forEach((ur) => {
-        if (ur.user_id && ur.store_id && ur.stores) {
-          if (!userStoresMap.has(ur.user_id)) {
-            userStoresMap.set(ur.user_id, new Map());
-          }
-          userStoresMap.get(ur.user_id).set(ur.store_id, ur.stores);
+      // Add stores from user_roles (admin memberships)
+      (rolesRes.data || []).forEach((ur) => {
+        const user = userMap.get(ur.user_id);
+        if (user && ur.stores && !user.stores.some(s => s.id === ur.store_id)) {
+          user.stores.push(ur.stores);
         }
       });
     }
 
-    const users = (profiles || []).map((user) => {
-      const storesMap = userStoresMap.get(user.user_id);
-      const stores = storesMap ? Array.from(storesMap.values()) : [];
-      return {
-        ...user,
-        full_name: user.full_name || namesByUserId.get(user.user_id) || user.full_name,
-        stores
-      };
-    });
+    const users = Array.from(userMap.values());
 
     res.json({ success: true, users });
   } catch (err) {
@@ -920,6 +924,7 @@ router.get('/users', verifyPlatformAdmin, async (req, res) => {
     res.status(500).json({ error: 'Failed to load users' });
   }
 });
+
 
 // GET /api/platform/admin-users - List users with admin roles (super_admins + user_roles)
 router.get('/admin-users', verifyPlatformAdmin, async (req, res) => {
