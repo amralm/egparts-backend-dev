@@ -839,9 +839,9 @@ router.get('/tenants/metrics', verifyPlatformAdmin, async (req, res) => {
         sales_this_month: (ordersRes.data || []).reduce((sum, order) => sum + Number(order.total || 0), 0),
         products_count: productsRes.count || 0,
         otp_usage_this_month: (otpRes.data || []).reduce((sum, row) => sum + Number(row.used || 0), 0),
-        plan: store.store_subscriptions?.[0]?.plans || null,
-        plan_id: store.store_subscriptions?.[0]?.plan_id || null,
-        subscription_status: store.store_subscriptions?.[0]?.status || null
+        plan: store.store_subscriptions?.plans || null,
+        plan_id: store.store_subscriptions?.plan_id || null,
+        subscription_status: store.store_subscriptions?.status || null
       });
     }
 
