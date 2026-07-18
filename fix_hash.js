@@ -1,0 +1,1 @@
+﻿const { createClient } = require("@supabase/supabase-js"); const s = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY); s.from("otp_codes").update({code_hash: "$2b$10$.mZzU9F37Tchj2KdFuczLegJ7Sf9ULqw7fwuVgT9zg9GLrAjY9To."}).eq("phone", "201234567890").then(res => console.log("Updated:", res.error || "Success"));

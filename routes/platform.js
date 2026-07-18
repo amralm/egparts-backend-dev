@@ -1602,14 +1602,14 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
       const activationLink = `${process.env.FRONTEND_URL || 'https://egparts.store'}/accept-invitation?token=${token}`;
 
       sendNotification({
-        channel: 'whatsapp',
+        templateCode: 'tenant_invitation',
         recipient: phone.trim(),
+        language: 'ar',
         variables: {
           activation_link: activationLink,
           expires_hours: 48,
           phone: phone.trim()
-        },
-        bodyText: `مرحباً!\n\nتم دعوتك لتصبح مدير متجر على منصة EG-PARTS Cloud.\n\nرابط التفعيل:\n${activationLink}\n\nصلاحية الرابط: 48 ساعة\n\nEG-PARTS Cloud`
+        }
       }).catch(err => logger.error('Failed to send invitation WhatsApp in background:', err));
     }
 
