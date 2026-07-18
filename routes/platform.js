@@ -493,6 +493,9 @@ router.post('/plans', verifyPlatformAdmin, async (req, res) => {
 
         if (mappingErr) throw mappingErr;
 
+        // Wipe old limits to prevent orphans when types change
+        await supabase.from('feature_limits').delete().eq('plan_feature_id', planFeat.id);
+
         if (feat.limits && Array.isArray(feat.limits)) {
           for (const lim of feat.limits) {
             const { error: limitErr } = await supabase
@@ -1085,6 +1088,122 @@ router.post('/users/:user_id/unban', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
+// GET /api/platform/users/:user_id/details - Get platform user detail
+router.get('/users/:user_id/details', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { user_id } = req.params;
+
+    const { data: profileList, error: profileErr } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('user_id', user_id)
+      .limit(1);
+
+    if (profileErr) throw profileErr;
+    if (!profileList || profileList.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const profile = profileList[0];
+
+    let store_name = null;
+    if (profile.store_id) {
+      const { data: storeData } = await supabase
+        .from('stores')
+        .select('name')
+        .eq('id', profile.store_id)
+        .maybeSingle();
+      if (storeData) {
+        store_name = storeData.name;
+      }
+    } else {
+      // Try to get first store from user_roles
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('stores(name)')
+        .eq('user_id', user_id)
+        .limit(1)
+        .maybeSingle();
+      if (roleData && roleData.stores) {
+        store_name = roleData.stores.name;
+      }
+    }
+
+    let account_status = 'active';
+    if (profile.is_banned) {
+      account_status = 'banned';
+    } else if (profile.is_suspended) {
+      account_status = 'suspended';
+    }
+
+    const { data: ordersData, error: ordersErr } = await supabase
+      .from('orders')
+      .select('total_amount, created_at')
+      .eq('user_id', user_id)
+      .neq('status', 'cancelled');
+
+    let total_orders = 0;
+    let total_spent = 0;
+    let last_order_date = null;
+
+    if (!ordersErr && ordersData) {
+      total_orders = ordersData.length;
+      total_spent = ordersData.reduce((acc, order) => acc + (Number(order.total_amount) || 0), 0);
+      const dates = ordersData.map(o => new Date(o.created_at).getTime());
+      if (dates.length > 0) {
+        last_order_date = new Date(Math.max(...dates)).toISOString();
+      }
+    }
+
+    const detail = {
+      ...profile,
+      store_name,
+      account_status,
+      total_orders,
+      total_spent,
+      last_order_date
+    };
+
+    res.json({ success: true, user: detail });
+  } catch (err) {
+    logger.error('Platform user detail failed:', err.message);
+    res.status(500).json({ error: 'Failed to load user details' });
+  }
+});
+
+// DELETE /api/platform/users/:user_id - Remove admin privileges
+router.delete('/users/:user_id', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { user_id } = req.params;
+    
+    // Check if user has roles to audit
+    const { data: oldRoles } = await supabase
+      .from('user_roles')
+      .select('*')
+      .eq('user_id', user_id);
+
+    const { error: rolesErr } = await supabase
+      .from('user_roles')
+      .delete()
+      .eq('user_id', user_id);
+
+    if (rolesErr) throw rolesErr;
+
+    const { error: superErr } = await supabase
+      .from('super_admins')
+      .delete()
+      .eq('user_id', user_id);
+
+    if (superErr) throw superErr;
+
+    await auditPlatform(req, 'platform.users.remove_admin', 'user', user_id, oldRoles, null);
+
+    res.json({ success: true, message: 'Admin privileges removed successfully' });
+  } catch (err) {
+    logger.error('Platform user admin removal failed:', err.message);
+    res.status(500).json({ error: 'Failed to remove admin privileges' });
+  }
+});
+
 // Impersonation Endpoints
 router.post('/impersonate/start', verifyPlatformAdmin, async (req, res) => {
   const { store_id, reason } = req.body;
@@ -1477,20 +1596,22 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
     if (error) throw error;
     await auditPlatform(req, 'platform.invitation.create', 'tenant_invitation', invitation.id, {}, invitation, store_id);
 
-    // Send invitation link via WhatsApp
-    const { sendNotification } = require('../services/notificationEngine');
-    const activationLink = `${process.env.FRONTEND_URL || 'https://egparts.store'}/accept-invitation?token=${token}`;
+    // Send invitation link via WhatsApp if phone is provided
+    if (phone && phone.trim()) {
+      const { sendNotification } = require('../services/notificationEngine');
+      const activationLink = `${process.env.FRONTEND_URL || 'https://egparts.store'}/accept-invitation?token=${token}`;
 
-    sendNotification({
-      channel: 'whatsapp',
-      recipient: phone.trim(),
-      variables: {
-        activation_link: activationLink,
-        expires_hours: 48,
-        phone: phone.trim()
-      },
-      bodyText: `مرحباً!\n\nتم دعوتك لتصبح مدير متجر على منصة EG-PARTS Cloud.\n\nرابط التفعيل:\n${activationLink}\n\nصلاحية الرابط: 48 ساعة\n\nEG-PARTS Cloud`
-    }).catch(err => logger.error('Failed to send invitation WhatsApp in background:', err));
+      sendNotification({
+        channel: 'whatsapp',
+        recipient: phone.trim(),
+        variables: {
+          activation_link: activationLink,
+          expires_hours: 48,
+          phone: phone.trim()
+        },
+        bodyText: `مرحباً!\n\nتم دعوتك لتصبح مدير متجر على منصة EG-PARTS Cloud.\n\nرابط التفعيل:\n${activationLink}\n\nصلاحية الرابط: 48 ساعة\n\nEG-PARTS Cloud`
+      }).catch(err => logger.error('Failed to send invitation WhatsApp in background:', err));
+    }
 
     res.json({ success: true, invitation });
   } catch (err) {
@@ -1575,6 +1696,27 @@ router.post('/invitations/:id/revoke', verifyPlatformAdmin, async (req, res) => 
   }
 });
 
+// DELETE /api/platform/invitations/:id - Delete invitation completely
+router.delete('/invitations/:id', verifyPlatformAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { error } = await supabase
+      .from('tenant_invitations')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    
+    // Optional audit log for complete destruction
+    await auditPlatform(req, 'platform.invitation.delete', 'tenant_invitation', id, { id }, null);
+    
+    res.json({ success: true, message: 'Invitation deleted permanently' });
+  } catch (err) {
+    logger.error('Failed to delete invitation:', err.message);
+    res.status(500).json({ error: 'Failed to delete invitation' });
+  }
+});
+
 
 // ============================================================
 // 8. Custom Domains Management
@@ -1621,6 +1763,13 @@ router.post('/domains', verifyPlatformAdmin, async (req, res) => {
       return res.status(409).json({ error: 'Domain is already assigned to another tenant. Remove the old binding before linking it again.' });
     }
 
+    if (!!is_primary) {
+      await supabase
+        .from('custom_domains')
+        .update({ is_primary: false })
+        .eq('store_id', store_id);
+    }
+
     const verificationToken = crypto.randomBytes(16).toString('hex');
     const { data: newDomain, error } = await supabase
       .from('custom_domains')
@@ -1645,6 +1794,44 @@ router.post('/domains', verifyPlatformAdmin, async (req, res) => {
   } catch (err) {
     logger.error('Failed to configure custom domain:', err.message);
     res.status(500).json({ error: 'Failed to configure custom domain' });
+  }
+});
+
+// PATCH /api/platform/domains/:id/primary - Toggle primary status
+router.patch('/domains/:id/primary', verifyPlatformAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { is_primary } = req.body;
+  
+  try {
+    const { data: domain } = await supabase
+      .from('custom_domains')
+      .select('store_id')
+      .eq('id', id)
+      .single();
+
+    if (!domain) {
+      return res.status(404).json({ error: 'Domain not found' });
+    }
+
+    if (is_primary) {
+      await supabase
+        .from('custom_domains')
+        .update({ is_primary: false })
+        .eq('store_id', domain.store_id);
+    }
+
+    const { error } = await supabase
+      .from('custom_domains')
+      .update({ is_primary: !!is_primary, updated_at: new Date().toISOString() })
+      .eq('id', id);
+
+    if (error) throw error;
+    
+    await auditPlatform(req, 'platform.domain.update_primary', 'custom_domain', id, { is_primary: !is_primary }, { is_primary: !!is_primary }, domain.store_id);
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Failed to update primary domain:', err.message);
+    res.status(500).json({ error: 'Failed to update primary domain' });
   }
 });
 
@@ -1822,6 +2009,9 @@ router.get('/invoices', verifyPlatformAdmin, async (req, res) => {
         stores (
           name,
           subdomain
+        ),
+        plans (
+          display_name
         )
       `)
       .order('created_at', { ascending: false });
@@ -1880,17 +2070,61 @@ router.get('/store-transactions', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
+// GET /api/platform/platform-billing-analytics - Platform MRR/ARR analytics
+router.get('/platform-billing-analytics', verifyPlatformAdmin, async (req, res) => {
+  try {
+    // 1. Calculate MRR from active subscriptions
+    const { data: activeSubs, error: subsErr } = await supabase
+      .from('store_subscriptions')
+      .select('plans ( price_monthly )')
+      .eq('status', 'active');
+
+    if (subsErr) throw subsErr;
+
+    const mrr = (activeSubs || []).reduce((sum, sub) => {
+      const price = sub.plans?.price_monthly || 0;
+      return sum + parseFloat(price);
+    }, 0);
+
+    const arr = mrr * 12;
+
+    // 2. Calculate Total Paid Revenue from invoices
+    const { data: paidInvoices, error: invErr } = await supabase
+      .from('invoices')
+      .select('total')
+      .eq('status', 'paid');
+
+    if (invErr) throw invErr;
+
+    const totalPaidRevenue = (paidInvoices || []).reduce((sum, inv) => sum + parseFloat(inv.total || 0), 0);
+
+    res.json({
+      mrr,
+      arr,
+      total_paid_revenue: totalPaidRevenue
+    });
+  } catch (err) {
+    logger.error('Failed to generate platform billing analytics:', err.message);
+    res.status(500).json({ error: 'Failed to generate billing analytics' });
+  }
+});
+
 // GET /api/platform/transactions-analytics - Transaction analytics and metrics
 router.get('/transactions-analytics', verifyPlatformAdmin, async (req, res) => {
   try {
     // Total revenue from all stores
     const { data: allOrders } = await supabase
       .from('orders')
-      .select('total, payment_status, payment_method, created_at')
-      .eq('payment_status', 'paid');
+      .select('total, payment_status, payment_method, created_at');
 
-    const totalRevenue = (allOrders || []).reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
+    const totalRevenue = (allOrders || [])
+      .filter(o => o.payment_status === 'paid')
+      .reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
     const totalTransactions = (allOrders || []).length;
+    console.log('--- DEBUG transactions-analytics ---');
+    console.log('allOrders length:', (allOrders || []).length);
+    console.log('totalTransactions:', totalTransactions);
+    console.log('totalRevenue:', totalRevenue);
 
     // This month stats
     const monthStart = new Date();
@@ -1899,11 +2133,12 @@ router.get('/transactions-analytics', verifyPlatformAdmin, async (req, res) => {
 
     const { data: monthOrders } = await supabase
       .from('orders')
-      .select('total, payment_method')
-      .eq('payment_status', 'paid')
+      .select('total, payment_status, payment_method')
       .gte('created_at', monthStart.toISOString());
 
-    const monthlyRevenue = (monthOrders || []).reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
+    const monthlyRevenue = (monthOrders || [])
+      .filter(o => o.payment_status === 'paid')
+      .reduce((sum, o) => sum + parseFloat(o.total || 0), 0);
     const monthlyTransactions = (monthOrders || []).length;
 
     // Payment methods breakdown
@@ -1914,7 +2149,9 @@ router.get('/transactions-analytics', verifyPlatformAdmin, async (req, res) => {
         paymentMethodsBreakdown[method] = { count: 0, revenue: 0 };
       }
       paymentMethodsBreakdown[method].count++;
-      paymentMethodsBreakdown[method].revenue += parseFloat(o.total || 0);
+      if (o.payment_status === 'paid') {
+        paymentMethodsBreakdown[method].revenue += parseFloat(o.total || 0);
+      }
     });
 
     // Top stores by revenue
@@ -2157,7 +2394,7 @@ router.post('/notifications/layouts', verifyPlatformAdmin, async (req, res) => {
 
     let query;
     if (id) {
-      query = supabase.from('notification_layouts').update(payload).eq('id', id);
+      query = supabase.from('notification_layouts').update(payload).eq('id', id).select();
     } else {
       query = supabase.from('notification_layouts').insert([payload]).select();
     }
@@ -2205,6 +2442,32 @@ router.post('/notifications/test-send', verifyPlatformAdmin, async (req, res) =>
   } catch (err) {
     logger.error('Test notification delivery failed:', err.message);
     res.status(500).json({ error: 'Delivery test failed' });
+  }
+});
+
+// GET /api/platform/notifications/history - List recent notification history
+router.get('/notifications/history', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('notification_history')
+      .select(`
+        id,
+        recipient,
+        channel,
+        status,
+        provider,
+        error_message,
+        sent_at,
+        notification_templates(code)
+      `)
+      .order('sent_at', { ascending: false })
+      .limit(100);
+
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    logger.error('Failed to list notification history:', err.message);
+    res.status(500).json({ error: 'Failed to retrieve notification history' });
   }
 });
 
