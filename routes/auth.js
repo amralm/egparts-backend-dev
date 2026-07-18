@@ -845,11 +845,20 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
         email: userEmail,
         password,
         email_confirm: true,
-        user_metadata: { name }
+        phone: invitation.phone || undefined,
+        user_metadata: { name, phone: invitation.phone || undefined }
       });
 
       if (createErr) throw createErr;
       authUserId = newUser.user.id;
+    }
+
+    // 2b. If user already existed without a phone, patch it now
+    if (invitation.phone) {
+      await supabase.auth.admin.updateUserById(authUserId, {
+        phone: invitation.phone,
+        user_metadata: { name, phone: invitation.phone }
+      }).catch(err => logger.warn('Could not update phone on auth user:', err.message));
     }
 
     // 3. Clone template roles into the store (Idempotent)
@@ -927,6 +936,19 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
           role_id: ownerRoleId
         }], { onConflict: 'user_id,store_id,role_id', ignoreDuplicates: true });
     }
+
+    // 4b. Upsert user_profiles so the manager's phone & name are linked immediately
+    await supabase
+      .from('user_profiles')
+      .upsert([{
+        user_id: authUserId,
+        store_id: invitation.store_id,
+        email: userEmail,
+        phone: invitation.phone || null,
+        full_name: name,
+        role: 'owner'
+      }], { onConflict: 'user_id,store_id', ignoreDuplicates: false })
+      .catch(err => logger.warn('user_profiles upsert failed (non-fatal):', err.message));
 
     // 5. Build branch hierarchy (Idempotent)
     let branchId = null;
