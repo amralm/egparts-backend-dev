@@ -9,6 +9,7 @@ const logger = require('../utils/logger');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
 const { verifyUser } = require('../middleware/auth');
 const userProfileService = require('../services/userProfileService');
+const twoFactorService = require('../services/twoFactorService');
 
 async function recordOtpAudit(entry) {
   try {
@@ -1081,6 +1082,110 @@ router.post('/validate-admin', async (req, res) => {
   } catch (err) {
     logger.error('Admin validation endpoint error:', err.message);
     res.status(401).json({ error: 'Unauthorized: Invalid token' });
+  }
+});
+
+// ============================================================
+// 2FA Routes
+// ============================================================
+
+// GET /api/auth/2fa/status — get 2FA status for current user in this store
+router.get('/2fa/status', verifyUser, async (req, res) => {
+  try {
+    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    const status = await twoFactorService.get2FAStatus(req.user.sub, req.store.id);
+    res.json({ success: true, ...status });
+  } catch (err) {
+    logger.error('2FA status error:', err.message);
+    res.status(500).json({ error: 'فشل تحميل إعدادات الأمان' });
+  }
+});
+
+// GET /api/auth/2fa/totp/setup — generate TOTP secret + QR code
+router.get('/2fa/totp/setup', verifyUser, async (req, res) => {
+  try {
+    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    const { data: profile } = await supabase.from('user_profiles')
+      .select('email, full_name').eq('user_id', req.user.sub).eq('store_id', req.store.id).maybeSingle();
+    const { data: store } = await supabase.from('stores')
+      .select('name').eq('id', req.store.id).maybeSingle();
+    const result = await twoFactorService.setupTOTP(
+      req.user.sub, req.store.id,
+      store?.name || 'EG Parts',
+      profile?.email || req.user.email || 'user'
+    );
+    res.json({ success: true, ...result });
+  } catch (err) {
+    logger.error('TOTP setup error:', err.message);
+    res.status(500).json({ error: 'فشل إعداد Google Authenticator' });
+  }
+});
+
+// POST /api/auth/2fa/totp/verify-setup — confirm TOTP is working before enabling
+router.post('/2fa/totp/verify-setup', verifyUser, async (req, res) => {
+  try {
+    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ error: 'كود التحقق مطلوب' });
+    const result = await twoFactorService.verifyTOTPSetup(req.user.sub, req.store.id, token);
+    if (!result.success) return res.status(400).json({ success: false, error: 'الكود غير صحيح، تأكد من التوقيت على هاتفك' });
+    res.json({ success: true, backup_codes: result.backup_codes });
+  } catch (err) {
+    logger.error('TOTP verify-setup error:', err.message);
+    res.status(500).json({ error: err.message || 'فشل التحقق من الإعداد' });
+  }
+});
+
+// POST /api/auth/2fa/enable — enable WhatsApp 2FA (no TOTP needed)
+router.post('/2fa/enable', verifyUser, async (req, res) => {
+  try {
+    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    const result = await twoFactorService.enableWhatsApp2FA(req.user.sub, req.store.id);
+    res.json({ success: true, backup_codes: result.backup_codes });
+  } catch (err) {
+    logger.error('Enable 2FA error:', err.message);
+    res.status(500).json({ error: 'فشل تفعيل التحقق بخطوتين' });
+  }
+});
+
+// POST /api/auth/2fa/disable — disable 2FA
+router.post('/2fa/disable', verifyUser, async (req, res) => {
+  try {
+    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    await twoFactorService.disable2FA(req.user.sub, req.store.id);
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Disable 2FA error:', err.message);
+    res.status(500).json({ error: 'فشل إلغاء التحقق بخطوتين' });
+  }
+});
+
+// POST /api/auth/2fa/challenge — send WhatsApp OTP challenge (called right after login if 2FA enabled)
+router.post('/2fa/challenge', async (req, res) => {
+  try {
+    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ error: 'user_id مطلوب' });
+    const result = await twoFactorService.sendChallenge(user_id, req.store.id, req.store);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    logger.error('2FA challenge error:', err.message);
+    res.status(500).json({ error: err.message || 'فشل إرسال كود التحقق' });
+  }
+});
+
+// POST /api/auth/2fa/verify — verify challenge + confirm login is complete
+router.post('/2fa/verify', async (req, res) => {
+  try {
+    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    const { user_id, token } = req.body;
+    if (!user_id || !token) return res.status(400).json({ error: 'user_id والكود مطلوبان' });
+    const result = await twoFactorService.verifyChallenge(user_id, req.store.id, token, req.store);
+    if (!result.success) return res.status(400).json({ success: false, error: 'الكود غير صحيح أو انتهت صلاحيته' });
+    res.json({ success: true, used_backup_code: result.used_backup_code || false });
+  } catch (err) {
+    logger.error('2FA verify error:', err.message);
+    res.status(500).json({ error: err.message || 'فشل التحقق' });
   }
 });
 
