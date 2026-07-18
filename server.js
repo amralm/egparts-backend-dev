@@ -16,8 +16,14 @@ const { supabase } = require('./services/supabase');
 const app = express();
 
 
-// âœ… Ensure Express trusts Render's proxy for Rate Limiting
-app.set('trust proxy', 1);
+// ✅ Ensure Express trusts all proxies (Cloudflare -> Render -> Node)
+app.set('trust proxy', true);
+
+// ✅ Extract Real Client IP (Cloudflare 'cf-connecting-ip' or 'x-forwarded-for')
+app.use((req, res, next) => {
+  req.clientIp = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
+  next();
+});
 
 const orderRoutes = require('./routes/orders');
 const paymentRoutes = require('./routes/payments');
@@ -520,15 +526,17 @@ app.get('/api/store-usage', async (req, res) => {
 });
 
 // âœ… Blocked IPs Middleware (now scopes using req.store)
+// ✅ Blocked IPs Middleware (now scopes using req.store)
 app.use('/api/', blockIPMiddleware);
 
-// âœ… Ban Check Middleware (now scopes using req.store)
+// ✅ Ban Check Middleware (now scopes using req.store)
 app.use('/api/', banCheckMiddleware);
 
-// âœ… Rate Limiting
+// ✅ Rate Limiting (Global)
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 500, // Increased to 500 per IP per 15 minutes to prevent blocking real users
+  keyGenerator: (req) => req.clientIp, // Use extracted IP
   message: { error: 'Too many requests, please try again later.' }
 });
 
