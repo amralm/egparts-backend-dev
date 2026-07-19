@@ -26,14 +26,15 @@ async function updateProfile(storeId, userId, profile) {
   const targetStoreId = storeId || '00000000-0000-0000-0000-000000000000';
   const { data, error } = await supabase
     .from('user_profiles')
-    .update({
+    .upsert({
+      user_id: userId,
+      store_id: targetStoreId,
       phone: profile.phone,
       full_name: profile.name,
       city: profile.city,
-      address: profile.address
-    })
-    .eq('user_id', userId)
-    .eq('store_id', targetStoreId)
+      address: profile.address,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id,store_id' })
     .select('*')
     .maybeSingle();
 

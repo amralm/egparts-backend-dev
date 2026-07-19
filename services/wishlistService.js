@@ -31,7 +31,8 @@ async function addWishlistItem(storeId, userId, productId) {
   const { data, error } = await supabase
     .from('wishlists')
     .upsert([{ store_id: storeId, user_id: userId, product_id: productId }], {
-      onConflict: 'store_id,user_id,product_id'
+      onConflict: 'user_id,product_id',
+      ignoreDuplicates: false
     })
     .select('product_id')
     .maybeSingle();
