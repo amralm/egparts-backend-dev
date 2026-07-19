@@ -176,21 +176,6 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), asyn
         : `Payment status updated via Admin: ${payment_status}`
     }]);
 
-    if (status && oldOrder.user_id) {
-      const STATUS_LABELS = {
-        pending: 'قيد المراجعة', confirmed: 'تم التأكيد', processing: 'جاري التجهيز',
-        shipped: 'تم الشحن', delivered: 'تم التسليم', cancelled: 'ملغي'
-      };
-      await supabase.from('user_notifications').insert([{
-        user_id: oldOrder.user_id,
-        store_id: req.store.id,
-        title: 'تم تحديث حالة طلبك',
-        message: `طلب EG-${oldOrder.order_number || id.split('-')[0]} تم نقله إلى: ${STATUS_LABELS[status] || status}`,
-        type: 'order_update',
-        order_id: id,
-        is_read: false
-      }]);
-    }
 
     if (status && oldOrder.phone) {
       await supabase.from('notification_queue').insert([{
