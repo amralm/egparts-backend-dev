@@ -589,7 +589,7 @@ app.use('/api/', banCheckMiddleware);
 // ✅ Rate Limiting (Global)
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 500, // Increased to 500 per IP per 15 minutes to prevent blocking real users
+  max: 3000, // Increased to 3000 per IP per 15 minutes to prevent blocking real users with many components
   keyGenerator: (req) => req.clientIp, // Use extracted IP
   message: { error: 'Too many requests, please try again later.' }
 });
