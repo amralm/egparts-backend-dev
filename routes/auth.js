@@ -1134,8 +1134,8 @@ router.post('/validate-admin', async (req, res) => {
     const [{ data: superAdmin }, { data: storeAdmin }] = await Promise.all([
       supabase.from('super_admins').select('user_id').eq('user_id', userId).maybeSingle(),
       store_id
-        ? supabase.from('store_admins').select('id').eq('user_id', userId).eq('store_id', store_id).maybeSingle()
-        : supabase.from('store_admins').select('id').eq('user_id', userId).limit(1).maybeSingle()
+        ? supabase.from('user_roles').select('id').eq('user_id', userId).eq('store_id', store_id).maybeSingle()
+        : supabase.from('user_roles').select('id').eq('user_id', userId).limit(1).maybeSingle()
     ]);
 
     res.json({
