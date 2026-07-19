@@ -1,4 +1,31 @@
 require('dotenv').config();
+
+// ─── Global Crash Guards ──────────────────────────────────────────────────────
+// Baileys (WhatsApp) crypto errors ('Unsupported state or unable to authenticate data')
+// and similar library bugs must NOT kill the process. They are recoverable noise.
+process.on('uncaughtException', (err) => {
+  // Only fatal if it's not a known recoverable library error
+  const isRecoverable = (
+    err.message?.includes('Unsupported state or unable to authenticate data') ||
+    err.message?.includes('unable to authenticate data') ||
+    err.message?.includes('aesDecryptGCM') ||
+    err.code === 'ERR_OSSL_BAD_DECRYPT' ||
+    err.code === 'ERR_CRYPTO_UNKNOWN_CIPHER'
+  );
+  if (isRecoverable) {
+    console.error('[UncaughtException] Recoverable crypto error (WhatsApp session stale) - ignoring:', err.message);
+  } else {
+    console.error('[UncaughtException] FATAL - shutting down:', err);
+    process.exit(1);
+  }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  // Log but do not crash - let per-route error handlers deal with it
+  console.error('[UnhandledRejection] at:', promise, 'reason:', reason);
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
