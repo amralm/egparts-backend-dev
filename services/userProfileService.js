@@ -161,7 +161,14 @@ async function updateProfilePhone(decodedUser, storeId, phone) {
     .select()
     .maybeSingle();
 
-  if (error) throw error;
+  if (error) {
+    if (error.code === '23505') {
+      const err = new Error('رقم الهاتف هذا مرتبط بحساب آخر بالفعل.');
+      err.statusCode = 409;
+      throw err;
+    }
+    throw error;
+  }
   return data;
 }
 
