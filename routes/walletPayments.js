@@ -170,8 +170,9 @@ router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
   }
 });
 
-// ===== POST Wallet Settings (Admin Only) =====
-router.post('/settings', walletRateLimiter, verifyPermission('payments.configure'), async (req, res) => {
+// ===== POST/PUT Wallet Settings (Admin Only) =====
+// PUT is the canonical REST verb for updates; POST is kept for backward compat.
+async function saveWalletSettings(req, res) {
   const { wallets, is_active } = req.body;
   if (!req.store?.id) return res.status(404).json({ error: 'Store not found' });
 
@@ -197,16 +198,25 @@ router.post('/settings', walletRateLimiter, verifyPermission('payments.configure
         credentials: encryptedCreds,
         key_version: 1,
         updated_at: new Date().toISOString()
-      }, { onConflict: 'store_id, provider_name' });
+      }, { onConflict: 'store_id,provider_name' });
 
     if (upsertErr) throw upsertErr;
+
+    // Also sync legacy site_settings
+    await supabase
+      .from('site_settings')
+      .update({ manual_wallet_enabled: !!(is_active) })
+      .eq('store_id', req.store.id);
 
     return res.json({ success: true, message: 'تم حفظ إعدادات المحافظ الإلكترونية بنجاح' });
   } catch (err) {
     console.error('[wallet/settings] Error:', err.message);
     return res.status(500).json({ error: 'Failed to save wallet settings' });
   }
-});
+}
+
+router.post('/settings', walletRateLimiter, verifyPermission('payments.configure'), saveWalletSettings);
+router.put('/settings', walletRateLimiter, verifyPermission('payments.configure'), saveWalletSettings);
 
 // ===== POST Initiate Manual Wallet Payment =====
 // Creates the PaymentIntent via the Payment Module.

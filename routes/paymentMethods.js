@@ -1,21 +1,28 @@
 /**
- * GET /api/payments/methods
- * Returns a dynamic list of available payment methods for the current store.
+ * Payment Methods Router
+ * Handles fetching and managing available payment methods per store.
+ *
+ * Routes:
+ *   GET  /api/payments/methods             — Customer: list available methods
+ *   GET  /api/payments/methods/:method/settings — Admin: get method config
+ *   POST /api/payments/methods/:method/toggle   — Admin: enable/disable method
  *
  * SECURITY CONTRACT:
- * - Frontend receives ONLY what to display (id, label, type, icon).
- * - Frontend NEVER learns WHY a method is unavailable.
- * - Backend is the sole decision-maker on availability.
+ * - Customer endpoint returns ONLY what to display (id, label, type, icon).
+ * - Backend is the SOLE authority on availability — never the frontend.
+ * - Admin routes require permissions.
  */
 
 const express = require('express');
 const router = express.Router();
 const { supabase } = require('../services/supabase');
 const { decryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
+const { verifyPermission } = require('../middleware/auth');
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Checks if the store's subscription plan allows payment_gateways.
- * Returns true/false only. Does not expose why.
+ * Checks if a store's plan allows payment gateways (Paymob).
  */
 async function storeHasPaymentGatewayFeature(storeId) {
   try {
@@ -53,68 +60,38 @@ async function storeHasPaymentGatewayFeature(storeId) {
 }
 
 /**
- * Checks if the store has Paymob configured and active.
- * Returns true/false only. Does not expose credentials or reasons.
+ * Get a gateway row from store_payment_gateways.
  */
-async function isPaymobActiveForStore(storeId) {
-  try {
-    const { data: gateway } = await supabase
-      .from('store_payment_gateways')
-      .select('credentials, key_version, is_active')
-      .eq('store_id', storeId)
-      .eq('provider_name', 'paymob')
-      .eq('is_active', true)
-      .maybeSingle();
-
-    if (!gateway?.credentials) return false;
-
-    const key = getEncryptionKeyForVersion(gateway.key_version);
-    const creds = decryptCredentials(gateway.credentials, key) || {};
-
-    // Paymob is only truly active if all 3 required fields are filled
-    return !!(creds.api_key && creds.integration_id && creds.iframe_id);
-  } catch {
-    return false;
-  }
+async function getGateway(storeId, providerName) {
+  const { data } = await supabase
+    .from('store_payment_gateways')
+    .select('*')
+    .eq('store_id', storeId)
+    .eq('provider_name', providerName)
+    .maybeSingle();
+  return data;
 }
 
 /**
- * Checks if manual wallet (Vodafone/Etisalat/etc.) is configured.
- * Returns true/false only.
+ * Ensure a gateway exists in store_payment_gateways. Create it if not.
+ * COD defaults to active=true on first creation.
  */
-async function isManualWalletActiveForStore(storeId) {
-  try {
-    // 1. Check new architecture (store_payment_gateways)
-    const { data: gateway } = await supabase
-      .from('store_payment_gateways')
-      .select('credentials, key_version, is_active')
-      .eq('store_id', storeId)
-      .eq('provider_name', 'manual_wallet')
-      .eq('is_active', true)
-      .maybeSingle();
-
-    if (gateway?.credentials) {
-      const key = getEncryptionKeyForVersion(gateway.key_version);
-      const creds = decryptCredentials(gateway.credentials, key) || {};
-      const activeWallets = (creds.wallets || []).filter(w => w.enabled);
-      if (activeWallets.length > 0) return true;
-    }
-
-    // 2. Fallback to legacy site_settings
-    const { data: settings } = await supabase
-      .from('site_settings')
-      .select('vodafone_cash_number, manual_wallet_enabled')
-      .eq('store_id', storeId)
-      .maybeSingle();
-
-    return !!(settings?.manual_wallet_enabled && settings?.vodafone_cash_number);
-  } catch (err) {
-    console.error('[paymentMethods] isManualWalletActiveForStore error:', err.message);
-    return false;
+async function ensureGatewayExists(storeId, providerName, defaultActive = true) {
+  const existing = await getGateway(storeId, providerName);
+  if (!existing) {
+    await supabase.from('store_payment_gateways').insert({
+      store_id: storeId,
+      provider_name: providerName,
+      is_active: defaultActive,
+      credentials: null,
+      key_version: 1,
+    });
   }
+  return existing;
 }
 
-// GET /api/payments/methods
+// ─── Customer: GET /api/payments/methods ─────────────────────────────────────
+
 router.get('/', async (req, res) => {
   if (!req.store?.id) {
     return res.status(404).json({ error: 'Store not found' });
@@ -124,18 +101,52 @@ router.get('/', async (req, res) => {
     const storeId = req.store.id;
     const methods = [];
 
-    // 1. Cash on Delivery (COD) - always available
-    methods.push({
-      id: 'cod',
-      type: 'cash',
-      label: 'الدفع عند الاستلام',
-      icon: 'payments',
-      available: true,
-    });
+    // Fetch all gateways for this store in one query
+    const { data: allGateways } = await supabase
+      .from('store_payment_gateways')
+      .select('provider_name, credentials, key_version, is_active')
+      .eq('store_id', storeId);
 
-    // 2. Manual Wallets (Vodafone Cash, etc.) - depends on store settings
-    const walletActive = await isManualWalletActiveForStore(storeId);
-    if (walletActive) {
+    const gatewayMap = {};
+    for (const g of (allGateways || [])) {
+      gatewayMap[g.provider_name] = g;
+    }
+
+    // ── 1. Cash on Delivery (COD) ──────────────────────────────────────────
+    // COD is only available if explicitly enabled (or no record exists yet = default on)
+    const codGateway = gatewayMap['cod'];
+    const isCodActive = codGateway ? codGateway.is_active : true; // default active
+    if (isCodActive) {
+      methods.push({
+        id: 'cod',
+        type: 'cash',
+        label: 'الدفع عند الاستلام',
+        icon: 'payments',
+        available: true,
+      });
+    }
+
+    // ── 2. Manual Wallets (Vodafone Cash, Etisalat, etc.) ─────────────────
+    const walletGateway = gatewayMap['manual_wallet'];
+    if (walletGateway?.is_active && walletGateway?.credentials) {
+      try {
+        const key = getEncryptionKeyForVersion(walletGateway.key_version);
+        const creds = decryptCredentials(walletGateway.credentials, key) || {};
+        const hasActiveWallet = (creds.wallets || []).some(w => w.enabled && w.number);
+        if (hasActiveWallet) {
+          methods.push({
+            id: 'manual_wallet',
+            type: 'manual_wallet',
+            label: 'محفظة إلكترونية',
+            icon: 'account_balance_wallet',
+            available: true,
+          });
+        }
+      } catch {
+        // Decryption error — skip wallet silently
+      }
+    } else if (!walletGateway && (await isSiteSettingsWalletActive(storeId))) {
+      // Legacy fallback: site_settings.manual_wallet_enabled
       methods.push({
         id: 'manual_wallet',
         type: 'manual_wallet',
@@ -145,18 +156,28 @@ router.get('/', async (req, res) => {
       });
     }
 
-    // 3. Paymob (card payment) - depends on plan + store config
-    const hasGatewayFeature = await storeHasPaymentGatewayFeature(storeId);
-    if (hasGatewayFeature) {
-      const paymobActive = await isPaymobActiveForStore(storeId);
-      if (paymobActive) {
-        methods.push({
-          id: 'paymob',
-          type: 'gateway',
-          label: 'بطاقة بنكية',
-          icon: 'credit_card',
-          available: true,
-        });
+    // ── 3. Paymob (Card) — plan entitlement + configured ──────────────────
+    const paymobGateway = gatewayMap['paymob'];
+    if (paymobGateway?.is_active && paymobGateway?.credentials) {
+      // Also verify plan entitlement
+      const hasGatewayFeature = await storeHasPaymentGatewayFeature(storeId);
+      if (hasGatewayFeature) {
+        try {
+          const key = getEncryptionKeyForVersion(paymobGateway.key_version);
+          const creds = decryptCredentials(paymobGateway.credentials, key) || {};
+          const isConfigured = !!(creds.api_key && creds.integration_id && creds.iframe_id);
+          if (isConfigured) {
+            methods.push({
+              id: 'paymob',
+              type: 'gateway',
+              label: 'بطاقة بنكية',
+              icon: 'credit_card',
+              available: true,
+            });
+          }
+        } catch {
+          // Decryption error — skip Paymob silently
+        }
       }
     }
 
@@ -164,6 +185,94 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error('[payments/methods] Error:', err.message);
     return res.status(500).json({ error: 'Failed to load payment methods' });
+  }
+});
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+async function isSiteSettingsWalletActive(storeId) {
+  try {
+    const { data } = await supabase
+      .from('site_settings')
+      .select('manual_wallet_enabled, vodafone_cash_number')
+      .eq('store_id', storeId)
+      .maybeSingle();
+    return !!(data?.manual_wallet_enabled && data?.vodafone_cash_number);
+  } catch {
+    return false;
+  }
+}
+
+// ─── Admin: GET /api/payments/methods/:method/settings ───────────────────────
+
+router.get('/:method/settings', verifyPermission('payments.view'), async (req, res) => {
+  const { method } = req.params;
+  const storeId = req.store?.id;
+  if (!storeId) return res.status(404).json({ error: 'Store not found' });
+
+  const SUPPORTED = ['cod', 'manual_wallet', 'paymob'];
+  if (!SUPPORTED.includes(method)) {
+    return res.status(400).json({ error: `Unsupported payment method: ${method}` });
+  }
+
+  try {
+    const gateway = await getGateway(storeId, method);
+    return res.json({
+      success: true,
+      settings: {
+        is_active: gateway ? gateway.is_active : (method === 'cod'), // COD defaults true
+      }
+    });
+  } catch (err) {
+    console.error(`[payments/methods/${method}/settings] Error:`, err.message);
+    return res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+// ─── Admin: POST /api/payments/methods/:method/toggle ────────────────────────
+
+router.post('/:method/toggle', verifyPermission('payments.configure'), async (req, res) => {
+  const { method } = req.params;
+  const { is_active } = req.body;
+  const storeId = req.store?.id;
+
+  if (!storeId) return res.status(404).json({ error: 'Store not found' });
+
+  const SUPPORTED = ['cod', 'manual_wallet'];
+  if (!SUPPORTED.includes(method)) {
+    return res.status(400).json({ error: `Cannot toggle payment method: ${method}` });
+  }
+
+  // Paymob toggle is handled via /api/payments/settings — it needs credential management
+  // COD and manual_wallet can be simply toggled here
+
+  try {
+    const { error } = await supabase
+      .from('store_payment_gateways')
+      .upsert({
+        store_id: storeId,
+        provider_name: method,
+        is_active: !!is_active,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'store_id,provider_name' });
+
+    if (error) throw error;
+
+    // Also sync legacy site_settings for manual_wallet backward compatibility
+    if (method === 'manual_wallet') {
+      await supabase
+        .from('site_settings')
+        .update({ manual_wallet_enabled: !!is_active })
+        .eq('store_id', storeId);
+    }
+
+    return res.json({
+      success: true,
+      message: `تم ${is_active ? 'تفعيل' : 'تعطيل'} وسيلة الدفع بنجاح.`
+    });
+  } catch (err) {
+    console.error(`[payments/methods/${method}/toggle] Error:`, err.message);
+    return res.status(500).json({ error: 'Failed to toggle payment method' });
   }
 });
 
