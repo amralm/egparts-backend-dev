@@ -162,9 +162,11 @@ async function updateProfilePhone(decodedUser, storeId, phone) {
     .maybeSingle();
 
   if (error) {
+    // [وثيقة الحل]: التعامل مع خطأ تكرار البيانات (Unique Constraint) في PostgreSQL
+    // الخطأ رقم 23505 يعني أن رقم الهاتف موجود مسبقاً في نفس المتجر (حسب إعدادات قاعدة البيانات)
     if (error.code === '23505') {
       const err = new Error('رقم الهاتف هذا مرتبط بحساب آخر بالفعل.');
-      err.statusCode = 409;
+      err.statusCode = 409; // Conflict
       throw err;
     }
     throw error;

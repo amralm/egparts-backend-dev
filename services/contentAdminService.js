@@ -23,14 +23,32 @@ async function getStoreContent(storeId) {
 }
 
 async function updateStoreContent(storeId, content) {
+  const updatePayload = { content };
+  if (content?.site_name) {
+    updatePayload.brand_name = content.site_name;
+  }
+
   const { data, error } = await supabase
     .from('site_settings')
-    .update({ content })
+    .update(updatePayload)
     .eq('store_id', storeId)
     .select('content')
     .maybeSingle();
 
   if (error) throw error;
+  
+  // If row doesn't exist, create it
+  if (!data) {
+    const { data: upsertData, error: upsertError } = await supabase
+      .from('site_settings')
+      .upsert({ store_id: storeId, ...updatePayload }, { onConflict: 'store_id' })
+      .select('content')
+      .maybeSingle();
+    
+    if (upsertError) throw upsertError;
+    return upsertData?.content || content;
+  }
+  
   return data?.content || content;
 }
 

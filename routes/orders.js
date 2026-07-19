@@ -112,6 +112,7 @@ router.get('/admin/:id/customer-address', verifyPermission('orders.view'), async
       .from('user_addresses')
       .select('title, phone, city, address, is_default')
       .eq('user_id', order.user_id)
+      .eq('store_id', req.store.id)
       .eq('is_default', true)
       .limit(1);
 
@@ -120,6 +121,7 @@ router.get('/admin/:id/customer-address', verifyPermission('orders.view'), async
         .from('user_addresses')
         .select('title, phone, city, address, is_default')
         .eq('user_id', order.user_id)
+        .eq('store_id', req.store.id)
         .order('created_at', { ascending: false })
         .limit(1));
     }
@@ -182,7 +184,7 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), asyn
       await supabase.from('user_notifications').insert([{
         user_id: oldOrder.user_id,
         store_id: req.store.id,
-        title: '📦 تم تحديث حالة طلبك',
+        title: 'تم تحديث حالة طلبك',
         message: `طلب EG-${oldOrder.order_number || id.split('-')[0]} تم نقله إلى: ${STATUS_LABELS[status] || status}`,
         type: 'order_update',
         order_id: id,

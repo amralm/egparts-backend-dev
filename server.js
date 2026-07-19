@@ -388,6 +388,8 @@ app.get('/api/store-usage', async (req, res) => {
       todayOtp,
       monthOtp,
       failedOtp,
+      ordersCountResult,
+      bannersCountResult,
       usageResult
     ] = await Promise.all([
       supabase
@@ -431,6 +433,15 @@ app.get('/api/store-usage', async (req, res) => {
         .eq('store_id', req.store.id)
         .eq('status', 'failed')
         .gte('created_at', monthStart.toISOString()),
+      supabase
+        .from('orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('store_id', req.store.id)
+        .gte('created_at', monthStart.toISOString()),
+      supabase
+        .from('banners')
+        .select('id', { count: 'exact', head: true })
+        .eq('store_id', req.store.id),
       supabase
         .from('feature_usage')
         .select('feature_key, usage_count')
@@ -513,6 +524,22 @@ app.get('/api/store-usage', async (req, res) => {
           usage: usagesMap['ai_requests_month'] || 0,
           limit: limits['ai_requests_month']?.max_value ?? null,
           is_unlimited: !limits['ai_requests_month'] || limits['ai_requests_month'].max_value === null
+        },
+        orders_per_month: {
+          usage: ordersCountResult.count || 0,
+          limit: limits['orders_per_month']?.max_value ?? null,
+          is_unlimited: !limits['orders_per_month'] || limits['orders_per_month'].max_value === null
+        },
+        banner_images: {
+          usage: bannersCountResult.count || 0,
+          limit: limits['banner_images']?.max_value ?? null,
+          is_unlimited: !limits['banner_images'] || limits['banner_images'].max_value === null
+        },
+        whatsapp_notifications: {
+          enabled: limits['whatsapp_notifications'] ? (limits['whatsapp_notifications'].limit_type === 'boolean' ? !!limits['whatsapp_notifications'].limit_config?.enabled : limits['whatsapp_notifications'].limit_type !== 'disabled') : false
+        },
+        payment_gateways: {
+          enabled: limits['payment_gateways'] ? (limits['payment_gateways'].limit_type === 'boolean' ? !!limits['payment_gateways'].limit_config?.enabled : limits['payment_gateways'].limit_type !== 'disabled') : false
         },
         export_formats: {
           allowed: limits['export_formats']?.limit_config?.allowed_formats || 'csv'

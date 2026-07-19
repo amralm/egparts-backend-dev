@@ -148,13 +148,14 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req,
   try {
     const profile = await userProfileService.updateProfilePhone(req.user, req.body?.store_id, req.body?.phone);
     return res.json({ success: true, profile });
-    } catch (err) {
-      logger.error('Profile phone update failed:', err.message);
-      return res.status(err.statusCode || 500).json({
-        success: false,
-        error: err.statusCode === 409 ? err.message : (err.statusCode === 400 ? 'Phone is required' : 'Unable to update phone')
-      });
-    }
+  } catch (err) {
+    logger.error('Profile phone update failed:', err.message);
+    // [وثيقة الحل]: معالجة الخطأ رقم 409 القادم من الخدمة والذي يعني أن رقم الهاتف مكرر
+    return res.status(err.statusCode || 500).json({
+      success: false,
+      error: err.statusCode === 409 ? err.message : (err.statusCode === 400 ? 'Phone is required' : 'Unable to update phone')
+    });
+  }
 });
 
 router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) => {

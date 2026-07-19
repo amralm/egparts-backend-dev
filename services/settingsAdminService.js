@@ -42,12 +42,14 @@ async function saveSettings(storeId, settings, businessType, guaranteeProductIds
   const { id, store_id, created_at, updated_at, ...updatePayload } = settings || {};
   const safePayload = normalizeThemeSettings(updatePayload);
 
-  const { data, error } = await supabase
-    .from('site_settings')
-    .update(safePayload)
-    .eq('store_id', storeId)
-    .select()
-    .maybeSingle();
+  const { data, error } = await supabase.from('site_settings').update(safePayload).eq('store_id', storeId).select().maybeSingle();
+  if (error) throw error;
+  let finalData = data;
+  if (!data) {
+    const { data: upsertData, error: upsertError } = await supabase.from('site_settings').upsert({ store_id: storeId, ...safePayload }, { onConflict: 'store_id' }).select().maybeSingle();
+    if (upsertError) throw upsertError;
+    finalData = upsertData;
+  }
   if (error) throw error;
 
   if (businessType) {
@@ -65,7 +67,7 @@ async function saveSettings(storeId, settings, businessType, guaranteeProductIds
     await supabase.from('products').update({ guarantee_badge: false }).eq('store_id', storeId).eq('guarantee_badge', true);
   }
 
-  return data;
+  return finalData;
 }
 
 async function applyPublishedTheme(storeId, themeId) {
