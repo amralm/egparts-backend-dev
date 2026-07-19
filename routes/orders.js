@@ -425,8 +425,8 @@ router.post('/', optionalAuth, async (req, res) => {
 
     for (const item of items) {
       const dbProduct = products.find(p => p.id === item.id);
-      if (!dbProduct) return res.status(404).json({ error: `Product ${item.id} not found` });
-      if (dbProduct.stock < item.qty) return res.status(400).json({ error: `Not enough stock for ${dbProduct.name}` });
+      if (!dbProduct) return res.status(404).json({ error: `المنتج غير موجود أو غير متاح في هذا المتجر` });
+      if (dbProduct.stock < item.qty) return res.status(400).json({ error: `عذراً، الكمية المتاحة من "${dbProduct.name}" غير كافية لإتمام طلبك` });
 
       calculatedSubtotal += dbProduct.price * item.qty;
       itemsWithPrices.push({ id: dbProduct.id, title: dbProduct.name, qty: item.qty, price: dbProduct.price });
