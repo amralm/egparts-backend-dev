@@ -167,6 +167,12 @@ class AssetPipeline {
       if (!policy.skipStorageQuota && quotaKey) {
         try {
           await subscriptionLimitService.commitFeatureUsage(quotaKey);
+          try {
+            // Also update the continuous storage_bytes tracker with the actual processed size
+            await subscriptionLimitService.checkFeatureLimit(storeId, 'storage_bytes', processedBuffer.length);
+          } catch (storageErr) {
+            logger.warn('[AssetPipeline] Failed to increment storage_bytes', { storeId, error: storageErr.message });
+          }
         } catch (commitErr) {
           logger.error('[AssetPipeline] Quota commit failed — executing compensation delete', {
             ...ctx, key, error: commitErr.message,
