@@ -117,6 +117,15 @@ const sensitiveWriteRateLimiter = rateLimit({
 });
 
 
+// Rate limiter for OAuth exchange (3 req / 30s per IP) — one-time-use tokens expire in 30s anyway
+const exchangeRateLimiter = rateLimit({
+  windowMs: 30 * 1000,
+  max: 3,
+  message: { error: 'محاولات كثيرة جداً، يرجى المحاولة لاحقاً' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Route: Request OTP — IP limit + per-phone limit
 router.post('/profile/sync', verifyUser, sensitiveWriteRateLimiter, async (req, res) => {
   try {
@@ -712,9 +721,14 @@ router.post('/oauth/implicit-callback', async (req, res) => {
 });
 
 // POST /api/auth/oauth/exchange
-router.post('/oauth/exchange', async (req, res) => {
+// Security: one-time-use token, 30s expiry, IP+fingerprint binding, consumed immediately on access
+router.post('/oauth/exchange', exchangeRateLimiter, async (req, res) => {
   const { token } = req.body;
-  if (!token) return res.status(400).json({ error: 'رمز التبادل مطلوب' });
+
+  // Validate token format strictly (must be 64 hex chars)
+  if (!token || typeof token !== 'string' || !/^[0-9a-f]{64}$/i.test(token)) {
+    return res.status(400).json({ error: 'رمز التبادل غير صالح' });
+  }
 
   try {
     const { data: exchange, error } = await supabase
@@ -723,34 +737,62 @@ router.post('/oauth/exchange', async (req, res) => {
       .eq('token', token)
       .maybeSingle();
 
-    if (error || !exchange) return res.status(400).json({ error: 'الرمز غير صالح أو منتهي الصلاحية' });
-
-    if (new Date(exchange.expires_at) < new Date()) {
-      await supabase.from('oauth_exchanges').delete().eq('token', token);
-      return res.status(400).json({ error: 'الرمز منتهي الصلاحية' });
+    if (error || !exchange) {
+      logger.warn('OAuth exchange: token not found or DB error', { token: token.substring(0, 8) + '...', error: error?.message });
+      return res.status(400).json({ error: 'الرمز غير صالح أو منتهي الصلاحية' });
     }
 
-    // Verify browser context matching
-    const currentIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+    // === CRITICAL: Consume token FIRST (even before validation) to prevent replay attacks ===
+    const { error: deleteError } = await supabase.from('oauth_exchanges').delete().eq('token', token);
+    if (deleteError) {
+      logger.error('OAuth exchange: failed to consume token', { error: deleteError.message });
+      // Still proceed — token may have been consumed by a concurrent request
+    }
+
+    // Check expiry AFTER consuming (prevents timing attacks on expiry check)
+    if (new Date(exchange.expires_at) < new Date()) {
+      logger.warn('OAuth exchange: expired token attempted', { token: token.substring(0, 8) + '...' });
+      return res.status(400).json({ error: 'الرمز منتهي الصلاحية — يرجى تسجيل الدخول مجدداً' });
+    }
+
+    // === SECURITY: Enforce IP + browser fingerprint binding (BLOCKING, not just a warning) ===
+    const currentIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1';
     const currentFingerprint = getBrowserFingerprint(req);
     const currentRelaxedIp = getRelaxedIp(currentIp);
 
-    if (exchange.user_agent !== currentFingerprint || exchange.ip_address !== currentRelaxedIp) {
-      logger.warn('Fingerprint/IP mismatch in session exchange (non-blocking)', {
+    const ipMatch = exchange.ip_address === currentRelaxedIp;
+    const fpMatch = exchange.user_agent === currentFingerprint;
+
+    if (!ipMatch || !fpMatch) {
+      logger.error('OAuth exchange: SECURITY VIOLATION — IP/fingerprint mismatch, rejecting', {
         expectedIp: exchange.ip_address,
         actualIp: currentRelaxedIp,
+        ipMatch,
         expectedFingerprint: exchange.user_agent,
-        actualFingerprint: currentFingerprint
+        actualFingerprint: currentFingerprint,
+        fpMatch,
+        token: token.substring(0, 8) + '...'
       });
+      // Token already consumed above — attacker cannot retry
+      return res.status(403).json({ error: 'فشل التحقق من سياق المتصفح. يرجى تسجيل الدخول مجدداً.' });
     }
 
-    // Consume token
-    await supabase.from('oauth_exchanges').delete().eq('token', token);
-
     // Decrypt session details
-    const decryptedJson = decrypt(exchange.encrypted_session, exchange.iv, exchange.auth_tag);
-    const sessionData = JSON.parse(decryptedJson);
+    let sessionData;
+    try {
+      const decryptedJson = decrypt(exchange.encrypted_session, exchange.iv, exchange.auth_tag);
+      sessionData = JSON.parse(decryptedJson);
+    } catch (decryptErr) {
+      logger.error('OAuth exchange: decryption failed', { message: decryptErr.message });
+      return res.status(500).json({ error: 'فشل فك تشفير الجلسة' });
+    }
 
+    if (!sessionData?.access_token) {
+      logger.error('OAuth exchange: decrypted session missing access_token');
+      return res.status(500).json({ error: 'بيانات الجلسة غير مكتملة' });
+    }
+
+    logger.info('OAuth exchange: successful session handoff', { token: token.substring(0, 8) + '...' });
     res.json({ success: true, session: sessionData });
   } catch (err) {
     logger.error('Session exchange exception occurred', { message: err.message });
