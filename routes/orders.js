@@ -355,7 +355,7 @@ router.post('/', optionalAuth, async (req, res) => {
   const userId = req.user?.sub || null; // null = guest order
 
   // 1. Validation
-  const allowedMethods = ['cod', 'card'];
+  const allowedMethods = ['cod', 'card', 'manual_wallet'];
   if (!allowedMethods.includes(paymentMethod)) {
     return res.status(400).json({ error: 'وسيلة دفع غير مدعومة' });
   }
@@ -490,10 +490,10 @@ router.post('/', optionalAuth, async (req, res) => {
       return res.status(201).json({ success: true, orderId: order.id, total: order.total });
 
     } else {
-      // For Card: Regular insert
+      // For Card and Manual Wallet: Regular insert
       const { data: order, error: orderError } = await supabase.from('orders').insert([{
         user_id: userId, items: itemsWithPrices, phone, city, address, customer_note: note,
-        payment_method: 'card', subtotal: calculatedSubtotal, discount: calculatedDiscount,
+        payment_method: paymentMethod, subtotal: calculatedSubtotal, discount: calculatedDiscount,
         shipping_fee: calculatedShippingFee, total: calculatedTotal, coupon_id: couponId,
         idempotency_key: idempotencyScope, status: 'pending', payment_status: 'unpaid',
         store_id: req.store.id
