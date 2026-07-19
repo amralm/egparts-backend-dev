@@ -51,21 +51,21 @@ router.get('/addresses', verifyUser, async (req, res) => {
 
 router.post('/addresses', verifyUser, async (req, res) => {
   try {
-    const address = await accountService.saveAddress(req.user.sub, null, req.body || {});
+    const address = await accountService.saveAddress(req.user.sub, null, req.body || {}, req.store?.id);
     res.json({ success: true, address });
   } catch (err) {
     logger.error('[account] address create failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to save address.' });
+    res.status(500).json({ success: false, error: 'Unable to save address.', detail: err.message });
   }
 });
 
 router.patch('/addresses/:id', verifyUser, async (req, res) => {
   try {
-    const address = await accountService.saveAddress(req.user.sub, req.params.id, req.body || {});
+    const address = await accountService.saveAddress(req.user.sub, req.params.id, req.body || {}, req.store?.id);
     res.json({ success: true, address });
   } catch (err) {
     logger.error('[account] address update failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to save address.' });
+    res.status(500).json({ success: false, error: 'Unable to save address.', detail: err.message });
   }
 });
 

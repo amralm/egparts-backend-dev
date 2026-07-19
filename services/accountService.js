@@ -3,7 +3,7 @@ const { supabase } = require('./supabase');
 async function getProfileStatus(storeId, userId) {
   const query = supabase
     .from('user_profiles')
-    .select('phone')
+    .select('phone, full_name, city, address')
     .eq('user_id', userId);
 
   if (storeId) query.eq('store_id', storeId);
@@ -11,7 +11,15 @@ async function getProfileStatus(storeId, userId) {
   const { data, error } = await query.limit(1).maybeSingle();
   if (error) throw error;
 
-  return { has_phone: Boolean(data?.phone) };
+  return {
+    has_phone: Boolean(data?.phone),
+    profile: data ? {
+      phone: data.phone || null,
+      name: data.full_name || null,
+      city: data.city || null,
+      address: data.address || null
+    } : null
+  };
 }
 
 async function updateProfile(storeId, userId, profile) {
@@ -44,9 +52,13 @@ async function listAddresses(userId) {
   return data || [];
 }
 
-async function saveAddress(userId, addressId, payload) {
+async function saveAddress(userId, addressId, payload, storeId) {
+  // store_id is NOT NULL in user_addresses — always pass it
+  const targetStoreId = storeId || payload.store_id || '00000000-0000-0000-0000-000000000000';
+
   const data = {
     user_id: userId,
+    store_id: targetStoreId,
     title: payload.title,
     phone: payload.phone,
     city: payload.city,
