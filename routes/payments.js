@@ -127,6 +127,47 @@ router.get('/active', async (req, res) => {
   }
 });
 
+// ===== Cash on Delivery (COD) Endpoints =====
+router.get('/methods/cod/settings', verifyUser, verifyPermission('payments.configure'), async (req, res) => {
+  const storeId = req.store?.id;
+  if (!storeId) return res.status(400).json({ error: 'Tenant context required' });
+  try {
+    const { data, error } = await supabase
+      .from('store_payment_gateways')
+      .select('is_active')
+      .eq('store_id', storeId)
+      .eq('provider_name', 'cod')
+      .maybeSingle();
+      
+    if (error) throw error;
+    res.json({ success: true, settings: data || { is_active: true } });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.post('/methods/cod/toggle', verifyUser, verifyPermission('payments.configure'), async (req, res) => {
+  const storeId = req.store?.id;
+  if (!storeId) return res.status(400).json({ error: 'Tenant context required' });
+  const { is_active } = req.body;
+  try {
+    const { error } = await supabase
+      .from('store_payment_gateways')
+      .upsert({
+        store_id: storeId,
+        provider_name: 'cod',
+        is_active: !!is_active,
+        credentials: '{}',
+        key_version: 1
+      }, { onConflict: 'store_id,provider_name' });
+      
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ===== GET Store Payment Settings (Admin Only) =====
 router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
   try {
