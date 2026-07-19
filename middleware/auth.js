@@ -184,7 +184,7 @@ const verifyAdmin = (req, res, next) => {
       return res.status(403).json({ error: 'Forbidden: Admin access required' });
     } catch (err) {
       logger.error('verifyAdmin lookup failed:', err.message);
-      return res.status(500).json({ error: 'Internal server error' });
+      if (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError' || err.message.includes('token')) { return res.status(401).json({ error: 'Unauthorized: Invalid or expired token' }); } return res.status(500).json({ error: 'Internal server error' });
     }
   });
 };
@@ -243,7 +243,7 @@ const verifyPermission = (permissionName) => {
       return next();
     } catch (err) {
       logger.error(`verifyPermission('${permissionName}') failed:`, err.message);
-      return res.status(500).json({ error: 'Internal server error' });
+      if (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError' || err.message.includes('token')) { return res.status(401).json({ error: 'Unauthorized: Invalid or expired token' }); } return res.status(500).json({ error: 'Internal server error' });
     }
   };
 };
