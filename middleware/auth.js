@@ -169,7 +169,7 @@ const verifyAdmin = (req, res, next) => {
         supabase.from('super_admins').select('user_id').eq('user_id', userId).maybeSingle(),
         storeId
           ? supabase.from('user_roles')
-              .select('id')
+              .select('role_id')
               .eq('user_id', userId)
               .eq('store_id', storeId)
               .limit(1)
