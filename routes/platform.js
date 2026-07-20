@@ -2,11 +2,37 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
 const { supabase } = require('../services/supabase');
 const { verifyPlatformAdmin, verifyPlatformPermission } = require('../middleware/platformAdmin');
 const logger = require('../utils/logger');
 const { encryptCredentials, decryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
 const { sanitizeThemeOverrides } = require('../services/themeSettingsService');
+
+const s3Client = new S3Client({
+  region: 'auto',
+  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
+});
+
+async function emptyS3Directory(bucket, dir) {
+  const listParams = { Bucket: bucket, Prefix: dir };
+  let listedObjects;
+  do {
+    listedObjects = await s3Client.send(new ListObjectsV2Command(listParams));
+    if (listedObjects.Contents?.length > 0) {
+      const deleteParams = { Bucket: bucket, Delete: { Objects: [] } };
+      listedObjects.Contents.forEach(({ Key }) => {
+        deleteParams.Delete.Objects.push({ Key });
+      });
+      await s3Client.send(new DeleteObjectsCommand(deleteParams));
+    }
+    listParams.ContinuationToken = listedObjects.NextContinuationToken;
+  } while (listedObjects.IsTruncated);
+}
 
 router.use(verifyPlatformPermission('platform.access'));
 
@@ -788,18 +814,23 @@ router.delete('/stores/:id', verifyPlatformAdmin, async (req, res) => {
     const { data: oldStore } = await supabase.from('stores').select('*').eq('id', id).maybeSingle();
     if (!oldStore) return res.status(404).json({ error: 'Store not found' });
 
-    const { data: store, error } = await supabase
+    // 1. Wipe all files associated with the store from R2
+    if (process.env.R2_BUCKET_NAME) {
+      await emptyS3Directory(process.env.R2_BUCKET_NAME, `stores/${id}/`);
+    }
+
+    // 2. Hard delete the store from database (Cascades to products, orders, etc.)
+    const { error } = await supabase
       .from('stores')
-      .update({ is_active: false, status: 'deleted', deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
+      .delete()
+      .eq('id', id);
+
     if (error) throw error;
 
-    await auditPlatform(req, 'platform.store.delete_soft', 'store', id, oldStore, store, id);
-    res.json({ success: true, store });
+    await auditPlatform(req, 'platform.store.delete_hard', 'store', id, oldStore, null, id);
+    res.json({ success: true, message: 'Store completely deleted.' });
   } catch (err) {
-    logger.error('Failed to delete store:', err.message);
+    logger.error('Failed to hard delete store:', err.message);
     res.status(500).json({ error: 'Failed to delete store' });
   }
 });
