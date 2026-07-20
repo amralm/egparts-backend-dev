@@ -198,7 +198,11 @@ class WhatsappService {
             if (!this.isReady) throw new Error('خدمة واتساب غير جاهزة حالياً');
           }
 
-          const formattedId = `${to.replace('+', '')}@s.whatsapp.net`;
+          let cleanedTo = to.replace(/\D/g, '');
+          if (cleanedTo.startsWith('01') && cleanedTo.length === 11) {
+            cleanedTo = '2' + cleanedTo;
+          }
+          const formattedId = `${cleanedTo}@s.whatsapp.net`;
           await this.sock.sendMessage(formattedId, { text });
           logger.info(`Message sent successfully to ${to.slice(0, 6)}XXXX (Attempt ${i + 1})`);
           return true;
