@@ -1743,7 +1743,10 @@ router.post('/invitations/:id/resend', verifyPlatformAdmin, async (req, res) => 
     if (updateErr) throw updateErr;
 
     const { sendNotification } = require('../services/notificationEngine');
-    const activationLink = `${process.env.FRONTEND_URL || 'https://egparts.store'}/accept-invitation?token=${token}`;
+    const { data: storeInfo } = await supabase.from('stores').select('subdomain').eq('id', invite.store_id).single();
+    const storeSubdomain = storeInfo?.subdomain || 'admin';
+    const baseDomain = (process.env.FRONTEND_URL || 'https://egparts.store').replace('https://', '');
+    const activationLink = `https://${storeSubdomain}.${baseDomain}/accept-invitation?token=${token}`;
     
     // Run in background - send via WhatsApp to phone
     sendNotification({
