@@ -1684,7 +1684,11 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
     // Send invitation link via WhatsApp if phone is provided
     if (phone && phone.trim()) {
       const { sendNotification } = require('../services/notificationEngine');
-      const activationLink = `${process.env.FRONTEND_URL || 'https://egparts.store'}/accept-invitation?token=${token}`;
+      
+      const { data: storeInfo } = await supabase.from('stores').select('subdomain').eq('id', store_id).single();
+      const storeSubdomain = storeInfo?.subdomain || 'admin';
+      const baseDomain = (process.env.FRONTEND_URL || 'https://egparts.store').replace('https://', '');
+      const activationLink = `https://${storeSubdomain}.${baseDomain}/accept-invitation?token=${token}`;
 
       sendNotification({
         templateCode: 'tenant_invitation',
