@@ -2,6 +2,7 @@ const express = require('express');
 const { verifyPermission } = require('../middleware/auth');
 const couponService = require('../services/couponService');
 const logger = require('../utils/logger');
+const subscriptionLimitService = require('../services/subscriptionLimitService');
 
 const router = express.Router();
 
@@ -57,10 +58,20 @@ router.post('/', verifyPermission('coupons.create'), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
 
+  let reservationKey;
   try {
+    reservationKey = req.headers['x-idempotency-key'] || `coupon_${Date.now()}`;
+    const isAllowed = await subscriptionLimitService.reserveFeatureUsage(storeId, 'coupons', 1, reservationKey, 15);
+    if (!isAllowed) {
+      return res.status(403).json({ success: false, code: 'FEATURE_LIMIT_EXCEEDED', error: 'تجاوزت الحد الأقصى للكوبونات المسموح بها في باقتك.' });
+    }
     const coupon = await couponService.createCoupon(storeId, req.body || {});
+    await subscriptionLimitService.commitFeatureUsage(reservationKey);
     res.status(201).json({ success: true, coupon });
   } catch (err) {
+    if (typeof reservationKey !== 'undefined') {
+      await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+    }
     logger.error('[coupons] create failed:', err.message);
     sendError(res, err);
   }

@@ -28,14 +28,20 @@ router.get('/', verifyPermission('products.view'), async (req, res) => {
 router.post('/', verifyPermission('products.create'), async (req, res) => {
   const storeId = requireStore(req, res);
   if (!storeId) return;
+  let reservationKey;
   try {
-    const isAllowed = await subscriptionLimitService.reserveFeatureUsage(storeId, 'products', 1, req.headers['x-idempotency-key'] || Date.now().toString());
+    reservationKey = req.headers['x-idempotency-key'] || `prod_${Date.now()}`;
+    const isAllowed = await subscriptionLimitService.reserveFeatureUsage(storeId, 'products', 1, reservationKey, 15);
     if (!isAllowed) {
       return res.status(403).json({ success: false, code: 'FEATURE_LIMIT_EXCEEDED', error: 'تجاوزت الحد الأقصى للمنتجات المسموح بها في باقتك. يرجى ترقية الباقة لإضافة المزيد.' });
     }
     const product = await productAdminService.saveProduct(storeId, req.body || {});
+    await subscriptionLimitService.commitFeatureUsage(reservationKey);
     res.status(201).json({ success: true, product });
   } catch (err) {
+    if (typeof reservationKey !== 'undefined') {
+      await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+    }
     logger.error('[admin-products] create failed:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }

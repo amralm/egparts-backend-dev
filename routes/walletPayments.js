@@ -18,6 +18,7 @@ const { verifyUser, verifyPermission } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
 const r2 = require('../services/r2StorageService');
 const assetPipeline = require('../services/assetPipeline/AssetPipeline');
+const subscriptionLimitService = require('../services/subscriptionLimitService');
 const { getPaymentService } = require('../server/modules/payments/PaymentModuleFactory');
 const { deleteProofImmediately } = require('../services/proofRetentionJob');
 const rateLimit = require('express-rate-limit');
@@ -268,10 +269,21 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
   if (!intent_id || !req.file) {
     return res.status(400).json({ error: 'intent_id and receipt image are required' });
   }
+
+  const reservationKey = `wallet-proof-${req.store.id}-${intent_id}`;
+  const reservedImage = await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'uploaded_images', 1, reservationKey, 15);
+  if (!reservedImage) {
+    return res.status(403).json({ error: 'عذراً، المتجر استنفد الحد الأقصى من مساحة التخزين المسموحة في باقته الحالية' });
+  }
+
   if (!wallet_id) {
+    await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
     return res.status(400).json({ error: 'wallet_id is required' });
   }
-  if (!req.store?.id) return res.status(404).json({ error: 'Store not found' });
+  if (!req.store?.id) {
+    await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+    return res.status(404).json({ error: 'Store not found' });
+  }
 
   try {
     // 1. Verify the intent belongs to this store
@@ -391,10 +403,12 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       // We don't throw here to not fail the user request if only logging fails
     }
 
-    return res.json({ success: true, message: 'تم رفع إيصال التحويل بنجاح. سيتم مراجعته من قبل التاجر.' });
+    await subscriptionLimitService.commitFeatureUsage(reservationKey);
+    return res.json({ success: true, message: 'Receipt uploaded successfully' });
   } catch (err) {
+    await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
     console.error('[wallet/submit-proof] Error:', err.message);
-    return res.status(500).json({ error: 'Failed to submit proof' });
+    return res.status(500).json({ error: 'Failed to upload receipt' });
   }
 });
 

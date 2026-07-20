@@ -3,6 +3,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const { optionalAuth, verifyUser, verifyPermission } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
+const subscriptionLimitService = require('../services/subscriptionLimitService');
 
 // Rate limiting for order creation (10 requests per minute per IP)
 const orderRateLimiter = rateLimit({
@@ -263,6 +264,12 @@ router.post('/whatsapp-checkout', optionalAuth, orderRateLimiter, async (req, re
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Cart is empty' });
   }
+  
+  const reservationKey = `whatsapp-${req.store.id}-${Date.now()}-${Math.random()}`;
+  const isAllowed = await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'orders', 1, reservationKey);
+  if (!isAllowed) {
+    return res.status(403).json({ error: 'عذراً، المتجر استنفد الحد الأقصى من الطلبات المسموحة في باقته الحالية' });
+  }
 
   try {
     if (paymentMethod === 'cod') {
@@ -274,6 +281,7 @@ router.post('/whatsapp-checkout', optionalAuth, orderRateLimiter, async (req, re
         .maybeSingle();
         
       if (codGateway && codGateway.is_active === false) {
+        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
         return res.status(400).json({ success: false, error: 'الدفع عند الاستلام غير متاح حالياً' });
       }
     }
@@ -290,6 +298,7 @@ router.post('/whatsapp-checkout', optionalAuth, orderRateLimiter, async (req, re
     if (productError) throw productError;
     const allowedIds = new Set((tenantProducts || []).map((product) => String(product.id)));
     if (productIds.length !== allowedIds.size || productIds.some((id) => !allowedIds.has(String(id)))) {
+      await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
       return res.status(400).json({ error: 'Invalid cart items' });
     }
 
@@ -320,15 +329,21 @@ router.post('/whatsapp-checkout', optionalAuth, orderRateLimiter, async (req, re
       error = fallback.error;
     }
 
-    if (error) throw error;
+    if (error) {
+      await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+      throw error;
+    }
 
     const result = Array.isArray(data) ? data[0] : data;
     if (result && result.success === false) {
+      await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
       return res.status(400).json({ success: false, error: result.error || 'Checkout failed' });
     }
 
+    await subscriptionLimitService.commitFeatureUsage(reservationKey);
     res.json({ success: true, checkout: result || null });
   } catch (error) {
+    await subscriptionLimitService.rollbackFeatureUsage(reservationKey).catch(() => {});
     console.error('WhatsApp checkout error:', error.message);
     res.status(500).json({ error: 'Checkout failed' });
   }
@@ -365,19 +380,6 @@ router.post('/', optionalAuth, async (req, res) => {
   }
 
   try {
-    if (paymentMethod === 'cod') {
-      const { data: codGateway } = await supabase
-        .from('store_payment_gateways')
-        .select('is_active')
-        .eq('store_id', req.store.id)
-        .eq('provider_name', 'cod')
-        .maybeSingle();
-        
-      if (codGateway && codGateway.is_active === false) {
-        return res.status(400).json({ error: 'الدفع عند الاستلام غير متاح حالياً' });
-      }
-    }
-
     // Idempotency: guests use the key directly; logged-in users scope it to their ID
     const idempotencyScope = userId ? `${userId}-${idempotencyKey}` : idempotencyKey;
 
@@ -395,6 +397,26 @@ router.post('/', optionalAuth, async (req, res) => {
       return res.json({ success: true, message: 'Order already processed', orderId: existingOrder.id, total: existingOrder.total });
     }
 
+    const reservationKey = `order-${req.store.id}-${idempotencyScope}`;
+    const isAllowed = await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'orders', 1, reservationKey);
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'عذراً، المتجر استنفد الحد الأقصى من الطلبات المسموحة في باقته الحالية' });
+    }
+
+    if (paymentMethod === 'cod') {
+      const { data: codGateway } = await supabase
+        .from('store_payment_gateways')
+        .select('is_active')
+        .eq('store_id', req.store.id)
+        .eq('provider_name', 'cod')
+        .maybeSingle();
+        
+      if (codGateway && codGateway.is_active === false) {
+        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+        return res.status(400).json({ error: 'الدفع عند الاستلام غير متاح حالياً' });
+      }
+    }
+
     // 3. Server-Side Calculations
     let calculatedSubtotal = 0;
     const itemsWithPrices = [];
@@ -406,12 +428,21 @@ router.post('/', optionalAuth, async (req, res) => {
       .in('id', productIds)
       .eq('store_id', req.store.id);
 
-    if (prodError || !products) throw new Error('Could not fetch product prices');
+    if (prodError || !products) {
+      await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+      throw new Error('Could not fetch product prices');
+    }
 
     for (const item of items) {
       const dbProduct = products.find(p => p.id === item.id);
-      if (!dbProduct) return res.status(404).json({ error: `المنتج غير موجود أو غير متاح في هذا المتجر` });
-      if (dbProduct.stock < item.qty) return res.status(400).json({ error: `عذراً، الكمية المتاحة من "${dbProduct.name}" غير كافية لإتمام طلبك` });
+      if (!dbProduct) {
+        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+        return res.status(404).json({ error: `المنتج غير موجود أو غير متاح في هذا المتجر` });
+      }
+      if (dbProduct.stock < item.qty) {
+        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+        return res.status(400).json({ error: `عذراً، الكمية المتاحة من "${dbProduct.name}" غير كافية لإتمام طلبك` });
+      }
 
       calculatedSubtotal += dbProduct.price * item.qty;
       itemsWithPrices.push({ id: dbProduct.id, title: dbProduct.name, qty: item.qty, price: dbProduct.price });
@@ -466,11 +497,13 @@ router.post('/', optionalAuth, async (req, res) => {
       });
 
       if (error) {
+        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
         console.error('RPC Error:', error.message);
         const isStockError = error.message.includes('stock') || error.message.includes('الكمية');
         return res.status(isStockError ? 400 : 500).json({ error: error.message });
       }
 
+      await subscriptionLimitService.commitFeatureUsage(reservationKey);
       const order = Array.isArray(data) ? data[0] : data;
       return res.status(201).json({ success: true, orderId: order.id, total: order.total });
 
@@ -484,11 +517,18 @@ router.post('/', optionalAuth, async (req, res) => {
         store_id: req.store.id
       }]).select().single();
 
-      if (orderError) throw orderError;
+      if (orderError) {
+        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+        throw orderError;
+      }
+      
+      await subscriptionLimitService.commitFeatureUsage(reservationKey);
       return res.json({ success: true, orderId: order.id, total: calculatedTotal });
     }
 
   } catch (error) {
+    const idempotencyScope = userId ? `${userId}-${idempotencyKey}` : idempotencyKey;
+    await subscriptionLimitService.rollbackFeatureUsage(`order-${req.store.id}-${idempotencyScope}`).catch(() => {});
     console.error('Order processing error:', error.message);
     res.status(500).json({ error: 'Order processing failed' });
   }

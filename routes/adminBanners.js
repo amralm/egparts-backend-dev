@@ -2,6 +2,7 @@ const express = require('express');
 const { verifyPermission } = require('../middleware/auth');
 const bannerAdminService = require('../services/bannerAdminService');
 const logger = require('../utils/logger');
+const subscriptionLimitService = require('../services/subscriptionLimitService');
 
 const router = express.Router();
 
@@ -36,10 +37,20 @@ router.get('/', verifyPermission('banners.view'), async (req, res) => {
 router.post('/', verifyPermission('banners.manage'), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
+  let reservationKey;
   try {
+    reservationKey = req.headers['x-idempotency-key'] || `banner_${Date.now()}`;
+    const isAllowed = await subscriptionLimitService.reserveFeatureUsage(storeId, 'banners', 1, reservationKey, 15);
+    if (!isAllowed) {
+      return res.status(403).json({ success: false, code: 'FEATURE_LIMIT_EXCEEDED', error: 'تجاوزت الحد الأقصى للبنرات الإعلانية المسموح بها في باقتك.' });
+    }
     const banner = await bannerAdminService.createBanner(storeId, req.body || {});
+    await subscriptionLimitService.commitFeatureUsage(reservationKey);
     res.status(201).json({ success: true, banner });
   } catch (err) {
+    if (typeof reservationKey !== 'undefined') {
+      await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+    }
     logger.error('[admin-banners] create failed:', err.message);
     sendError(res, err);
   }
