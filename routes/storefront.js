@@ -102,7 +102,9 @@ router.post('/cart/validate', async (req, res) => {
   const storeId = requireStore(req, res);
   if (!storeId) return;
   try {
-    const products = await storefrontService.validateCart(storeId, req.body?.ids || []);
+    const items = req.body?.items || [];
+    const ids = req.body?.ids || items.map(i => i?.id || i).filter(Boolean);
+    const products = await storefrontService.validateCart(storeId, ids);
     res.json({ success: true, products });
   } catch (err) {
     logger.error('[storefront] cart validate failed:', err.message);
