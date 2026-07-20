@@ -904,6 +904,16 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
       }
     }
 
+    // Format phone to E.164 for Supabase Auth
+    let formattedPhone = undefined;
+    if (invitation.phone) {
+      let cleanedPhone = invitation.phone.replace(/\D/g, '');
+      if (cleanedPhone.startsWith('01') && cleanedPhone.length === 11) {
+        cleanedPhone = '2' + cleanedPhone;
+      }
+      formattedPhone = '+' + cleanedPhone;
+    }
+
     if (existingUser) {
       authUserId = existingUser.id;
     } else {
@@ -911,7 +921,7 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
         email: userEmail,
         password,
         email_confirm: true,
-        phone: invitation.phone || undefined,
+        phone: formattedPhone,
         user_metadata: { name, phone: invitation.phone || undefined }
       });
 
@@ -920,9 +930,9 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
     }
 
     // 2b. If user already existed without a phone, patch it now
-    if (invitation.phone) {
+    if (formattedPhone) {
       await supabase.auth.admin.updateUserById(authUserId, {
-        phone: invitation.phone,
+        phone: formattedPhone,
         user_metadata: { name, phone: invitation.phone }
       }).catch(err => logger.warn('Could not update phone on auth user:', err.message));
     }
