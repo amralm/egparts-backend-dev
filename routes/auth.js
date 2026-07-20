@@ -54,7 +54,7 @@ const verifyOTPSchema = z.object({
 });
 
 // Strict per-IP rate limiter for OTP send (2 req / 5 min per IP)
-const otpRateLimiter = rateLimit({
+const otpRateLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 5 * 60 * 1000,
   max: 2,
   message: { error: 'طلبات كود التحقق كثيرة جداً، حاول بعد 5 دقائق' },
@@ -63,7 +63,7 @@ const otpRateLimiter = rateLimit({
 });
 
 // Per-phone + per-IP rate limiter for OTP send (3 req / 1 hour per phone+IP)
-const perPhoneOtpLimiter = rateLimit({
+const perPhoneOtpLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 60 * 60 * 1000,
   max: 3,
   message: { error: 'تم تجاوز الحد المسموح من طلبات التحقق لهذا الرقم، حاول بعد ساعة' },
@@ -81,7 +81,7 @@ const perPhoneOtpLimiter = rateLimit({
 });
 
 // Per-IP rate limiter for OTP verify (3 req / 1 min per IP) to prevent brute force
-const verifyRateLimiter = rateLimit({
+const verifyRateLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 60 * 1000,
   max: 3,
   message: { error: 'محاولات تحقق كثيرة جداً، حاول بعد دقيقة' },
@@ -90,7 +90,7 @@ const verifyRateLimiter = rateLimit({
 });
 
 // Per-phone rate limiter for OTP verify (5 req / 15 min per phone) to prevent distributed brute force across IPs
-const perPhoneVerifyLimiter = rateLimit({
+const perPhoneVerifyLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 15 * 60 * 1000,
   max: 5,
   message: { error: 'تم إيقاف التحقق لهذا الرقم مؤقتاً لكثرة المحاولات الخاطئة. حاول بعد 15 دقيقة.' },
@@ -108,7 +108,7 @@ const perPhoneVerifyLimiter = rateLimit({
 });
 
 // Rate limiter for sensitive write operations (5 req / 1 min per IP)
-const sensitiveWriteRateLimiter = rateLimit({
+const sensitiveWriteRateLimiter = rateLimit({ validate: { trustProxy: false }, validate: { trustProxy: false },
   windowMs: 60 * 1000,
   max: 5,
   message: { error: 'طلبات كثيرة جداً، يرجى المحاولة لاحقاً' },
@@ -118,7 +118,7 @@ const sensitiveWriteRateLimiter = rateLimit({
 
 
 // Rate limiter for OAuth exchange (3 req / 30s per IP) — one-time-use tokens expire in 30s anyway
-const exchangeRateLimiter = rateLimit({
+const exchangeRateLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 30 * 1000,
   max: 3,
   message: { error: 'محاولات كثيرة جداً، يرجى المحاولة لاحقاً' },
@@ -931,10 +931,11 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
 
     // 2b. If user already existed without a phone, patch it now
     if (formattedPhone) {
-      await supabase.auth.admin.updateUserById(authUserId, {
+      const { error: patchErr } = await supabase.auth.admin.updateUserById(authUserId, {
         phone: formattedPhone,
         user_metadata: { name, phone: invitation.phone }
-      }).catch(err => logger.warn('Could not update phone on auth user:', err.message));
+      });
+      if (patchErr) logger.warn('Could not update phone on auth user:', patchErr.message);
     }
 
     // 3. Clone template roles into the store (Idempotent)
@@ -1014,7 +1015,7 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
     }
 
     // 4b. Upsert user_profiles so the manager's phone & name are linked immediately
-    await supabase
+    const { error: profUpsertErr } = await supabase
       .from('user_profiles')
       .upsert([{
         user_id: authUserId,
@@ -1023,8 +1024,11 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
         phone: invitation.phone || null,
         full_name: name,
         role: 'owner'
-      }], { onConflict: 'user_id,store_id', ignoreDuplicates: false })
-      .catch(err => logger.warn('user_profiles upsert failed (non-fatal):', err.message));
+      }], { onConflict: 'user_id,store_id', ignoreDuplicates: false });
+    
+    if (profUpsertErr) {
+      logger.warn('user_profiles upsert failed (non-fatal):', profUpsertErr.message);
+    }
 
     // 5. Build branch hierarchy (Idempotent)
     let branchId = null;
