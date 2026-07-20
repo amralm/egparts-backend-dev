@@ -673,6 +673,14 @@ router.post('/reject', verifyPermission('payments.approve'), async (req, res) =>
         },
       })
       .eq('id', intent_id);
+      
+    // Update the associated order's payment_status to 'failed'
+    if (intent.order_id) {
+      await supabase
+        .from('orders')
+        .update({ payment_status: 'failed' })
+        .eq('id', intent.order_id);
+    }
 
     await supabase.from('payment_timelines').insert({
       payment_intent_id: intent_id,

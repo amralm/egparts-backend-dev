@@ -18,7 +18,7 @@ router.get('/my', verifyUser, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('orders')
-      .select('*')
+      .select('*, payment_intents(id, status, metadata)')
       .eq('store_id', req.store.id)
       .eq('user_id', req.user.sub)
       .order('created_at', { ascending: false });
