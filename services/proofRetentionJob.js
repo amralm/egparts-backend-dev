@@ -24,7 +24,8 @@ const logger = require('../utils/logger');
 const subscriptionLimitService = require('./subscriptionLimitService');
 
 const JOB_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const DEFAULT_RETENTION_DAYS = 90;
+const DEFAULT_RETENTION_DAYS = 30; // Reduced from 90 to 30 for approved
+const REJECTED_RETENTION_DAYS = 1; // 24 hours for rejected
 
 async function decrementWithRetry(storeId, intentId, proof, retries = 3) {
   if (proof.quota_bytes === undefined) {
@@ -53,14 +54,14 @@ async function runProofRetentionCleanup() {
 
   try {
     // Find all payment_intents with manual_wallet provider where:
-    // - status is 'captured' (approved by merchant)
+    // - status is 'captured' (approved) OR 'failed' (rejected)
     // - proof exists (r2_key is set)
     // - lifecycle_status is NOT 'deleted'
     const { data: intents, error } = await supabase
       .from('payment_intents')
-      .select('id, store_id, metadata, updated_at')
+      .select('id, store_id, status, metadata, updated_at')
       .eq('provider', 'manual_wallet')
-      .eq('status', 'captured')
+      .in('status', ['captured', 'failed'])
       .not('metadata->proof->r2_key', 'is', null);
 
     if (error) {
@@ -94,14 +95,24 @@ async function runProofRetentionCleanup() {
       if (!proof?.r2_key) continue;
       if (proof.lifecycle_status === 'deleted') continue;
 
-      const retentionDays = retentionMap[intent.store_id] ?? DEFAULT_RETENTION_DAYS;
+      // Determine retention days and reference date based on status
+      let retentionDays;
+      let referenceDateStr;
 
-      // -1 means "keep forever"
+      if (intent.status === 'failed') {
+        retentionDays = REJECTED_RETENTION_DAYS;
+        referenceDateStr = intent.metadata?.rejected_at || intent.updated_at;
+      } else {
+        retentionDays = retentionMap[intent.store_id] ?? DEFAULT_RETENTION_DAYS;
+        referenceDateStr = intent.metadata?.approved_at || intent.updated_at;
+      }
+
+      // -1 means "keep forever" (only applies to approved, rejected is always 1 day)
       if (retentionDays === -1) continue;
 
-      // Calculate expiry: approved_at + retentionDays
-      const approvedAt = new Date(intent.metadata?.approved_at || intent.updated_at);
-      const expiryDate = new Date(approvedAt.getTime() + retentionDays * 24 * 60 * 60 * 1000);
+      // Calculate expiry
+      const referenceDate = new Date(referenceDateStr);
+      const expiryDate = new Date(referenceDate.getTime() + retentionDays * 24 * 60 * 60 * 1000);
       const now = new Date();
 
       if (now < expiryDate) continue; // Not expired yet
