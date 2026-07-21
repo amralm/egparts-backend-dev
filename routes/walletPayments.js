@@ -689,6 +689,16 @@ router.post('/reject', verifyPermission('payments.approve'), async (req, res) =>
       data: { rejected_by: req.user.sub, rejected_at: now },
     });
 
+    // Delete proof immediately upon rejection
+    const rejectedMeta = {
+      ...(intent.metadata || {}),
+      rejected_by: req.user.sub,
+      rejected_at: now,
+      rejection_reason: reason || 'Merchant rejected payment',
+      proof: { ...(intent.metadata?.proof || {}), lifecycle_status: 'rejected' },
+    };
+    deleteProofImmediately(intent_id, req.store.id, rejectedMeta, 'Payment rejected by merchant').catch(() => {});
+
     return res.json({ success: true, message: 'تم رفض إيصال الدفع.' });
   } catch (err) {
     console.error('[wallet/reject] Error:', err.message);

@@ -152,8 +152,9 @@ async function runProofRetentionCleanup() {
  * @param {string} intentId
  * @param {string} storeId
  * @param {object} metadata  - current intent metadata
+ * @param {string} [customReason] - optional custom reason for deletion
  */
-async function deleteProofImmediately(intentId, storeId, metadata) {
+async function deleteProofImmediately(intentId, storeId, metadata, customReason = null) {
   const r2Key = metadata?.proof?.r2_key;
   if (!r2Key) return;
 
@@ -167,7 +168,7 @@ async function deleteProofImmediately(intentId, storeId, metadata) {
       r2_key: null,
       lifecycle_status: 'deleted',
       deleted_at: new Date().toISOString(),
-      deleted_reason: 'Retention policy: 0 days (immediate)',
+      deleted_reason: customReason || 'Retention policy: 0 days (immediate)',
     };
 
     await supabase
