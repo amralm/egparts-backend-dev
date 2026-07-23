@@ -178,17 +178,7 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), asyn
     }]);
 
 
-    if (status && oldOrder.phone) {
-      await supabase.from('notification_queue').insert([{
-        recipient: oldOrder.phone,
-        store_id: req.store.id,
-        payload: { message: `Order EG-${oldOrder.order_number || id.split('-')[0]} status updated to: ${status}` },
-        type: 'whatsapp',
-        status: 'pending',
-        order_id: id
-      }]);
-    }
-
+    // Duplicate manual WhatsApp notification removed since it is handled by DB triggers
     res.json({ success: true, order });
   } catch (error) {
     console.error('Admin order status update error:', error.message);
