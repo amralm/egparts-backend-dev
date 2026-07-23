@@ -91,7 +91,17 @@ class MagicBytesValidator {
 
     // 3. Verify file extension matches MIME
     const ext = originalname.split('.').pop()?.toLowerCase();
-    const allowedExts = MIME_EXTENSIONS[mimetype] || [];
+    let allowedExts = MIME_EXTENSIONS[mimetype] || [];
+
+    // Be forgiving with image extensions because users frequently rename files incorrectly
+    // The true file type is already verified by magic bytes, and we save with a canonical extension anyway.
+    if (mimetype.startsWith('image/') && mimetype !== 'image/svg+xml') {
+      const commonImageExts = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'gif'];
+      if (commonImageExts.includes(ext)) {
+        allowedExts = commonImageExts;
+      }
+    }
+
     if (ext && allowedExts.length > 0 && !allowedExts.includes(ext)) {
       throw Object.assign(
         new Error(`MIME_MISMATCH: Extension '.${ext}' does not match MIME type '${mimetype}'`),

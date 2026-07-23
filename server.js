@@ -304,6 +304,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// ✅ Prevent caching on all API routes to avoid stale data (e.g. shipping zones not updating on refresh)
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  next();
+});
+
 // âœ… Platform Health Check Dashboard (bypasses tenantResolver for super-admin access)
 app.use('/api/health', healthRoutes);
 

@@ -1,0 +1,1 @@
+require('dotenv').config(); const { supabase } = require('./services/supabase'); async function check() { const { data } = await supabase.rpc('execute_sql', { sql_query: 'SELECT proname, prosrc FROM pg_proc WHERE prosrc LIKE ''%whatsapp%'';' }); console.log(JSON.stringify(data, null, 2)); } check();
