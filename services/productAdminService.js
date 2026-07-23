@@ -71,6 +71,7 @@ async function softDeleteProduct(storeId, productId) {
     .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Product not found or access denied');
   return data;
 }
 
@@ -83,9 +84,13 @@ async function hardDeleteProduct(storeId, productId) {
     .maybeSingle();
 
   if (fetchErr) throw fetchErr;
+  if (!product) throw new Error('Product not found or access denied');
 
-  await supabase.from('order_items').update({ product_id: null }).eq('product_id', productId);
-  await supabase.from('inventory_adjustments').delete().eq('product_id', productId);
+  const { error: ordErr } = await supabase.from('order_items').update({ product_id: null }).eq('product_id', productId);
+  if (ordErr) throw ordErr;
+  
+  const { error: invErr } = await supabase.from('inventory_adjustments').delete().eq('product_id', productId);
+  if (invErr) throw invErr;
 
   const { error } = await supabase
     .from('products')
@@ -115,6 +120,7 @@ async function restoreProduct(storeId, productId) {
     .maybeSingle();
 
   if (error) throw error;
+  if (!data) throw new Error('Product not found or access denied');
   return data;
 }
 

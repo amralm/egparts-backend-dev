@@ -521,7 +521,8 @@ router.post('/plans', verifyPlatformAdmin, async (req, res) => {
         if (mappingErr) throw mappingErr;
 
         // Wipe old limits to prevent orphans when types change
-        await supabase.from('feature_limits').delete().eq('plan_feature_id', planFeat.id);
+        const { error: delErr } = await supabase.from('feature_limits').delete().eq('plan_feature_id', planFeat.id);
+        if (delErr) throw delErr;
 
         if (feat.limits && Array.isArray(feat.limits)) {
           for (const lim of feat.limits) {
