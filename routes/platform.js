@@ -1689,7 +1689,7 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
       
       const { data: storeInfo } = await supabase.from('stores').select('subdomain').eq('id', store_id).single();
       const storeSubdomain = storeInfo?.subdomain || 'admin';
-      const baseDomain = (process.env.FRONTEND_URL || 'https://egparts.store').replace('https://', '');
+      const baseDomain = process.env.PRIMARY_DOMAIN || 'egparts.store';
       const activationLink = `https://${storeSubdomain}.${baseDomain}/accept-invitation?token=${token}`;
 
       sendNotification({
@@ -1747,7 +1747,7 @@ router.post('/invitations/:id/resend', verifyPlatformAdmin, async (req, res) => 
     const { sendNotification } = require('../services/notificationEngine');
     const { data: storeInfo } = await supabase.from('stores').select('subdomain').eq('id', invite.store_id).single();
     const storeSubdomain = storeInfo?.subdomain || 'admin';
-    const baseDomain = (process.env.FRONTEND_URL || 'https://egparts.store').replace('https://', '');
+    const baseDomain = process.env.PRIMARY_DOMAIN || 'egparts.store';
     const activationLink = `https://${storeSubdomain}.${baseDomain}/accept-invitation?token=${token}`;
     
     // Run in background - send via WhatsApp to phone
