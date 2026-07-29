@@ -684,7 +684,7 @@ router.post('/stores', verifyPlatformAdmin, async (req, res) => {
     res.status(201).json({ success: true, store });
   } catch (err) {
     logger.error('Failed to create platform store:', err);
-    res.status(500).json({ error: 'Failed to create store' });
+    res.status(500).json({ error: err.message || 'Failed to create store', details: err });
   }
 });
 
