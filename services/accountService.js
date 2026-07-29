@@ -64,7 +64,8 @@ async function saveAddress(userId, addressId, payload, storeId) {
     phone: payload.phone,
     city: payload.city,
     address: payload.address,
-    is_default: Boolean(payload.is_default)
+    is_default: Boolean(payload.is_default),
+    location_url: payload.location_url || null
   };
 
   if (addressId) {

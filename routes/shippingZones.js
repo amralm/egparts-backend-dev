@@ -21,7 +21,7 @@ function sendError(res, err) {
   });
 }
 
-router.get('/', verifyPermission('shipping.manage'), async (req, res) => {
+router.get('/', verifyPermission('shipping.view'), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
 

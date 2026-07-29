@@ -111,7 +111,7 @@ router.get('/admin/:id/customer-address', verifyPermission('orders.view'), async
 
     let { data } = await supabase
       .from('user_addresses')
-      .select('title, phone, city, address, is_default')
+      .select('title, phone, city, address, is_default, location_url')
       .eq('user_id', order.user_id)
       .eq('store_id', req.store.id)
       .eq('is_default', true)
@@ -120,7 +120,7 @@ router.get('/admin/:id/customer-address', verifyPermission('orders.view'), async
     if (!data || data.length === 0) {
       ({ data } = await supabase
         .from('user_addresses')
-        .select('title, phone, city, address, is_default')
+        .select('title, phone, city, address, is_default, location_url')
         .eq('user_id', order.user_id)
         .eq('store_id', req.store.id)
         .order('created_at', { ascending: false })
@@ -341,7 +341,7 @@ router.post('/whatsapp-checkout', optionalAuth, orderRateLimiter, async (req, re
 
 // Create a new order — works for both logged-in users and guests
 router.post('/', optionalAuth, async (req, res) => {
-  const { items, phone, city, address, note, paymentMethod, couponCode, idempotencyKey } = req.body;
+  const { items, phone, city, address, note, paymentMethod, couponCode, idempotencyKey, location_url } = req.body;
   const userId = req.user?.sub || null; // null = guest order
 
   // 1. Validation
@@ -483,7 +483,8 @@ router.post('/', optionalAuth, async (req, res) => {
         p_idempotency_key: idempotencyScope,
         p_auth_source: req.user?.app_metadata?.provider || 'otp',
         p_metadata: { user_agent: req.headers['user-agent'] },
-        p_store_id: req.store.id
+        p_store_id: req.store.id,
+        p_location_url: location_url || null
       });
 
       if (error) {
@@ -504,7 +505,7 @@ router.post('/', optionalAuth, async (req, res) => {
         payment_method: paymentMethod, subtotal: calculatedSubtotal, discount: calculatedDiscount,
         shipping_fee: calculatedShippingFee, total: calculatedTotal, coupon_id: couponId,
         idempotency_key: idempotencyScope, status: 'pending', payment_status: 'unpaid',
-        store_id: req.store.id
+        store_id: req.store.id, location_url: location_url || null
       }]).select().single();
 
       if (orderError) {
