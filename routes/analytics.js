@@ -1,0 +1,31 @@
+const express = require('express');
+const router = express.Router();
+const { supabase } = require('../services/supabase');
+
+const VALID_EVENTS = new Set([
+  'otp_success','otp_failure','checkout_start','checkout_complete',
+  'checkout_abandon','gps_granted','gps_denied','gps_failure',
+  'address_autofill','payment_success','payment_failure','order_retry'
+]);
+
+router.post('/event', async (req, res) => {
+  // Always respond immediately — fire and forget
+  res.json({ success: true });
+  
+  const { event_type, store_id, metadata } = req.body || {};
+  if (!event_type || !VALID_EVENTS.has(event_type)) return;
+  
+  try {
+    await supabase.from('analytics_events').insert({
+      event_type,
+      store_id: store_id || null,
+      metadata: metadata || {},
+      created_at: new Date().toISOString()
+    });
+  } catch (err) {
+    // Silent fail — analytics must never block the user
+    console.error('[Analytics] Failed to log event:', err.message);
+  }
+});
+
+module.exports = router;

@@ -75,6 +75,8 @@ const adminProductRoutes = require('./routes/adminProducts');
 const adminSettingsRoutes = require('./routes/adminSettings');
 const adminDashboardRoutes = require('./routes/adminDashboard');
 const storefrontRoutes = require('./routes/storefront');
+const geocodeRoutes = require('./routes/geocode');
+const analyticsRoutes = require('./routes/analytics');
 const healthCollector = require('./services/healthCollector');
 const whatsappService = require('./services/whatsappService');
 const notificationWorker = require('./services/notificationWorker');
@@ -628,6 +630,8 @@ const storageRoutes = require('./routes/storage');
 app.use('/api/storage', storageRoutes);
 app.use('/api/limits', limitsRoutes);
 app.use('/api/copilot', aiRoutes);
+app.use('/api/geocode', geocodeRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // âœ… WhatsApp Auth Routes
 app.post('/api/auth/qr-login', async (req, res) => {
