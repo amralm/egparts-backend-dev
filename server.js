@@ -252,7 +252,7 @@ app.use(async (req, res, next) => {
   // x-store-subdomain and x-original-host are required for multi-tenant store context resolution
   res.header(
     'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, Content-Length, X-Requested-With, x-store-subdomain, X-Store-Subdomain, x-original-host, X-Original-Host, X-Correlation-ID, X-Request-ID, x-impersonate-session, X-Impersonate-Session'
+    'Content-Type, Authorization, Content-Length, X-Requested-With, x-store-subdomain, X-Store-Subdomain, x-original-host, X-Original-Host, X-Correlation-ID, X-Request-ID, x-impersonate-session, X-Impersonate-Session, Cache-Control, Pragma, Expires'
   );
   // Expose correlation ID and developer diagnostics to the client for debugging
   res.header('Access-Control-Expose-Headers', 'X-Correlation-ID, X-Dev-Mode, X-Debug-Request-ID');
