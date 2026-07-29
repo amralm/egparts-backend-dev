@@ -403,6 +403,39 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       // We don't throw here to not fail the user request if only logging fails
     }
 
+    // Send WhatsApp confirmation to customer: proof received, pending review
+    // This is the REAL confirmation they were waiting for, not the initial "طلب جديد"
+    try {
+      const { data: orderForNotif } = await supabase
+        .from('orders')
+        .select('id, phone, total, order_number')
+        .eq('id', intent.order_id)
+        .single();
+
+      if (orderForNotif?.phone) {
+        const orderNum = orderForNotif.order_number || intent.order_id.split('-')[0].toUpperCase();
+        const notifMsg = `\u2705 *\u062a\u0645 \u0627\u0633\u062a\u0644\u0627\u0645 \u0625\u062b\u0628\u0627\u062a \u0627\u0644\u062f\u0641\u0639*`
+          + `\n\n\u062a\u0645 \u0627\u0633\u062a\u0644\u0627\u0645 \u0644\u0642\u0637\u0629 \u0634\u0627\u0634\u0629 \u062a\u062d\u0648\u064a\u0644\u0643 \u0644\u0637\u0644\u0628 \u0631\u0642\u0645 *EG-${orderNum}* \u0628\u0646\u062c\u0627\u062d\u060c \u0648\u0633\u064a\u062a\u0645 \u0645\u0631\u0627\u062c\u0639\u062a\u0647 \u062e\u0644\u0627\u0644 \u062f\u0642\u0627\u0626\u0642 \u0648\u0633\u064a\u062a\u0645 \u062a\u0623\u0643\u064a\u062f \u0637\u0644\u0628\u0643.`
+          + `\n\n\u26a0\ufe0f \u0644\u0627 \u062a\u063a\u0644\u0642 \u0627\u0644\u062a\u0637\u0628\u064a\u0642 \u062d\u062a\u0649 \u062a\u062a\u0644\u0642\u0649 \u0627\u0644\u062a\u0623\u0643\u064a\u062f \u0627\u0644\u0646\u0647\u0627\u0626\u064a.`;
+
+        await supabase.from('notification_queue').insert({
+          recipient: orderForNotif.phone,
+          payload: {
+            message: notifMsg,
+            event_type: 'wallet_proof_received',
+            order_number: `EG-${orderNum}`,
+          },
+          type: 'whatsapp',
+          status: 'pending',
+          order_id: intent.order_id,
+          store_id: req.store.id,
+        });
+      }
+    } catch (notifErr) {
+      // Notification failure must never block proof upload
+      console.error('[wallet/submit-proof] Notification failed (non-fatal):', notifErr.message);
+    }
+
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
     return res.json({ success: true, message: 'Receipt uploaded successfully' });
   } catch (err) {
