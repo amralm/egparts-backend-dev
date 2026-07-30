@@ -8,6 +8,7 @@ const { verifyPlatformAdmin, verifyPlatformPermission } = require('../middleware
 const logger = require('../utils/logger');
 const { encryptCredentials, decryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
 const { sanitizeThemeOverrides } = require('../services/themeSettingsService');
+const { tenantCache } = require('../utils/cache');
 
 const s3Client = new S3Client({
   region: 'auto',
@@ -755,6 +756,10 @@ router.patch('/stores/:id', verifyPlatformAdmin, async (req, res) => {
       if (subErr) throw subErr;
     }
 
+    // Invalidate cache so changes (like subscription expiry) reflect instantly
+    if (store.subdomain) tenantCache.del(store.subdomain);
+    if (store.custom_domain) tenantCache.del(store.custom_domain);
+
     await auditPlatform(req, 'platform.store.update', 'store', id, oldStore, store, id);
     res.json({ success: true, store });
   } catch (err) {
@@ -779,6 +784,10 @@ router.post('/stores/:id/suspend', verifyPlatformAdmin, async (req, res) => {
     if (error) throw error;
 
     await supabase.from('store_subscriptions').update({ status: 'suspended', updated_at: new Date().toISOString() }).eq('store_id', id);
+    
+    if (store.subdomain) tenantCache.del(store.subdomain);
+    if (store.custom_domain) tenantCache.del(store.custom_domain);
+
     await auditPlatform(req, 'platform.store.suspend', 'store', id, oldStore, { ...store, reason }, id);
     res.json({ success: true, store });
   } catch (err) {
@@ -802,6 +811,10 @@ router.post('/stores/:id/recover', verifyPlatformAdmin, async (req, res) => {
     if (error) throw error;
 
     await supabase.from('store_subscriptions').update({ status: 'active', updated_at: new Date().toISOString() }).eq('store_id', id);
+
+    if (store.subdomain) tenantCache.del(store.subdomain);
+    if (store.custom_domain) tenantCache.del(store.custom_domain);
+
     await auditPlatform(req, 'platform.store.recover', 'store', id, oldStore, store, id);
     res.json({ success: true, store });
   } catch (err) {
