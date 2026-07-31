@@ -33,19 +33,38 @@ export default function ShippingAdmin() {
 
   const handleAddZone = async (e) => {
     e.preventDefault();
-    if (!newCityName || !newFee || !store?.id) return;
+    const parsedFee = parseFloat(newFee);
+    if (isNaN(parsedFee) || parsedFee < 0) {
+      alert('الرجاء إدخال تسعيرة صحيحة');
+      return;
+    }
 
-    const { data, error } = await supabase
-      .from('shipping_zones')
-      .insert([{ city_name: newCityName, shipping_fee: parseFloat(newFee), store_id: store.id }])
-      .select();
+    try {
+      const { data, error } = await supabase
+        .from('shipping_zones')
+        .insert([{ city_name: newCityName, shipping_fee: parsedFee, store_id: store.id }])
+        .select();
 
-    if (error) {
-      alert('خطأ في إضافة المحافظة');
-    } else if (data) {
-      setZones([...zones, data[0]].sort((a, b) => a.city_name.localeCompare(b.city_name)));
-      setNewCityName('');
-      setNewFee('');
+      if (error) {
+        console.error('Insert error:', error);
+        alert('خطأ في إضافة المحافظة: ' + (error.message || JSON.stringify(error)));
+      } else if (data && data.length > 0) {
+        setZones(prev => {
+          const newZones = [...prev, data[0]];
+          return newZones.sort((a, b) => a.city_name.localeCompare(b.city_name));
+        });
+        setNewCityName('');
+        setNewFee('');
+      } else {
+        console.warn('Insert succeeded but no data returned from select. RLS issue?');
+        // Fallback: manually fetch again
+        fetchZones();
+        setNewCityName('');
+        setNewFee('');
+      }
+    } catch (err) {
+      console.error('Unhandled error in handleAddZone:', err);
+      alert('حدث خطأ غير متوقع');
     }
   };
 
