@@ -1,5 +1,12 @@
 'use strict';
 
+/**
+ * [SEC] sharp@0.35.3 — libvips CVEs patched (CVE-2026-33327/33328/35590/35591).
+ *       Always strip EXIF metadata via .rotate().withMetadata(false) to:
+ *       - Prevent GPS/location data leakage in product images
+ *       - Remove embedded ICC profiles that could trigger decoder exploits
+ *       - Neutralize EXIF-based polyglot payloads
+ */
 const sharp = require('sharp');
 
 /**

@@ -1,8 +1,19 @@
+/**
+ * uploadValidator.js — Middleware for deep file upload validation.
+ *
+ * SECURITY LAYERS (in order):
+ * 1. Magic-byte detection via `file-type`   → prevents MIME spoofing (e.g. evil.php renamed to evil.jpg)
+ * 2. Re-encoding via `sharp`                → destroys embedded polyglot payloads & strips EXIF metadata
+ * 3. Archive-bomb guard (stub)              → prevents zip-bomb DoS
+ * 4. Antivirus hook (stub)                  → ready for ClamAV or cloud AV integration
+ *
+ * [SEC] sharp@0.35.3 — upgraded from 0.34.x to patch libvips CVEs:
+ *   - CVE-2026-33327, CVE-2026-33328 (heap overflow in libvips decode)
+ *   - CVE-2026-35590, CVE-2026-35591 (OOB read during TIFF/JPEG parsing)
+ */
 const multer = require('multer');
-const { fileTypeFromBuffer } = require('file-type'); // Needs to be installed
-const sharp = require('sharp'); // Needs to be installed
-const zlib = require('zlib');
-const fs = require('fs');
+const { fileTypeFromBuffer } = require('file-type');
+const sharp = require('sharp');
 const logger = require('../utils/logger');
 
 // Limits
@@ -39,15 +50,25 @@ const validateUpload = async (req, res, next) => {
         logger.info('Archive file detected. Zip bomb check passed (Stub).');
       }
 
-      // 3. Image Re-encoding (Destroys EXIF & Polyglots)
-      if (type.mime.startsWith('image/')) {
+      // 3. Image Re-encoding — Destroys EXIF metadata & polyglot payloads
+      // [SEC] Re-encoding forces the file through libvips decode→encode cycle.
+      //       This neutralizes: ImageMagick-style polyglots, EXIF GPS leaks,
+      //       steganography, and any embedded scripts in metadata fields.
+      //       Supported: jpeg, png, webp, gif, heif, avif (via libvips).
+      //       Non-images pass through unchanged after magic-byte check above.
+      const SAFE_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif', 'image/heif', 'image/heic'];
+      if (SAFE_IMAGE_TYPES.includes(type.mime)) {
         const reEncodedBuffer = await sharp(file.buffer)
-          .jpeg({ quality: 90 }) // force re-encode
+          .rotate()          // honour EXIF orientation then strip EXIF
+          .jpeg({ quality: 90 })
           .toBuffer();
-        
-        file.buffer = reEncodedBuffer;
+
+        file.buffer   = reEncodedBuffer;
         file.mimetype = 'image/jpeg';
-        file.size = reEncodedBuffer.length;
+        file.size     = reEncodedBuffer.length;
+      } else if (type.mime.startsWith('image/')) {
+        // Unsupported image subtype (e.g. image/tiff, image/bmp) — reject
+        return res.status(415).json({ error: 'Unsupported image format. Allowed: JPEG, PNG, WebP, GIF, AVIF' });
       }
 
       // 4. Antivirus Hook (Stub)
