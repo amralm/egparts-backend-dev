@@ -757,8 +757,8 @@ router.patch('/stores/:id', verifyPlatformAdmin, async (req, res) => {
     }
 
     // Invalidate cache so changes (like subscription expiry) reflect instantly
-    if (store.subdomain) tenantCache.del(store.subdomain);
-    if (store.custom_domain) tenantCache.del(store.custom_domain);
+    if (store.subdomain) tenantCache.delete(store.subdomain);
+    if (store.custom_domain) tenantCache.delete(store.custom_domain);
 
     await auditPlatform(req, 'platform.store.update', 'store', id, oldStore, store, id);
     res.json({ success: true, store });
@@ -785,8 +785,8 @@ router.post('/stores/:id/suspend', verifyPlatformAdmin, async (req, res) => {
 
     await supabase.from('store_subscriptions').update({ status: 'suspended', updated_at: new Date().toISOString() }).eq('store_id', id);
     
-    if (store.subdomain) tenantCache.del(store.subdomain);
-    if (store.custom_domain) tenantCache.del(store.custom_domain);
+    if (store.subdomain) tenantCache.delete(store.subdomain);
+    if (store.custom_domain) tenantCache.delete(store.custom_domain);
 
     await auditPlatform(req, 'platform.store.suspend', 'store', id, oldStore, { ...store, reason }, id);
     res.json({ success: true, store });
@@ -812,8 +812,8 @@ router.post('/stores/:id/recover', verifyPlatformAdmin, async (req, res) => {
 
     await supabase.from('store_subscriptions').update({ status: 'active', updated_at: new Date().toISOString() }).eq('store_id', id);
 
-    if (store.subdomain) tenantCache.del(store.subdomain);
-    if (store.custom_domain) tenantCache.del(store.custom_domain);
+    if (store.subdomain) tenantCache.delete(store.subdomain);
+    if (store.custom_domain) tenantCache.delete(store.custom_domain);
 
     await auditPlatform(req, 'platform.store.recover', 'store', id, oldStore, store, id);
     res.json({ success: true, store });
