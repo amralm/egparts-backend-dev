@@ -485,13 +485,27 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
   }
 });
 
-// ===== STEP 3: Verify Redirect (Frontend Callback) =====
+function getStoreUrl(store) {
+  const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
+  if (!store) return `https://${primaryDomain}`;
+  if (store.custom_domain) return `https://${store.custom_domain}`;
+  if (store.subdomain) return `https://${store.subdomain}.${primaryDomain}`;
+  return `https://${primaryDomain}`;
+}
+
+// ===== STEP 3: Verify Redirect (Paymob / Frontend Callback) =====
 router.get('/verify-redirect', async (req, res) => {
   const query = req.query;
   const paymobOrderId = query.order;
   const receivedHmac = query.hmac;
 
+  const isBrowserNavigation = req.headers.accept && req.headers.accept.includes('text/html');
+
   if (!paymobOrderId || !receivedHmac) {
+    if (isBrowserNavigation) {
+      const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
+      return res.redirect(302, `https://${primaryDomain}/payment/fail?error=missing_parameters`);
+    }
     return res.status(400).json({ error: 'Missing parameters' });
   }
 
@@ -502,10 +516,21 @@ router.get('/verify-redirect', async (req, res) => {
       .eq('paymob_order_id', paymobOrderId)
       .single();
 
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (!order) {
+      if (isBrowserNavigation) {
+        const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
+        return res.redirect(302, `https://${primaryDomain}/payment/fail?error=order_not_found`);
+      }
+      return res.status(404).json({ error: 'Order not found' });
+    }
 
-    // If already marked as paid by webhook, we don't even need to verify HMAC here
+    const storeUrl = getStoreUrl(order.stores);
+
+    // If already marked as paid by webhook
     if (order.payment_status === 'paid') {
+      if (isBrowserNavigation) {
+        return res.redirect(302, `${storeUrl}/payment/success?method=card&orderId=${order.id}&isPaymob=true`);
+      }
       return res.json({ 
         success: true, 
         payment_status: 'paid', 
@@ -545,20 +570,22 @@ router.get('/verify-redirect', async (req, res) => {
       .update(concatFields.join(''))
       .digest('hex');
 
-    if (computedHmac.length !== receivedHmac.length) {
-      return res.status(401).json({ error: 'Invalid HMAC signature' });
+    let isValid = false;
+    if (computedHmac.length === receivedHmac.length) {
+      isValid = crypto.timingSafeEqual(
+        Buffer.from(computedHmac, 'hex'),
+        Buffer.from(receivedHmac, 'hex')
+      );
     }
-
-    const isValid = crypto.timingSafeEqual(
-      Buffer.from(computedHmac, 'hex'),
-      Buffer.from(receivedHmac, 'hex')
-    );
 
     if (!isValid) {
+      if (isBrowserNavigation) {
+        return res.redirect(302, `${storeUrl}/payment/fail?orderId=${order.id}&error=invalid_signature`);
+      }
       return res.status(401).json({ error: 'Invalid HMAC signature' });
     }
 
-    // HMAC is valid, return the parsed success state
+    // HMAC is valid, check success
     const isSuccess = query.success === 'true';
     if (isSuccess && order.payment_status !== 'paid') {
       await supabase.from('orders').update({
@@ -566,6 +593,14 @@ router.get('/verify-redirect', async (req, res) => {
         status: 'confirmed',
         paid_at: new Date().toISOString()
       }).eq('id', order.id);
+    }
+
+    if (isBrowserNavigation) {
+      if (isSuccess) {
+        return res.redirect(302, `${storeUrl}/payment/success?method=card&orderId=${order.id}&isPaymob=true`);
+      } else {
+        return res.redirect(302, `${storeUrl}/payment/fail?orderId=${order.id}&isPaymob=true`);
+      }
     }
 
     return res.json({ 
@@ -577,6 +612,10 @@ router.get('/verify-redirect', async (req, res) => {
 
   } catch (err) {
     console.error('Verify Redirect Error:', err.message);
+    if (isBrowserNavigation) {
+      const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
+      return res.redirect(302, `https://${primaryDomain}/payment/fail?error=server_error`);
+    }
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
