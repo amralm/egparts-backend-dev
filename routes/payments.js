@@ -498,7 +498,7 @@ router.get('/verify-redirect', async (req, res) => {
   try {
     const { data: order } = await supabase
       .from('orders')
-      .select('store_id, payment_status')
+      .select('id, store_id, payment_status, stores (id, name, subdomain, custom_domain)')
       .eq('paymob_order_id', paymobOrderId)
       .single();
 
@@ -506,7 +506,12 @@ router.get('/verify-redirect', async (req, res) => {
 
     // If already marked as paid by webhook, we don't even need to verify HMAC here
     if (order.payment_status === 'paid') {
-      return res.json({ success: true, payment_status: 'paid' });
+      return res.json({ 
+        success: true, 
+        payment_status: 'paid', 
+        orderId: order.id, 
+        store: order.stores 
+      });
     }
 
     // Otherwise, verify the GET HMAC to confirm success instantly
@@ -555,7 +560,20 @@ router.get('/verify-redirect', async (req, res) => {
 
     // HMAC is valid, return the parsed success state
     const isSuccess = query.success === 'true';
-    return res.json({ success: isSuccess, payment_status: isSuccess ? 'paid' : 'failed' });
+    if (isSuccess && order.payment_status !== 'paid') {
+      await supabase.from('orders').update({
+        payment_status: 'paid',
+        status: 'confirmed',
+        paid_at: new Date().toISOString()
+      }).eq('id', order.id);
+    }
+
+    return res.json({ 
+      success: isSuccess, 
+      payment_status: isSuccess ? 'paid' : 'failed',
+      orderId: order.id,
+      store: order.stores
+    });
 
   } catch (err) {
     console.error('Verify Redirect Error:', err.message);
