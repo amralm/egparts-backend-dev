@@ -3,7 +3,7 @@ const router = express.Router();
 const axios = require('axios');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
-const { verifyUser, verifyPermission } = require('../middleware/auth');
+const { verifyUser, verifyPermission, optionalAuth } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
 const { decryptCredentials, encryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
 
@@ -329,19 +329,22 @@ router.post('/settings', paymentSetupRateLimiter, verifyPermission('payments.con
 });
 
 // ===== STEP 1: Create Payment Intent =====
-router.post('/create', paymentRateLimiter, verifyUser, async (req, res) => {
-  const { orderId } = req.body;
+router.post('/create', paymentRateLimiter, optionalAuth, async (req, res) => {
+  const orderId = req.body?.orderId || req.body?.order_id || req.body?.order;
+
+  if (!orderId) {
+    return res.status(400).json({ error: 'Order ID is required' });
+  }
 
   try {
     const { data: order, error: orderError } = await supabase
       .from('orders').select('*')
       .eq('id', orderId)
-      .eq('user_id', req.user.sub)
       .eq('store_id', req.store.id)
-      .single(); // Supabase JWT uses 'sub'
+      .single();
 
     if (orderError || !order) return res.status(404).json({ error: 'Order not found' });
-    if (order.payment_status === 'paid') return res.status(400).json({ error: 'Order already paid' });
+    if (order.payment_status === 'paid') return res.status(400).json({ error: 'Order already paid', isPaid: true });
 
     // Fetch store-specific payment gateway settings from table and decrypt in-memory
     const { data: gateway } = await supabase
@@ -378,11 +381,12 @@ router.post('/create', paymentRateLimiter, verifyUser, async (req, res) => {
       auth_token: token, amount_cents: amountCents, expiration: 3600,
       order_id: paymobOrderRes.data.id,
       billing_data: {
-        first_name: req.user.user_metadata?.name?.split(' ')[0] || 'Customer',
-        last_name: req.user.user_metadata?.name?.split(' ')[1] || 'User',
-        email: req.user.email || 'customer@egparts.com', phone_number: order.phone,
-        apartment: 'NA', floor: 'NA', street: order.address, building: 'NA',
-        shipping_method: 'NA', postal_code: 'NA', city: order.city, country: 'EG', state: 'NA'
+        first_name: req.user?.user_metadata?.name?.split(' ')[0] || 'Customer',
+        last_name: req.user?.user_metadata?.name?.split(' ')[1] || 'User',
+        email: req.user?.email || 'customer@egparts.com',
+        phone_number: order.phone || '01000000000',
+        apartment: 'NA', floor: 'NA', street: order.address || 'Cairo', building: 'NA',
+        shipping_method: 'NA', postal_code: 'NA', city: order.city || 'Cairo', country: 'EG', state: 'NA'
       },
       currency: 'EGP', integration_id: integrationId
     });
@@ -390,7 +394,13 @@ router.post('/create', paymentRateLimiter, verifyUser, async (req, res) => {
     const paymentUrl = `https://accept.paymob.com/api/acceptance/iframes/${iframeId}?payment_token=${paymentKeyRes.data.token}`;
     await supabase.from('orders').update({ paymob_order_id: String(paymobOrderRes.data.id) }).eq('id', orderId).eq('store_id', req.store.id);
 
-    return res.json({ success: true, payment_url: paymentUrl, orderId: order.id });
+    return res.json({
+      success: true,
+      payment_url: paymentUrl,
+      iframe_url: paymentUrl,
+      orderId: order.id,
+      amount: order.total
+    });
 
   } catch (error) {
     console.error('Paymob Error:', error.response?.data || error.message);
