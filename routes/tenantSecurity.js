@@ -21,7 +21,7 @@ function sendError(res, err) {
   });
 }
 
-router.get('/blocked-ips', verifyPermission('platform.security.block_ip'), async (req, res) => {
+router.get('/blocked-ips', verifyPermission('settings.view'), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
   try {
@@ -33,7 +33,7 @@ router.get('/blocked-ips', verifyPermission('platform.security.block_ip'), async
   }
 });
 
-router.post('/blocked-ips', verifyPermission('platform.security.block_ip'), async (req, res) => {
+router.post('/blocked-ips', verifyPermission('settings.update'), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
   try {
@@ -45,7 +45,7 @@ router.post('/blocked-ips', verifyPermission('platform.security.block_ip'), asyn
   }
 });
 
-router.delete('/blocked-ips/:id', verifyPermission('platform.security.block_ip'), async (req, res) => {
+router.delete('/blocked-ips/:id', verifyPermission('settings.update'), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
   try {
@@ -57,7 +57,7 @@ router.delete('/blocked-ips/:id', verifyPermission('platform.security.block_ip')
   }
 });
 
-router.post('/blocked-ips/toggle', verifyPermission('platform.security.block_ip'), async (req, res) => {
+router.post('/blocked-ips/toggle', verifyPermission('settings.update'), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
   try {
@@ -76,7 +76,7 @@ router.post('/blocked-ips/toggle', verifyPermission('platform.security.block_ip'
   }
 });
 
-router.get('/login-logs', verifyPermission('platform.security.view_logs'), async (req, res) => {
+router.get('/login-logs', verifyPermission('settings.view'), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
   try {
@@ -88,7 +88,7 @@ router.get('/login-logs', verifyPermission('platform.security.view_logs'), async
   }
 });
 
-router.delete('/login-logs/:id', verifyPermission('platform.security.view_logs'), async (req, res) => {
+router.delete('/login-logs/:id', verifyPermission('settings.update'), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
   try {
@@ -100,7 +100,7 @@ router.delete('/login-logs/:id', verifyPermission('platform.security.view_logs')
   }
 });
 
-router.post('/login-logs/prune', verifyPermission('platform.security.view_logs'), async (req, res) => {
+router.post('/login-logs/prune', verifyPermission('settings.update'), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
   try {
