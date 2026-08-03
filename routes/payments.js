@@ -329,7 +329,7 @@ router.post('/settings', paymentSetupRateLimiter, verifyPermission('payments.con
 });
 
 // ===== STEP 1: Create Payment Intent =====
-router.post('/create', paymentRateLimiter, optionalAuth, async (req, res) => {
+router.post('/create', paymentRateLimiter, verifyUser, async (req, res) => {
   const orderId = req.body?.orderId || req.body?.order_id || req.body?.order;
 
   if (!orderId) {
@@ -340,6 +340,7 @@ router.post('/create', paymentRateLimiter, optionalAuth, async (req, res) => {
     const { data: order, error: orderError } = await supabase
       .from('orders').select('*')
       .eq('id', orderId)
+      .eq('user_id', req.user.sub)
       .eq('store_id', req.store.id)
       .single();
 

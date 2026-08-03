@@ -238,7 +238,7 @@ router.get('/recent-purchases', async (req, res) => {
   }
 });
 
-router.post('/whatsapp-checkout', optionalAuth, orderRateLimiter, async (req, res) => {
+router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, async (req, res) => {
   if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
 
   const {
@@ -339,10 +339,10 @@ router.post('/whatsapp-checkout', optionalAuth, orderRateLimiter, async (req, re
   }
 });
 
-// Create a new order — works for both logged-in users and guests
-router.post('/', optionalAuth, async (req, res) => {
+// Create a new order — strictly requires authenticated user (guests blocked)
+router.post('/', verifyUser, async (req, res) => {
   const { items, phone, city, address, note, paymentMethod, couponCode, idempotencyKey, location_url } = req.body;
-  const userId = req.user?.sub || null; // null = guest order
+  const userId = req.user.sub;
 
   // 1. Validation
   const allowedMethods = ['cod', 'card', 'manual_wallet'];
@@ -370,18 +370,16 @@ router.post('/', optionalAuth, async (req, res) => {
   }
 
   try {
-    // Idempotency: guests use the key directly; logged-in users scope it to their ID
-    const idempotencyScope = userId ? `${userId}-${idempotencyKey}` : idempotencyKey;
+    // Idempotency: scoped to user and key
+    const idempotencyScope = `${userId}-${idempotencyKey}`;
 
-    const idempotencyQuery = supabase
+    const { data: existingOrder } = await supabase
       .from('orders')
       .select('id, total')
       .eq('idempotency_key', idempotencyScope)
-      .eq('store_id', req.store.id);
-
-    if (userId) idempotencyQuery.eq('user_id', userId);
-
-    const { data: existingOrder } = await idempotencyQuery.single();
+      .eq('store_id', req.store.id)
+      .eq('user_id', userId)
+      .maybeSingle();
 
     if (existingOrder) {
       return res.json({ success: true, message: 'Order already processed', orderId: existingOrder.id, total: existingOrder.total });
