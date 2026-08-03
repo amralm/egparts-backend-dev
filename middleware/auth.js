@@ -34,6 +34,25 @@ const logger = require('../utils/logger');
  * @returns {Promise<string[]>} Array of granted permission names
  */
 async function resolveStorePermissions(userId, storeId) {
+  // Check if super_admin first (super admins have full capabilities across all stores)
+  try {
+    const { data: superAdmin } = await supabase
+      .from('super_admins')
+      .select('user_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (superAdmin) {
+      const { data: allPerms } = await supabase
+        .from('permissions')
+        .select('name')
+        .eq('is_deprecated', false);
+      return (allPerms || []).map((p) => p.name);
+    }
+  } catch (saErr) {
+    logger.warn('super_admin check in resolveStorePermissions failed:', saErr.message);
+  }
+
   const { data, error } = await supabase
     .from('user_roles')
     .select(`
