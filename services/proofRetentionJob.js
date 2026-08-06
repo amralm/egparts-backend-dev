@@ -95,19 +95,23 @@ async function runProofRetentionCleanup() {
       if (!proof?.r2_key) continue;
       if (proof.lifecycle_status === 'deleted') continue;
 
+      // Fast-path: rejected proofs should have been deleted by the route handler,
+      // but if that failed (network hiccup, etc.), clean them up now without waiting.
+      const isRejectedProof = intent.status === 'failed' && proof.lifecycle_status === 'rejected';
+
       // Determine retention days and reference date based on status
       let retentionDays;
       let referenceDateStr;
 
       if (intent.status === 'failed') {
-        retentionDays = REJECTED_RETENTION_DAYS;
+        retentionDays = isRejectedProof ? 0 : REJECTED_RETENTION_DAYS; // rejected proofs: expire immediately
         referenceDateStr = intent.metadata?.rejected_at || intent.updated_at;
       } else {
         retentionDays = retentionMap[intent.store_id] ?? DEFAULT_RETENTION_DAYS;
         referenceDateStr = intent.metadata?.approved_at || intent.updated_at;
       }
 
-      // -1 means "keep forever" (only applies to approved, rejected is always 1 day)
+      // -1 means "keep forever" (only applies to approved, rejected is always cleaned up)
       if (retentionDays === -1) continue;
 
       // Calculate expiry

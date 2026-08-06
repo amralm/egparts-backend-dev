@@ -13,13 +13,13 @@ const AssetPolicy = require('./AssetPolicy');
  */
 class ReceiptPolicy extends AssetPolicy {
   get name()              { return 'receipt' }
-  get maxSizeBytes()      { return 15 * 1024 * 1024 }  // 15 MB
-  get maxLongEdge()       { return 2500 }               // resize ONLY if long edge > this
-  get optimizeFromBytes() { return 0 }                 // 0 MB — ALWAYS optimize (catch small uncompressed screenshots)
-  get resizeFromBytes()   { return 2 * 1024 * 1024 }   // 2 MB — resize above this
-  get quality()           { return 92 }                 // High quality — legal evidence
-  get convertToWebP()     { return false }              // Preserve original format
-  get pngOptimizationProfile() { return 'receipt' }     // Aggressive PNG optimization for screenshots
+  get maxSizeBytes()      { return 15 * 1024 * 1024 }  // 15 MB server guard
+  get maxLongEdge()       { return 1500 }               // resize ONLY if long edge > this (1500px is enough for any receipt detail)
+  get optimizeFromBytes() { return 0 }                  // ALWAYS optimize (catch small uncompressed screenshots)
+  get resizeFromBytes()   { return 1 * 1024 * 1024 }   // 1 MB — resize above this (was 2MB)
+  get quality()           { return 88 }                 // Slightly higher compression (was 92) — still clearly readable
+  get convertToWebP()     { return false }              // Preserve original format (evidence)
+  get pngOptimizationProfile() { return 'receipt' }     // Aggressive PNG palette optimization for screenshots
   get visibility()        { return 'private' }
   get duplicateDetection(){ return false }
   get allowedMimeTypes()  { return ['image/jpeg', 'image/png', 'image/webp', 'image/heic'] }

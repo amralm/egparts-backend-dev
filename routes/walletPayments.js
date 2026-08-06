@@ -693,20 +693,27 @@ router.post('/reject', verifyPermission('payments.approve'), async (req, res) =>
 
     const now = new Date().toISOString();
 
+    // Mark proof lifecycle as 'rejected' so the retention job + GC can track it correctly
+    const rejectedMetadata = {
+      ...(intent.metadata || {}),
+      rejected_by: req.user.sub,
+      rejected_at: now,
+      rejection_reason: reason || 'Merchant rejected payment',
+      proof: {
+        ...(intent.metadata?.proof || {}),
+        lifecycle_status: 'rejected',  // rejected → deleted by retention job (REJECTED_RETENTION_DAYS = 1)
+      },
+    };
+
     await supabase
       .from('payment_intents')
       .update({
         status: 'failed',
         updated_at: now,
-        metadata: {
-          ...(intent.metadata || {}),
-          rejected_by: req.user.sub,
-          rejected_at: now,
-          rejection_reason: reason || 'Merchant rejected payment',
-        },
+        metadata: rejectedMetadata,
       })
       .eq('id', intent_id);
-      
+
     // Update the associated order's payment_status to 'failed'
     if (intent.order_id) {
       await supabase
@@ -721,6 +728,18 @@ router.post('/reject', verifyPermission('payments.approve'), async (req, res) =>
       description: reason || 'Merchant rejected payment receipt',
       data: { rejected_by: req.user.sub, rejected_at: now },
     });
+
+    // Fire-and-forget: delete proof image from R2 immediately.
+    // Rejected receipts have zero legal/audit value — no need to keep for 24h.
+    // If deletion fails, the proofRetentionJob (REJECTED_RETENTION_DAYS=1) will clean up.
+    if (intent.metadata?.proof?.r2_key) {
+      deleteProofImmediately(
+        intent_id,
+        req.store.id,
+        rejectedMetadata,
+        `Rejected by merchant: ${reason || 'no reason given'}`
+      ).catch((err) => console.error('[wallet/reject] Non-fatal: failed to delete proof:', err.message));
+    }
 
     return res.json({ success: true, message: 'تم رفض إيصال الدفع.' });
   } catch (err) {
