@@ -412,7 +412,7 @@ router.post('/', verifyUser, async (req, res) => {
     
     const { data: products, error: prodError } = await supabase
       .from('products')
-      .select('id, name, price, stock')
+      .select('id, name, price, stock_quantity')
       .in('id', productIds)
       .eq('store_id', req.store.id);
 

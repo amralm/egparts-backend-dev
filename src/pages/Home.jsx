@@ -71,18 +71,69 @@ export default function Home() {
         
       if (latest) setLatestProducts(latest);
 
-      // Fetch Trending
-      const { data: trending } = await supabase
-        .from('products')
-        .select('*')
-        .eq('is_active', true)
-        .neq('is_deleted', true)
-        .eq('store_id', store.id)
-        .gt('stock_quantity', 0)
-        .order('stock_quantity', { ascending: true })
-        .limit(4);
-        
-      if (trending) setTrendingProducts(trending);
+      // Fetch Trending — ordered by recent sales (last 30 days)
+      let trendingProducts = [];
+      try {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        // Pull recent order_items joined through orders scoped to this store
+        const { data: recentOrders } = await supabase
+          .from('orders')
+          .select('id')
+          .eq('store_id', store.id)
+          .gte('created_at', thirtyDaysAgo.toISOString())
+          .limit(500);
+
+        if (recentOrders?.length > 0) {
+          const orderIds = recentOrders.map(o => o.id);
+          const { data: orderItems } = await supabase
+            .from('order_items')
+            .select('product_id')
+            .in('order_id', orderIds);
+
+          if (orderItems?.length > 0) {
+            // Count occurrences per product
+            const counts = {};
+            orderItems.forEach(item => {
+              if (item.product_id) counts[item.product_id] = (counts[item.product_id] || 0) + 1;
+            });
+            const topIds = Object.entries(counts)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 4)
+              .map(([id]) => id);
+
+            const { data: topProducts } = await supabase
+              .from('products')
+              .select('*')
+              .in('id', topIds)
+              .eq('is_active', true)
+              .neq('is_deleted', true)
+              .gt('stock_quantity', 0);
+
+            if (topProducts?.length > 0) {
+              // Preserve sales-rank order
+              trendingProducts = topIds.map(id => topProducts.find(p => p.id === id)).filter(Boolean);
+            }
+          }
+        }
+      } catch (_) { /* fall through to fallback */ }
+
+      // Fallback: show newest active products if no sales data available
+      if (trendingProducts.length === 0) {
+        const { data: fallback } = await supabase
+          .from('products')
+          .select('*')
+          .eq('is_active', true)
+          .neq('is_deleted', true)
+          .eq('store_id', store.id)
+          .gt('stock_quantity', 0)
+          .order('created_at', { ascending: false })
+          .limit(4);
+        if (fallback) trendingProducts = fallback;
+      }
+
+      setTrendingProducts(trendingProducts);
 
       // Fetch Settings
       const { data: settingsData } = await supabase.from('site_settings').select('*').eq('store_id', store.id).single();

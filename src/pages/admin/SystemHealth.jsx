@@ -77,7 +77,7 @@ export default function SystemHealth() {
         .update({ 
           status: 'pending', 
           retry_count: 0,
-          next_retry_at: new Date()
+          next_retry_at: new Date().toISOString()
         })
         .eq('id', jobId)
         .eq('store_id', store.id);
@@ -97,7 +97,7 @@ export default function SystemHealth() {
     try {
       await supabase
         .from('notification_queue')
-        .update({ status: 'pending', retry_count: 0, next_retry_at: new Date() })
+        .update({ status: 'pending', retry_count: 0, next_retry_at: new Date().toISOString() })
         .eq('status', 'failed')
         .eq('store_id', store.id);
       fetchHealthData();

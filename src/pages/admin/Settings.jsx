@@ -341,10 +341,11 @@ export default function Settings() {
         // Sync guarantee badge products
         try {
           if (guaranteeProductIds.length > 0) {
-            await supabase.from('products').update({ guarantee_badge: false }).eq('store_id', store.id).neq('guarantee_badge', false);
+            // Clear badge on all products that have it set to true OR null (never set)
+            await supabase.from('products').update({ guarantee_badge: false }).eq('store_id', store.id).or('guarantee_badge.eq.true,guarantee_badge.is.null');
             await supabase.from('products').update({ guarantee_badge: true }).eq('store_id', store.id).in('id', guaranteeProductIds);
           } else {
-            await supabase.from('products').update({ guarantee_badge: false }).eq('store_id', store.id).eq('guarantee_badge', true);
+            await supabase.from('products').update({ guarantee_badge: false }).eq('store_id', store.id).or('guarantee_badge.eq.true,guarantee_badge.is.null');
           }
         } catch (syncErr) {
           console.error('Guarantee badge sync error:', syncErr);

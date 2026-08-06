@@ -1,9 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { getClientIP } from "../lib/ip";
 
-export function useAuth() {
+export function useAuth(storeId) {
   const [session, setSession] = useState(undefined);
+  // Keep a ref so the auth-state-change closure always reads the latest storeId
+  const storeIdRef = useRef(storeId);
+  useEffect(() => { storeIdRef.current = storeId; }, [storeId]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -29,6 +32,7 @@ export function useAuth() {
             ip_address,
             user_agent: navigator.userAgent,
             login_method,
+            store_id: storeIdRef.current || null,
           }).then().catch(() => {});
         }
       }

@@ -633,6 +633,7 @@ export default function Products() {
         image: imageUrl,
         part_number: formData.part_number,
         old_price: formData.old_price,
+        cost_price: formData.cost_price || null,
         is_original: formData.is_original,
         is_active: formData.is_active,
         specs: formData.specs,

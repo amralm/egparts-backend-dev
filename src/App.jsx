@@ -48,8 +48,8 @@ import { SettingsProvider } from './context/SettingsContext';
 import { StoreProvider, useStore } from './context/StoreContext';
 
 function BannedGuard({ children }) {
-  const session = useAuth();
   const { store } = useStore();
+  const session = useAuth(store?.id);
   const [banStatus, setBanStatus] = useState({ checked: false, banned: false, reason: '' });
 
   useEffect(() => {

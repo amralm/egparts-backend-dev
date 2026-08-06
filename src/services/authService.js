@@ -11,12 +11,14 @@ export const syncUserProfile = async (user, storeId) => {
 
   try {
     // 1. Check if profile exists for this user and store
-    const { data: profile, error } = await supabase
+    const { data: profile, error: selectError } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('user_id', user.id)
       .eq('store_id', targetStoreId)
       .maybeSingle();
+
+    if (selectError) throw selectError; // surface DB/RLS errors instead of silently creating a duplicate
 
     if (!profile) {
       // 2. Profile missing -> Create initial defaults scoped to this store

@@ -33,8 +33,9 @@ export default function LoginLogs() {
   function isIPBlocked(ip) { return ip && blockedIPs.has(ip); }
 
   async function fetchLogs() {
+    if (!store?.id) return;
     setLoading(true);
-    let query = supabase.from('user_login_logs').select('*', { count: 'exact' });
+    let query = supabase.from('user_login_logs').select('*', { count: 'exact' }).eq('store_id', store.id);
     if (filter === 'registered') query = query.in('login_method', ['email', 'google', 'admin']);
     else if (filter === 'guest') query = query.eq('login_method', 'guest');
     const from = page * pageSize;
@@ -49,7 +50,8 @@ export default function LoginLogs() {
   }
 
   async function handleDeleteLog(logId) {
-    const { error } = await supabase.from('user_login_logs').delete().eq('id', logId);
+    if (!store?.id) return;
+    const { error } = await supabase.from('user_login_logs').delete().eq('id', logId).eq('store_id', store.id);
     if (error) { alert('حدث خطأ: ' + error.message); return; }
     setLogs(prev => prev.filter(l => l.id !== logId));
     setTotal(prev => prev - 1);
@@ -57,8 +59,9 @@ export default function LoginLogs() {
   }
 
   async function handleClearAll() {
+    if (!store?.id) return;
     setDeleting(true);
-    const { error } = await supabase.from('user_login_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    const { error } = await supabase.from('user_login_logs').delete().eq('store_id', store.id);
     if (error) { alert('حدث خطأ: ' + error.message); setDeleting(false); return; }
     setLogs([]);
     setTotal(0);

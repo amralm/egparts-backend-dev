@@ -884,7 +884,7 @@ router.get('/tenants/metrics', verifyPlatformAdmin, async (req, res) => {
         delivered_this_month: deliveredRes.count || 0,
         sales_this_month: (ordersRes.data || []).reduce((sum, order) => sum + Number(order.total || 0), 0),
         products_count: productsRes.count || 0,
-        otp_usage_this_month: (otpRes.data || []).reduce((sum, row) => sum + Number(row.used || 0), 0),
+        otp_usage_this_month: (otpRes.data || []).reduce((sum, row) => sum + Number(row.usage_count || 0), 0),
         plan: store.store_subscriptions?.plans || null,
         plan_id: store.store_subscriptions?.plan_id || null,
         subscription_status: store.store_subscriptions?.status || null
@@ -1312,7 +1312,7 @@ router.post('/impersonate/start', verifyPlatformAdmin, async (req, res) => {
   }
 
   try {
-    const admin_id = req.user.id;
+    const admin_id = req.user.sub;
     const expires_at = new Date();
     expires_at.setHours(expires_at.getHours() + 2); // 2 hour duration
 
@@ -1371,7 +1371,7 @@ router.post('/users/ban', verifyPlatformAdmin, async (req, res) => {
   }
 
   try {
-    const admin_id = req.user.id;
+    const admin_id = req.user.sub;
     const { data: banLog, error } = await supabase
       .from('ban_logs')
       .insert([{
@@ -1413,7 +1413,7 @@ router.post('/users/unban', verifyPlatformAdmin, async (req, res) => {
   }
 
   try {
-    const admin_id = req.user.id;
+    const admin_id = req.user.sub;
     const { data: banLog, error } = await supabase
       .from('ban_logs')
       .update({
@@ -2689,7 +2689,7 @@ router.post('/blocked-ips/block', verifyPlatformAdmin, async (req, res) => {
     const { error } = await supabase.from('blocked_ips').insert([{
       ip_address,
       reason: reason || 'Blocked by platform admin',
-      blocked_by: req.user.id
+      blocked_by: req.user.sub
     }]);
 
     if (error) throw error;

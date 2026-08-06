@@ -22,6 +22,17 @@ router.get('/features', verifyUser, async (req, res) => {
 
 router.post('/reset-monthly', verifyUser, async (req, res) => {
   try {
+    // Only platform super-admins may trigger a global monthly usage reset
+    const { data: superAdmin } = await supabase
+      .from('super_admins')
+      .select('user_id')
+      .eq('user_id', req.user?.sub)
+      .maybeSingle();
+
+    if (!superAdmin) {
+      return res.status(403).json({ error: 'Platform admin access required' });
+    }
+
     const ok = await resetMonthlyUsage();
     res.json({ success: ok });
   } catch (err) {

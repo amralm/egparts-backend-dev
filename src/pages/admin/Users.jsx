@@ -239,8 +239,9 @@ export default function Users() {
                     <span className="material-symbols-outlined text-[18px]">location_on</span> عرض العناوين ({user.address_count || '...'})
                   </button>
                   <button 
-                    onClick={() => window.open(`https://wa.me/${user.phone}`, '_blank')}
-                    className="flex-1 bg-green-500/10 text-green-500 py-4 rounded-2xl hover:bg-green-500 hover:text-white transition-all font-black text-xs flex items-center justify-center gap-2"
+                    onClick={() => user.phone && window.open(`https://wa.me/${user.phone}`, '_blank')}
+                    disabled={!user.phone}
+                    className="flex-1 bg-green-500/10 text-green-500 py-4 rounded-2xl hover:bg-green-500 hover:text-white transition-all font-black text-xs flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <span className="material-symbols-outlined text-[18px]">forum</span> واتساب
                   </button>
@@ -337,9 +338,10 @@ export default function Users() {
                               <span className="material-symbols-outlined text-[18px]">location_on</span>
                             </button>
                             <button 
-                              onClick={() => window.open(`https://wa.me/${user.phone}`, '_blank')}
-                              className="w-10 h-10 bg-green-500/10 text-green-500 rounded-xl hover:bg-green-500 hover:text-white transition-all flex items-center justify-center"
-                              title="واتساب"
+                              onClick={() => user.phone && window.open(`https://wa.me/${user.phone}`, '_blank')}
+                              disabled={!user.phone}
+                              className="w-10 h-10 bg-green-500/10 text-green-500 rounded-xl hover:bg-green-500 hover:text-white transition-all flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={user.phone ? 'واتساب' : 'لا يوجد رقم هاتف'}
                             >
                               <span className="material-symbols-outlined text-[18px]">forum</span>
                             </button>
