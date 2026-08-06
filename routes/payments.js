@@ -593,12 +593,17 @@ router.get('/verify-redirect', async (req, res) => {
       }
     }
 
+    // Express query parser ('qs') parses URL dots into nested objects (e.g. source_data.pan -> query.source_data.pan)
+    const pan = query['source_data.pan'] ?? query.source_data?.pan ?? '';
+    const subType = query['source_data.sub_type'] ?? query.source_data?.sub_type ?? '';
+    const type = query['source_data.type'] ?? query.source_data?.type ?? '';
+
     const concatFields = [
       query.amount_cents, query.created_at, query.currency, query.error_occured,
       query.has_parent_transaction, query.id, query.integration_id, query.is_3d_secure,
       query.is_auth, query.is_capture, query.is_refunded, query.is_standalone_payment,
       query.is_voided, query.order, query.owner, query.pending,
-      query['source_data.pan'], query['source_data.sub_type'], query['source_data.type'], query.success
+      pan, subType, type, query.success
     ].map(v => String(v ?? ''));
 
     const computedHmac = crypto
@@ -615,6 +620,7 @@ router.get('/verify-redirect', async (req, res) => {
     }
 
     if (!isValid) {
+      console.error('[verify-redirect] Invalid HMAC signature for Paymob order:', paymobOrderId, '| computed:', computedHmac, '| received:', receivedHmac);
       if (isBrowserNavigation) {
         return res.redirect(302, `${storeUrl}/payment/fail?orderId=${order.id}&error=invalid_signature`);
       }
