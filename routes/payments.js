@@ -33,6 +33,15 @@ const axiosPaymob = axios.create({ timeout: 10000 });
 
 // ===== HMAC Verification Middleware =====
 async function verifyPaymobHMAC(req, res, next) {
+  // express.raw() delivers body as a Buffer — parse it first
+  if (Buffer.isBuffer(req.body)) {
+    try {
+      req.body = JSON.parse(req.body.toString('utf-8'));
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid webhook JSON payload' });
+    }
+  }
+
   if (!req.body || !req.body.obj || !req.body.hmac) {
     return res.status(400).json({ error: 'Invalid webhook payload' });
   }
@@ -439,6 +448,7 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
     }
 
     // âœ… Append Audit Log
+    // ✅ Append Audit Log
     const auditLogs = Array.isArray(order.payment_details?.audit_logs) 
       ? order.payment_details.audit_logs 
       : [];
@@ -469,6 +479,7 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
           payment_status: 'paid',
           status: 'confirmed',
           paymob_transaction_id: paymobTransactionId,
+          paid_at: new Date().toISOString(),
           payment_details: newPaymentDetails
         })
         .eq('id', order.id)
@@ -479,7 +490,21 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
         return res.sendStatus(200);
       }
 
-      console.log(`âœ… Order ${order.id} confirmed | Transaction ${paymobTransactionId}`);
+      // Trigger notifications via payment_outbox (same pattern as walletPayments.js)
+      await supabase.from('payment_outbox').insert({
+        store_id: order.store_id,
+        order_id: order.id,
+        event_type: 'payment_confirmed',
+        payload: {
+          order_id: order.id,
+          payment_method: 'card',
+          transaction_id: paymobTransactionId,
+          amount: obj.amount_cents / 100
+        },
+        processed: false
+      }).catch(err => console.error('[webhook] outbox insert failed (non-fatal):', err.message));
+
+      console.log(`✅ Order ${order.id} confirmed | Transaction ${paymobTransactionId}`);
 
     } else {
       await supabase.from('orders')
