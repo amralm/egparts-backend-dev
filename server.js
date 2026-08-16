@@ -873,29 +873,38 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
 
 
 // âœ… Route to aggressively clear session and restart â€” ADMIN ONLY
+// Route to clear session and restart — ADMIN ONLY
 app.post('/qr/reset', verifyAdminOrLocal, async (req, res) => {
   try {
-    // Attempt graceful shutdown
-    if (whatsappService.sock) {
-      whatsappService.sock.end();
-      whatsappService.sock = null;
-    }
-    whatsappService.isReady = false;
+    await whatsappService.shutdown();
+    whatsappService.isInitializing = false;
+    whatsappService.reconnectAttempts = 0;
     whatsappService.lastQR = null;
     whatsappService.pairingCode = null;
-
-    // Hard delete from DB using the shared Supabase client.
     const { supabase } = require('./services/supabase');
     await supabase.from('whatsapp_sessions').delete().like('id', `${whatsappService.sessionId}:%`);
-
-    // Reinitialize
-    setTimeout(() => whatsappService.initialize(), 2000);
-
-    res.send('<script>alert("تم مسح الجلسة القديمة! سيتم تحويلك لصفحة الربط وتوليد باركود جديد الآن."); window.location.href="/qr";</script>');
+    logger.info('All WhatsApp session data purged from Supabase');
+    setTimeout(async () => {
+      try { await whatsappService.initialize(); } catch (e) { logger.error('Re-init failed:', e.message); }
+    }, 2000);
+    res.send('<script>alert("Done! Redirecting in 5s."); setTimeout(function(){ window.location.href="/qr"; }, 5000);</script>');
   } catch (err) {
     logger.error('QR reset error:', err);
     res.status(500).send('Error resetting session.');
   }
+});
+
+// Diagnostic endpoint
+app.get('/qr/debug', verifyAdminOrLocal, async (req, res) => {
+  const { supabase } = require('./services/supabase');
+  const { data: s } = await supabase.from('whatsapp_sessions').select('id').like('id', `${whatsappService.sessionId}:%`).limit(20);
+  res.json({
+    envFlag: process.env.ENABLE_WHATSAPP || '(not set)',
+    socketExists: !!whatsappService.sock, isReady: whatsappService.isReady,
+    isInitializing: whatsappService.isInitializing, reconnectAttempts: whatsappService.reconnectAttempts,
+    hasQR: !!whatsappService.lastQR, hasPairingCode: !!whatsappService.pairingCode,
+    sessionsInDB: s ? s.length : 0, uptime: process.uptime().toFixed(0) + 's'
+  });
 });
 
 
