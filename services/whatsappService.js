@@ -2,6 +2,7 @@ const {
   makeWASocket, 
   DisconnectReason, 
   fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
   BufferJSON,
   initAuthCreds,
   proto,
@@ -169,8 +170,18 @@ class WhatsappService {
         this.sock = null;
       }
 
-      const { state, saveCreds } = await this.useSupabaseAuthState();
-      const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1015901307] }));
+      let version = [2, 3000, 1045310503];
+      try {
+        if (typeof fetchLatestWaWebVersion === 'function') {
+          const v = await fetchLatestWaWebVersion();
+          if (v?.version) version = v.version;
+        } else if (typeof fetchLatestBaileysVersion === 'function') {
+          const v = await fetchLatestBaileysVersion();
+          if (v?.version) version = v.version;
+        }
+      } catch (e) {
+        logger.warn('Failed to fetch WA Web version dynamically, using fallback:', e.message);
+      }
 
       this.sock = makeWASocket({
         version,

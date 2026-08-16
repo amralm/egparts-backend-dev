@@ -707,7 +707,22 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
   const sBg    = isConnected ? 'rgba(34,197,94,0.1)'  : 'rgba(245,158,11,0.1)';
   const sBdr   = isConnected ? 'rgba(34,197,94,0.25)' : 'rgba(245,158,11,0.25)';
   const sTxt   = isConnected ? 'متصل ونشط' : 'في انتظار المصادقة';
-  const qrSrc  = qr ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&color=ffffff&bgcolor=0d0d10&data=${encodeURIComponent(qr)}` : '';
+  const QRCode = require('qrcode');
+  let qrSrc = '';
+  if (qr) {
+    try {
+      qrSrc = await QRCode.toDataURL(qr, {
+        margin: 2,
+        width: 280,
+        color: {
+          dark: '#000000',
+          light: '#ffffff'
+        }
+      });
+    } catch (e) {
+      console.error('QR toDataURL error:', e.message);
+    }
+  }
   const formattedCode = pairingCode ? (pairingCode.includes('-') ? pairingCode : (pairingCode.match(/.{1,4}/g)?.join('-') || pairingCode)) : '';
 
   res.send(`<!DOCTYPE html>
@@ -734,9 +749,9 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
     .card{background:var(--card);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid var(--border);border-radius:20px;padding:1.75rem;position:relative;overflow:hidden;margin-bottom:1.25rem;}
     .card::before{content:'';position:absolute;top:0;left:20%;right:20%;height:1px;background:linear-gradient(90deg,transparent,rgba(220,38,38,0.4),transparent);}
     .ct{font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:1.25rem;}
-    .qw{display:flex;align-items:center;justify-content:center;min-height:260px;border-radius:14px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.04);}
-    .qi{border-radius:12px;box-shadow:0 0 40px rgba(220,38,38,0.15),0 0 0 8px rgba(255,255,255,0.04);display:block;}
-    .qp{text-align:center;padding:2.5rem;color:var(--muted);font-size:.85rem;}
+    .qw{display:flex;align-items:center;justify-content:center;min-height:280px;border-radius:16px;background:#ffffff;border:1px solid rgba(255,255,255,0.1);padding:1rem;margin:0 auto;width:fit-content;}
+    .qi{border-radius:10px;display:block;}
+    .qp{text-align:center;padding:2.5rem;color:#71717a;font-size:.85rem;}
     .qp svg{display:block;margin:0 auto .75rem;}
     .cb{background:rgba(0,0,0,0.4);border:1px dashed rgba(34,197,94,0.3);border-radius:14px;padding:1.5rem;text-align:center;margin-bottom:1.5rem;}
     .cl{font-size:.72rem;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.75rem;}
@@ -771,7 +786,7 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
   <div class="wrap">
     <header>
       <div class="brand">EG<span>-</span>PARTS <span style="font-weight:400;font-size:1rem;color:var(--muted)">/ واتساب</span></div>
-      <div class="sp"><div class="sd"></div>${sTxt}</div>
+      <div class="sp" id="statusBadge"><div class="sd"></div><span id="statusTxt">${sTxt}</span></div>
     </header>
 
     <div class="card">
@@ -783,11 +798,13 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
           <div class="ch">الكود مخصص للرقم: <strong>+${requestedPhone || 'الرقم المدخل'}</strong></div>
           <div class="ch" style="color:#4ade80;font-weight:700;margin-top:.4rem">افتح واتساب في هاتفك > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف > وأدخل هذا الكود</div>
         </div>` : ''}
-      <div class="qw">
-        ${qr
-          ? `<img class="qi" src="${qrSrc}" width="240" height="240" alt="QR Code">`
-          : `<div class="qp"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#3f3f46" stroke-width="1.2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="3" height="3"/></svg>لا يوجد رمز QR حالياً — استخدم زر إعادة التعيين أدناه</div>`
-        }
+      <div style="text-align:center;">
+        <div class="qw">
+          ${qrSrc
+            ? `<img class="qi" src="${qrSrc}" width="260" height="260" alt="QR Code">`
+            : `<div class="qp"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#3f3f46" stroke-width="1.2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="3" height="3"/></svg>لا يوجد رمز QR حالياً — استخدم زر إعادة التعيين أدناه</div>`
+          }
+        </div>
       </div>
       ${qr ? `
         <a class="ol" href="https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr)}" target="_blank">
