@@ -685,17 +685,20 @@ app.post('/qr/logout', (req, res) => {
   res.redirect('/qr');
 });
 
-// âœ… WhatsApp QR Dashboard â€” ADMIN ONLY
+// ✅ WhatsApp QR Dashboard — ADMIN ONLY
 app.get('/qr', verifyAdminOrLocal, async (req, res) => {
   const { phone } = req.query;
   const isConnected = whatsappService.isReady;
   let pairingCode = whatsappService.pairingCode;
   const qr = whatsappService.lastQR;
+  let requestedPhone = '';
 
   if (phone) {
     try {
-      let cleanPhone = phone.replace(/\D/g, '');
-      if (cleanPhone.startsWith('0')) cleanPhone = '2' + cleanPhone;
+      let cleanPhone = String(phone).replace(/\D/g, '');
+      if (cleanPhone.startsWith('00')) cleanPhone = cleanPhone.slice(2);
+      if (cleanPhone.startsWith('01') && cleanPhone.length === 11) cleanPhone = '2' + cleanPhone;
+      requestedPhone = cleanPhone;
       pairingCode = await whatsappService.requestPairingCode(cleanPhone);
     } catch (err) { console.error('Pairing code error:', err); }
   }
@@ -705,6 +708,7 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
   const sBdr   = isConnected ? 'rgba(34,197,94,0.25)' : 'rgba(245,158,11,0.25)';
   const sTxt   = isConnected ? 'متصل ونشط' : 'في انتظار المصادقة';
   const qrSrc  = qr ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&color=ffffff&bgcolor=0d0d10&data=${encodeURIComponent(qr)}` : '';
+  const formattedCode = pairingCode ? (pairingCode.includes('-') ? pairingCode : (pairingCode.match(/.{1,4}/g)?.join('-') || pairingCode)) : '';
 
   res.send(`<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -772,7 +776,13 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
 
     <div class="card">
       <div class="ct">رمز الاستجابة السريعة (QR Code)</div>
-      ${pairingCode ? `<div class="cb"><div class="cl">كود الربط</div><div class="cv">${pairingCode}</div><div class="ch">ادخل هذا الكود في تطبيق واتساب على هاتفك</div></div>` : ''}
+      ${pairingCode ? `
+        <div class="cb">
+          <div class="cl">كود الربط عبر الهاتف</div>
+          <div class="cv">${formattedCode}</div>
+          <div class="ch">الكود مخصص للرقم: <strong>+${requestedPhone || 'الرقم المدخل'}</strong></div>
+          <div class="ch" style="color:#4ade80;font-weight:700;margin-top:.4rem">افتح واتساب في هاتفك > الأجهزة المرتبطة > ربط باستخدام رقم الهاتف > وأدخل هذا الكود</div>
+        </div>` : ''}
       <div class="qw">
         ${qr
           ? `<img class="qi" src="${qrSrc}" width="240" height="240" alt="QR Code">`
@@ -790,7 +800,7 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
     <div class="card">
       <div class="ct">الربط عبر رقم الهاتف (Pairing Code)</div>
       <form action="/qr" method="GET" class="pf">
-        <input class="pi" type="tel" name="phone" placeholder="2010xxxxxxxx" required>
+        <input class="pi" type="tel" name="phone" placeholder="010xxxxxxxx أو 2010xxxxxxxx" required value="${requestedPhone || ''}">
         <button type="submit" class="btn bp bi">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13 19.79 19.79 0 0 1 1.61 4.38 2 2 0 0 1 3.58 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.18 6.18l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
           طلب كود الربط
@@ -801,7 +811,7 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
     <div class="card">
       <div class="ct">الإجراءات</div>
       <div class="acts">
-        <button onclick="location.reload()" class="btn bg bi">
+        <button onclick="location.href='/qr'" class="btn bg bi">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           تحديث الصفحة
         </button>
@@ -820,10 +830,9 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
       </div>
       <div class="dv"></div>
       <ul class="hl">
-        <li>افتح تطبيق واتساب — المزيد من الخيارات — الأجهزة المرتبطة — ربط جهاز</li>
-        <li>وجّه كاميرا الهاتف نحو رمز QR أو أدخل كود الربط يدوياً</li>
+        <li>افتح تطبيق واتساب — الأجهزة المرتبطة — ربط جهاز</li>
+        <li>يمكنك توجيه كاميرا الهاتف نحو رمز QR أو استخدام كود الربط بالرقم</li>
         <li>بعد الربط الناجح ستتحول حالة الاتصال إلى “متصل ونشط” تلقائياً</li>
-        <li>الصفحة تُحدَّث تلقائياً كل 30 ثانية عند عدم الاتصال</li>
       </ul>
     </div>
   </div>
@@ -836,7 +845,7 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
     const bl=[{x:.1,y:.15,r:250,sp:.0003,ph:0},{x:.9,y:.85,r:200,sp:.0004,ph:2},{x:.5,y:.4,r:160,sp:.00025,ph:4}];
     function dbl(t){bl.forEach(b=>{const cx=(b.x+.06*Math.sin(t*b.sp*1000+b.ph))*cv.width,cy=(b.y+.05*Math.cos(t*b.sp*1000+b.ph))*cv.height;const g=ctx.createRadialGradient(cx,cy,0,cx,cy,b.r);g.addColorStop(0,'rgba(180,20,20,0.05)');g.addColorStop(1,'rgba(180,20,20,0)');ctx.beginPath();ctx.arc(cx,cy,b.r,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();});}
     function loop(t){ctx.clearRect(0,0,cv.width,cv.height);dbl(t);pts.forEach(p=>{p.tick();p.draw();});requestAnimationFrame(loop);}requestAnimationFrame(loop);
-    ${!isConnected ? 'setTimeout(()=>location.reload(),30000);' : ''}
+    ${(!isConnected && !pairingCode) ? 'setTimeout(()=>location.reload(),30000);' : ''}
   </script>
 </body></html>`);
 });

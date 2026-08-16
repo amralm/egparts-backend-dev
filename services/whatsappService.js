@@ -177,7 +177,7 @@ class WhatsappService {
         auth: state,
         printQRInTerminal: false,
         logger: require('pino')({ level: 'silent' }),
-        browser: Browsers.macOS('Desktop'),
+        browser: Browsers.ubuntu('Chrome'),
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
