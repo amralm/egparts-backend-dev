@@ -170,6 +170,8 @@ class WhatsappService {
         this.sock = null;
       }
 
+      const { state, saveCreds } = await this.useSupabaseAuthState();
+
       let version = [2, 3000, 1045310503];
       try {
         if (typeof fetchLatestWaWebVersion === 'function') {
