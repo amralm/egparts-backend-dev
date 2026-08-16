@@ -4,7 +4,8 @@ const {
   fetchLatestBaileysVersion,
   BufferJSON,
   initAuthCreds,
-  proto
+  proto,
+  Browsers
 } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const qrcode = require('qrcode-terminal');
@@ -19,10 +20,11 @@ class WhatsappService {
     this.sock = null;
     this.isReady = false;
     this.reconnectAttempts = 0;
-    this.MAX_RECONNECT_ATTEMPTS = 5;
+    this.MAX_RECONNECT_ATTEMPTS = 10;
     this.lastQR = null;
     this.pairingCode = null;
     this.sessionId = 'main_whatsapp_session'; // ✅ Unique ID for session in DB
+    this.isInitializing = false;
     
     this.queue = new PQueue({ 
       concurrency: 1, 
@@ -32,7 +34,7 @@ class WhatsappService {
     });
   }
 
-  // ✅ Helper: DB-backed Auth State
+  // ✅ High-Performance DB-backed Auth State with Batch Queries
   async useSupabaseAuthState() {
     const writeData = async (data, key) => {
       try {
@@ -42,7 +44,7 @@ class WhatsappService {
           .from('whatsapp_sessions')
           .upsert({ id, data: content, updated_at: new Date() });
       } catch (err) {
-        logger.error(`Error writing session data for ${key}:`, err);
+        logger.error(`Error writing session data for ${key}:`, err.message);
       }
     };
 
@@ -53,7 +55,7 @@ class WhatsappService {
           .from('whatsapp_sessions')
           .select('data')
           .eq('id', id)
-          .single();
+          .maybeSingle();
         
         if (error || !data) return null;
         return JSON.parse(JSON.stringify(data.data), BufferJSON.reviver);
@@ -67,7 +69,7 @@ class WhatsappService {
         const id = `${this.sessionId}:${key}`;
         await supabase.from('whatsapp_sessions').delete().eq('id', id);
       } catch (err) {
-        logger.error(`Error removing session data for ${key}:`, err);
+        logger.error(`Error removing session data for ${key}:`, err.message);
       }
     };
 
@@ -79,29 +81,68 @@ class WhatsappService {
         keys: {
           get: async (type, ids) => {
             const data = {};
-            await Promise.all(
-              ids.map(async (id) => {
-                let value = await readData(`${type}-${id}`);
-                if (type === 'app-state-sync-key' && value) {
-                  value = proto.Message.AppStateSyncKeyData.fromObject(value);
+            if (!ids || ids.length === 0) return data;
+
+            try {
+              const fullIds = ids.map(id => `${this.sessionId}:${type}-${id}`);
+              const { data: rows, error } = await supabase
+                .from('whatsapp_sessions')
+                .select('id, data')
+                .in('id', fullIds);
+
+              if (!error && rows) {
+                const prefix = `${this.sessionId}:${type}-`;
+                for (const row of rows) {
+                  const rawId = row.id.replace(prefix, '');
+                  let value = JSON.parse(JSON.stringify(row.data), BufferJSON.reviver);
+                  if (type === 'app-state-sync-key' && value) {
+                    value = proto.Message.AppStateSyncKeyData.fromObject(value);
+                  }
+                  data[rawId] = value;
                 }
-                data[id] = value;
-              })
-            );
+              }
+            } catch (err) {
+              logger.error(`Error in batch get for ${type}:`, err.message);
+            }
+
             return data;
           },
           set: async (data) => {
-            const tasks = [];
+            const upserts = [];
+            const deletes = [];
+
             for (const category in data) {
               for (const id in data[category]) {
                 const value = data[category][id];
-                const key = `${category}-${id}`;
-                tasks.push(async () => value ? writeData(value, key) : removeData(key));
+                const key = `${this.sessionId}:${category}-${id}`;
+                if (value) {
+                  upserts.push({
+                    id: key,
+                    data: JSON.parse(JSON.stringify(value, BufferJSON.replacer)),
+                    updated_at: new Date()
+                  });
+                } else {
+                  deletes.push(key);
+                }
               }
             }
-            // Execute in batches of 5 to prevent Supabase rate limits & crashes
-            for (let i = 0; i < tasks.length; i += 5) {
-              await Promise.all(tasks.slice(i, i + 5).map(fn => fn()));
+
+            try {
+              // Batch upsert in chunks of 50 to avoid any payload limits
+              if (upserts.length > 0) {
+                for (let i = 0; i < upserts.length; i += 50) {
+                  const batch = upserts.slice(i, i + 50);
+                  await supabase.from('whatsapp_sessions').upsert(batch);
+                }
+              }
+              if (deletes.length > 0) {
+                for (let i = 0; i < deletes.length; i += 50) {
+                  const batch = deletes.slice(i, i + 50);
+                  await supabase.from('whatsapp_sessions').delete().in('id', batch);
+                }
+              }
+            } catch (err) {
+              logger.error('Error in batch set session data:', err.message);
             }
           }
         }
@@ -111,53 +152,99 @@ class WhatsappService {
   }
 
   async initialize() {
-    logger.info(`🔐 Initializing WhatsApp with Supabase persistent storage...`);
-    
-    const { state, saveCreds } = await this.useSupabaseAuthState();
-    const { version } = await fetchLatestBaileysVersion();
+    if (this.isInitializing) return;
+    this.isInitializing = true;
 
-    this.sock = makeWASocket({
-      version,
-      auth: state,
-      printQRInTerminal: false,
-      logger: require('pino')({ level: 'silent' }),
-      browser: ["EG-PARTS", "Chrome", "1.0.0"]
-    });
-
-    this.sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qr } = update;
-
-      if (qr) {
-        this.lastQR = qr;
-        logger.info('New QR Code available at /qr');
-      }
-
-      if (connection === 'close') {
-        const statusCode = (lastDisconnect.error instanceof Boom) ? 
-          lastDisconnect.error.output.statusCode : 0;
-        
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut && this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS;
-        
-        logger.warn(`WhatsApp connection closed. Status: ${statusCode}. Reconnecting: ${shouldReconnect}`);
-        
-        this.isReady = false;
-        this.pairingCode = null;
-        
-        if (shouldReconnect) {
-          this.reconnectAttempts++;
-          const delay = Math.min(Math.pow(2, this.reconnectAttempts) * 1000, 30000);
-          setTimeout(() => this.initialize(), delay);
+    try {
+      logger.info(`🔐 Initializing WhatsApp with Supabase persistent storage...`);
+      
+      // Clean up any old socket listeners before creating a new one
+      if (this.sock) {
+        try {
+          this.sock.ev.removeAllListeners();
+          this.sock.end();
+        } catch (e) {
+          // ignore cleanup errors
         }
-      } else if (connection === 'open') {
-        logger.info('✅ WhatsApp connection opened successfully (Persistent)');
-        this.isReady = true;
-        this.reconnectAttempts = 0;
-        this.lastQR = null;
-        this.pairingCode = null;
+        this.sock = null;
       }
-    });
 
-    this.sock.ev.on('creds.update', saveCreds);
+      const { state, saveCreds } = await this.useSupabaseAuthState();
+      const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1015901307] }));
+
+      this.sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: false,
+        logger: require('pino')({ level: 'silent' }),
+        browser: Browsers.macOS('Desktop'),
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 25000,
+        emitOwnEvents: false,
+        syncFullHistory: false
+      });
+
+      this.sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+          this.lastQR = qr;
+          logger.info('New QR Code available at /qr');
+        }
+
+        if (connection === 'close') {
+          const error = lastDisconnect?.error;
+          const statusCode = (error instanceof Boom) 
+            ? error.output.statusCode 
+            : (error?.statusCode || 0);
+
+          logger.warn(`WhatsApp connection closed. Status: ${statusCode}. Message: ${error?.message || 'none'}`);
+
+          this.isReady = false;
+          this.pairingCode = null;
+
+          // 1. Session logged out — clean DB and recreate fresh
+          if (statusCode === DisconnectReason.loggedOut) {
+            logger.warn('WhatsApp session logged out. Purging old session from DB...');
+            await supabase.from('whatsapp_sessions').delete().like('id', `${this.sessionId}:%`).catch(() => {});
+            this.reconnectAttempts = 0;
+            this.lastQR = null;
+            setTimeout(() => this.initialize(), 1000);
+            return;
+          }
+
+          // 2. Restart required (status 515) — happens right after QR scan or pairing! Must restart immediately.
+          if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+            logger.info('🔄 Restart required by WhatsApp protocol (handshake completed). Reconnecting immediately...');
+            setTimeout(() => this.initialize(), 500);
+            return;
+          }
+
+          // 3. General reconnection with reasonable backoff
+          if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
+            this.reconnectAttempts++;
+            const delay = Math.min(Math.pow(2, Math.min(this.reconnectAttempts, 4)) * 1000, 15000);
+            logger.info(`Reconnecting in ${delay / 1000}s (Attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS})...`);
+            setTimeout(() => this.initialize(), delay);
+          } else {
+            logger.error('Max reconnection attempts reached. Please use /qr/reset to start fresh.');
+          }
+        } else if (connection === 'open') {
+          logger.info('✅ WhatsApp connection opened successfully (Persistent)');
+          this.isReady = true;
+          this.reconnectAttempts = 0;
+          this.lastQR = null;
+          this.pairingCode = null;
+        }
+      });
+
+      this.sock.ev.on('creds.update', saveCreds);
+    } catch (err) {
+      logger.error('Error during WhatsApp initialization:', err.message);
+    } finally {
+      this.isInitializing = false;
+    }
   }
 
   // ✅ New Method: Request Pairing Code via Phone Number
@@ -168,12 +255,13 @@ class WhatsappService {
       // Ensure socket is initialized
       if (!this.sock) await this.initialize();
       
-      // phoneNumber should be without + (e.g. 201122551272)
-      const code = await this.sock.requestPairingCode(phoneNumber);
+      // phoneNumber should be digits only without + (e.g. 201122551272)
+      const cleanNumber = phoneNumber.replace(/\D/g, '');
+      const code = await this.sock.requestPairingCode(cleanNumber);
       this.pairingCode = code;
       return code;
     } catch (error) {
-      logger.error('Failed to request pairing code:', error);
+      logger.error('Failed to request pairing code:', error.message);
       throw error;
     }
   }
@@ -219,10 +307,13 @@ class WhatsappService {
     });
   }
 
-
   async shutdown() {
     if (this.sock) {
-      this.sock.end();
+      try {
+        this.sock.ev.removeAllListeners();
+        this.sock.end();
+      } catch (e) {}
+      this.sock = null;
       this.isReady = false;
     }
   }
