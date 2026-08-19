@@ -1,0 +1,48 @@
+-- Keep the established/canonical indexes and remove only the indexes created
+-- redundantly by the generic FK pass.
+DROP INDEX IF EXISTS public.idx_fk_analytics_events_analytics_events_store_id_fkey_9222e2a;
+DROP INDEX IF EXISTS public.idx_fk_banners_banners_store_id_fkey_627fbb1;
+DROP INDEX IF EXISTS public.idx_fk_blocked_ips_blocked_ips_store_id_fkey_a2986cf;
+DROP INDEX IF EXISTS public.idx_fk_custom_domains_custom_domains_store_id_fkey_d5601ec;
+DROP INDEX IF EXISTS public.idx_fk_domain_health_checks_domain_health_checks_domain_8fbc931;
+DROP INDEX IF EXISTS public.idx_fk_impersonation_logs_impersonation_logs_store_id_f_014f75b;
+DROP INDEX IF EXISTS public.idx_fk_inventory_adjustments_inventory_adjustments_stor_f2af6cc;
+DROP INDEX IF EXISTS public.idx_fk_invoices_invoices_store_id_fkey_3bd58db;
+DROP INDEX IF EXISTS public.idx_fk_order_items_order_items_order_id_fkey_ed5102a;
+DROP INDEX IF EXISTS public.idx_fk_order_items_order_items_order_id_store_id_fkey_490d1d2;
+DROP INDEX IF EXISTS public.idx_fk_order_logs_order_logs_store_id_fkey_17d4bc5;
+DROP INDEX IF EXISTS public.idx_fk_order_tracking_order_tracking_order_id_fkey_0154e65;
+DROP INDEX IF EXISTS public.idx_fk_order_tracking_order_tracking_store_id_fkey_57acbd8;
+DROP INDEX IF EXISTS public.idx_fk_orders_orders_user_id_fkey_265c506;
+DROP INDEX IF EXISTS public.idx_fk_otp_codes_otp_codes_store_id_fkey_f8f9cc2;
+DROP INDEX IF EXISTS public.idx_fk_payment_intent_transactions_payment_intent_trans_16c722b;
+DROP INDEX IF EXISTS public.idx_fk_payment_intents_payment_intents_order_id_fkey_3783db9;
+DROP INDEX IF EXISTS public.idx_fk_payment_timelines_payment_timelines_intent_id_fk_3cd0f09;
+DROP INDEX IF EXISTS public.idx_fk_payments_payments_invoice_id_fkey_139bec2;
+DROP INDEX IF EXISTS public.idx_fk_refunds_refunds_payment_id_fkey_39982d2;
+DROP INDEX IF EXISTS public.idx_fk_shipping_zones_shipping_zones_store_id_fkey_1e51118;
+DROP INDEX IF EXISTS public.idx_fk_site_settings_site_settings_store_id_fkey_bfdec67;
+DROP INDEX IF EXISTS public.idx_fk_user_addresses_user_addresses_store_id_9d87605;
+DROP INDEX IF EXISTS public.idx_fk_user_login_logs_user_login_logs_store_id_fkey_f19f4ec;
+DROP INDEX IF EXISTS public.idx_fk_user_notifications_user_notifications_store_id_f_6146860;
+DROP INDEX IF EXISTS public.idx_fk_user_roles_user_roles_user_id_fkey_75c9e8e;
+DROP INDEX IF EXISTS public.idx_fk_whatsapp_sessions_whatsapp_sessions_store_id_fke_b0177b0;
+DROP INDEX IF EXISTS public.idx_fk_whatsapp_sessions_whatsapp_sessions_whatsapp_acc_70fdaae;
+
+CREATE INDEX IF NOT EXISTS idx_fk_bundle_capabilities_capability ON public.bundle_capabilities (capability_id);
+CREATE INDEX IF NOT EXISTS idx_fk_feature_events_feature_definition ON public.feature_events (feature_definition_id);
+CREATE INDEX IF NOT EXISTS idx_fk_feature_usage_feature_key ON public.feature_usage (feature_key);
+CREATE INDEX IF NOT EXISTS idx_fk_feature_usage_snapshots_feature_definition ON public.feature_usage_snapshots (feature_definition_id);
+CREATE INDEX IF NOT EXISTS idx_fk_plan_feature_limits_feature_definition ON public.plan_feature_limits (feature_definition_id);
+CREATE INDEX IF NOT EXISTS idx_fk_plan_features_feature ON public.plan_features (feature_id);
+CREATE INDEX IF NOT EXISTS idx_fk_plan_version_bundles_bundle ON public.plan_version_bundles (bundle_id);
+CREATE INDEX IF NOT EXISTS idx_fk_plan_version_capabilities_capability ON public.plan_version_capabilities (capability_id);
+CREATE INDEX IF NOT EXISTS idx_fk_product_stock_shelf ON public.product_stock (shelf_id);
+CREATE INDEX IF NOT EXISTS idx_fk_role_permissions_permission ON public.role_permissions (permission_id);
+CREATE INDEX IF NOT EXISTS idx_fk_store_admins_store ON public.store_admins (store_id);
+CREATE INDEX IF NOT EXISTS idx_fk_store_apps_app ON public.store_apps (app_id);
+CREATE INDEX IF NOT EXISTS idx_fk_store_staff_user ON public.store_staff (user_id);
+CREATE INDEX IF NOT EXISTS idx_fk_user_2fa_settings_store ON public.user_2fa_settings (store_id);
+CREATE INDEX IF NOT EXISTS idx_fk_user_addresses_user ON public.user_addresses (user_id);
+CREATE INDEX IF NOT EXISTS idx_fk_user_roles_store ON public.user_roles (store_id);
+CREATE INDEX IF NOT EXISTS idx_fk_wishlists_product ON public.wishlists (product_id);

@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS public.idx_fk_user_login_logs_user_login_logs_store_id_fkey_f19b4ec;

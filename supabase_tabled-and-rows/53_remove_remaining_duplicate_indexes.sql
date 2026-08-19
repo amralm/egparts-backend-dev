@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS public.idx_fk_refunds_refunds_payment_id_fkey_39982d0;
+DROP INDEX IF EXISTS public.idx_fk_user_addresses_user_addresses_store_id_fkey_9d87605;
+DROP INDEX IF EXISTS public.idx_fk_user_login_logs_user_login_logs_store_id_fkey_f19f4ec;
