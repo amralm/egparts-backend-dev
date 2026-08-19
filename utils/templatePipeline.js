@@ -75,7 +75,7 @@ class TemplateCompiler {
     static compile(normalizedTemplateStr) {
         // Strict Mode requires all variables to exist
         return SafeHandlebars.compile(normalizedTemplateStr, {
-            strict: true,
+            strict: false,
             preventIndent: true
         });
     }
@@ -101,7 +101,7 @@ class TemplatePipeline {
         } catch (error) {
             console.error('Template Pipeline Error:', error.message);
             // Fallback for safety
-            return `Template Error: ${error.message}`;
+            return '';
         }
     }
 }

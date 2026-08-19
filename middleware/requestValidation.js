@@ -2,7 +2,7 @@ const { z } = require('zod');
 
 const clientErrorSchema = z.object({
   message: z.string().trim().min(1).max(4000),
-  stack: z.string().max(12000).optional().default(''),
+  stack: z.string().max(4000).optional().default(''),
   url: z.string().max(2048).optional().default(''),
   timestamp: z.string().max(80).optional(),
   storeName: z.string().max(160).optional().default(''),

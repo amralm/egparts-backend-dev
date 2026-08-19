@@ -190,8 +190,12 @@ async function runDomainCheck(domainId) {
  * Runs validation checks on all active custom domains
  */
 async function runAllDomainChecks() {
+  if (checkRunning) return;
+  checkRunning = true;
   logger.info('[DomainValidator] Scanning all custom domains...');
   try {
+    await supabase.from('domain_health_checks').delete()
+      .lt('checked_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
     const { data: domains, error } = await supabase
       .from('custom_domains')
       .select('id');
@@ -206,23 +210,26 @@ async function runAllDomainChecks() {
     logger.info('[DomainValidator] Finished scanning all custom domains.');
   } catch (err) {
     logger.error('[DomainValidator] Bulk check failed:', err.message);
+  } finally {
+    checkRunning = false;
   }
 }
 
 // Background Cron runner interval reference
 let checkIntervalRef = null;
+let checkRunning = false;
 
 function startDomainCheckCron() {
   if (checkIntervalRef) return;
   
   // Run check every 15 minutes
   checkIntervalRef = setInterval(() => {
-    runAllDomainChecks();
+    if (!checkRunning) runAllDomainChecks();
   }, 15 * 60 * 1000);
   
   // Also run immediately on startup
   setTimeout(() => {
-    runAllDomainChecks();
+    if (!checkRunning) runAllDomainChecks();
   }, 5000);
   
   logger.info('🟢 Centralized Custom Domain background validator started.');

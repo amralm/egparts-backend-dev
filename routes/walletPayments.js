@@ -364,6 +364,7 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       .from('payment_intents')
       .select('metadata')
       .eq('id', intent_id)
+      .eq('store_id', req.store.id)
       .single();
 
     if (fetchError && fetchError.code !== 'PGRST116') {
@@ -374,7 +375,8 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
     const { error: updateIntentError } = await supabase
       .from('payment_intents')
       .update({ metadata: newMeta, status: 'waiting_verification' })
-      .eq('id', intent_id);
+      .eq('id', intent_id)
+      .eq('store_id', req.store.id);
 
     if (updateIntentError) {
       console.error('[wallet/submit-proof] Failed to update intent:', updateIntentError);
@@ -607,7 +609,8 @@ router.post('/approve', verifyPermission('payments.approve'), async (req, res) =
           },
         },
       })
-      .eq('id', intent_id);
+      .eq('id', intent_id)
+      .eq('store_id', req.store.id);
 
     if (intentUpdateErr) throw intentUpdateErr;
 
@@ -719,7 +722,8 @@ router.post('/reject', verifyPermission('payments.approve'), async (req, res) =>
       await supabase
         .from('orders')
         .update({ payment_status: 'failed' })
-        .eq('id', intent.order_id);
+        .eq('id', intent.order_id)
+        .eq('store_id', req.store.id);
     }
 
     await supabase.from('payment_timelines').insert({

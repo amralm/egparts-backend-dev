@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { verifyUser } = require('../middleware/auth');
+const { verifyUser, verifyPermission } = require('../middleware/auth');
 const { requireEntitlement } = require('../server/kernel/policy/policyMiddleware');
 const { FEATURES } = require('../server/kernel/core/FeatureRegistry');
 const { supabase } = require('../services/supabase');
@@ -124,7 +124,7 @@ router.get('/tools', verifyUser, async (req, res) => {
 /**
  * Approve and Execute a drafted AI Action
  */
-router.post('/action-queue/approve', verifyUser, async (req, res) => {
+router.post('/action-queue/approve', verifyPermission('settings.manage'), async (req, res) => {
   const { actionType, payload, sessionId } = req.body;
   const storeId = req.store?.id;
 

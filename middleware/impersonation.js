@@ -25,7 +25,7 @@ module.exports = async function impersonationMiddleware(req, res, next) {
 
     // Optional security: Ensure the person making the request matches the session's admin_id
     // This requires req.user to be set prior by Auth middleware
-    if (req.user && req.user.id !== session.admin_id) {
+    if (!req.user?.sub || req.user.sub !== session.admin_id) {
        return res.status(403).json({ error: 'Session belongs to a different admin.' });
     }
 

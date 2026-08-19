@@ -141,6 +141,10 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), asyn
   const { id } = req.params;
   const { status, payment_status } = req.body || {};
   if (!status && !payment_status) return res.status(400).json({ error: 'No status update provided' });
+  const allowedStatuses = new Set(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled']);
+  const allowedPaymentStatuses = new Set(['unpaid', 'pending', 'paid', 'failed', 'cancelled', 'canceled', 'expired']);
+  if (status && !allowedStatuses.has(status)) return res.status(400).json({ error: 'Invalid order status' });
+  if (payment_status && !allowedPaymentStatuses.has(payment_status)) return res.status(400).json({ error: 'Invalid payment status' });
 
   try {
     const { data: oldOrder, error: oldErr } = await supabase
@@ -152,6 +156,9 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), asyn
 
     if (oldErr) throw oldErr;
     if (!oldOrder) return res.status(404).json({ error: 'Order not found' });
+    if (status === oldOrder.status && (!payment_status || payment_status === oldOrder.payment_status)) {
+      return res.json({ success: true, order: oldOrder, unchanged: true });
+    }
 
     const updatePayload = {};
     if (status) updatePayload.status = status;
@@ -166,6 +173,11 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), asyn
       .maybeSingle();
 
     if (error) throw error;
+
+    if (status === 'cancelled' && oldOrder.status !== 'cancelled') {
+      const { error: restoreError } = await supabase.rpc('restore_order_stock', { p_order_id: id });
+      if (restoreError) throw restoreError;
+    }
 
     await supabase.from('order_logs').insert([{
       order_id: id,
@@ -471,53 +483,34 @@ router.post('/', verifyUser, async (req, res) => {
 
     const calculatedTotal = calculatedSubtotal + calculatedShippingFee - calculatedDiscount;
 
-    // 4. Atomic Execution
-    if (paymentMethod === 'cod') {
-      const { data, error } = await supabase.rpc('create_order_atomic', {
+    // 4. Atomic Execution — every payment method uses the same stock-safe RPC.
+    const { data, error } = await supabase.rpc('create_order_atomic', {
         p_user_id: userId,
         p_items: items.map(item => ({ id: item.id, qty: item.qty })),
         p_phone: phone,
         p_city: city,
         p_address: address,
         p_customer_note: note || '',
-        p_payment_method: 'cod',
+        p_payment_method: paymentMethod,
         p_coupon_code: couponCode || null,
         p_idempotency_key: idempotencyScope,
         p_auth_source: req.user?.app_metadata?.provider || 'otp',
         p_metadata: { user_agent: req.headers['user-agent'] },
         p_store_id: req.store.id,
         p_location_url: location_url || null
-      });
+    });
 
-      if (error) {
-        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-        console.error('RPC Error:', error.message);
-        const isStockError = error.message.includes('stock') || error.message.includes('الكمية');
-        return res.status(isStockError ? 400 : 500).json({ error: error.message });
-      }
-
-      await subscriptionLimitService.commitFeatureUsage(reservationKey);
-      const order = Array.isArray(data) ? data[0] : data;
-      return res.status(201).json({ success: true, orderId: order.id, total: order.total });
-
-    } else {
-      // For Card and Manual Wallet: Regular insert
-      const { data: order, error: orderError } = await supabase.from('orders').insert([{
-        user_id: userId, items: itemsWithPrices, phone, city, address, customer_note: note,
-        payment_method: paymentMethod, subtotal: calculatedSubtotal, discount: calculatedDiscount,
-        shipping_fee: calculatedShippingFee, total: calculatedTotal, coupon_id: couponId,
-        idempotency_key: idempotencyScope, status: 'pending', payment_status: 'unpaid',
-        store_id: req.store.id, location_url: location_url || null
-      }]).select().single();
-
-      if (orderError) {
-        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-        throw orderError;
-      }
-      
-      await subscriptionLimitService.commitFeatureUsage(reservationKey);
-      return res.json({ success: true, orderId: order.id, total: calculatedTotal });
+    if (error) {
+      await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+      console.error('RPC Error:', error.message);
+      const isStockError = error.message.includes('stock') || error.message.includes('الكمية');
+      return res.status(isStockError ? 400 : 500).json({ error: error.message });
     }
+
+    await subscriptionLimitService.commitFeatureUsage(reservationKey);
+    const order = Array.isArray(data) ? data[0] : data;
+    return res.status(201).json({ success: true, orderId: order.id, total: order.total });
+
 
   } catch (error) {
     const idempotencyScope = userId ? `${userId}-${idempotencyKey}` : idempotencyKey;

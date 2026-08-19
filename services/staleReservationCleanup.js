@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 
 // Run cleanup every 5 minutes
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+let cleanupTimer = null;
 
 /**
  * Periodically deletes expired reservations from the database to ensure
@@ -30,15 +31,22 @@ async function cleanupStaleReservations() {
  * Starts the periodic cleanup job.
  */
 function startCleanupJob() {
+  if (cleanupTimer) return;
   // Run once immediately on startup
   cleanupStaleReservations();
   
   // Schedule periodic executions
-  setInterval(cleanupStaleReservations, CLEANUP_INTERVAL_MS);
+  cleanupTimer = setInterval(cleanupStaleReservations, CLEANUP_INTERVAL_MS);
   logger.info('Stale reservation cleanup job scheduled.');
+}
+
+function stopCleanupJob() {
+  if (cleanupTimer) clearInterval(cleanupTimer);
+  cleanupTimer = null;
 }
 
 module.exports = {
   startCleanupJob,
+  stopCleanupJob,
   cleanupStaleReservations
 };

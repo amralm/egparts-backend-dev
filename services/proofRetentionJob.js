@@ -50,6 +50,8 @@ async function decrementWithRetry(storeId, intentId, proof, retries = 3) {
 }
 
 async function runProofRetentionCleanup() {
+  if (runProofRetentionCleanup.running) return;
+  runProofRetentionCleanup.running = true;
   logger.info('[ProofRetentionJob] Starting payment proof retention cleanup...');
 
   try {
@@ -62,7 +64,9 @@ async function runProofRetentionCleanup() {
       .select('id, store_id, status, metadata, updated_at')
       .eq('provider', 'manual_wallet')
       .in('status', ['captured', 'failed'])
-      .not('metadata->proof->r2_key', 'is', null);
+      .not('metadata->proof->r2_key', 'is', null)
+      .order('updated_at', { ascending: true })
+      .limit(100);
 
     if (error) {
       logger.error(`[ProofRetentionJob] Error fetching intents: ${error.message}`);
@@ -157,6 +161,8 @@ async function runProofRetentionCleanup() {
     logger.info(`[ProofRetentionJob] Cleanup complete. Deleted ${deletedCount} proof images.`);
   } catch (err) {
     logger.error(`[ProofRetentionJob] Fatal error: ${err.message}`);
+  } finally {
+    runProofRetentionCleanup.running = false;
   }
 }
 
@@ -200,11 +206,18 @@ async function deleteProofImmediately(intentId, storeId, metadata, customReason 
 /**
  * Start the retention cleanup cron (runs every 24 hours).
  */
+let retentionTimer = null;
 function startProofRetentionJob() {
+  if (retentionTimer) return;
   logger.info('[ProofRetentionJob] Scheduled: runs every 24 hours.');
   // Run once on startup, then every 24h
   runProofRetentionCleanup();
-  setInterval(runProofRetentionCleanup, JOB_INTERVAL_MS);
+  retentionTimer = setInterval(runProofRetentionCleanup, JOB_INTERVAL_MS);
 }
 
-module.exports = { startProofRetentionJob, deleteProofImmediately };
+function stopProofRetentionJob() {
+  if (retentionTimer) clearInterval(retentionTimer);
+  retentionTimer = null;
+}
+
+module.exports = { startProofRetentionJob, stopProofRetentionJob, deleteProofImmediately };

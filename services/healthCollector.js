@@ -240,36 +240,18 @@ async function collectHealth() {
           },
         });
 
-        let totalSize = 0;
-        let count = 0;
-        let maxLastModified = null;
-        let continuationToken = undefined;
-
-        do {
-          const listCmd = new ListObjectsV2Command({
-            Bucket: process.env.R2_BUCKET_NAME,
-            ContinuationToken: continuationToken,
-            MaxKeys: 1000
-          });
-          const res = await r2Client.send(listCmd);
-          if (res.Contents) {
-            for (const obj of res.Contents) {
-              totalSize += obj.Size;
-              count++;
-              if (!maxLastModified || obj.LastModified > maxLastModified) {
-                maxLastModified = obj.LastModified;
-              }
-            }
-          }
-          continuationToken = res.NextContinuationToken;
-        } while (continuationToken);
+        const probe = await r2Client.send(new ListObjectsV2Command({
+          Bucket: process.env.R2_BUCKET_NAME,
+          MaxKeys: 1
+        }));
+        const firstObject = probe.Contents?.[0];
 
         snapshot.r2 = 'healthy';
         snapshot.r2_stats = {
           bucketName: process.env.R2_BUCKET_NAME,
-          storageUsedBytes: totalSize,
-          objectCount: count,
-          lastUpload: maxLastModified ? maxLastModified.toISOString() : r2Telemetry.lastUploadTime,
+          storageUsedBytes: null,
+          objectCount: null,
+          lastUpload: firstObject?.LastModified?.toISOString?.() || r2Telemetry.lastUploadTime,
           lastDelete: r2Telemetry.lastDeleteTime,
           averageUploadTimeMs: r2Telemetry.averageUploadTimeMs
         };

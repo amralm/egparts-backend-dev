@@ -37,7 +37,7 @@ function isScopeBlocked(scopes, req) {
   if (scopes.includes('ALL')) return true;
   if (scopes.includes('STORE')) return true; // full store ban for this user
 
-  const path = req.path.toLowerCase();
+  const path = (req.originalUrl || req.path || '').split('?')[0].toLowerCase();
   
   if (scopes.includes('ADMIN') && path.startsWith('/api/admin')) return true;
   if (scopes.includes('LOGIN') && path.startsWith('/api/auth')) return true;

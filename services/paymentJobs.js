@@ -1,9 +1,11 @@
 const { supabase } = require('./supabase');
 const logger = require('../utils/logger');
 
+let paymentExpiryTimer = null;
 function startPaymentExpiryJob() {
+  if (paymentExpiryTimer) return;
   // Run every 5 minutes
-  setInterval(async () => {
+  paymentExpiryTimer = setInterval(async () => {
     try {
       // Find orders that are 'pending' payment, use 'card', and were created > 30 mins ago
       // Since Supabase REST doesn't easily support < NOW() - 30 minutes in a single simple query without RPC
@@ -13,7 +15,7 @@ function startPaymentExpiryJob() {
 
       const { data: expiredOrders, error } = await supabase
         .from('orders')
-        .select('id, store_id, items')
+        .select('id, store_id')
         .eq('payment_method', 'card')
         .eq('payment_status', 'pending')
         .eq('status', 'pending')
@@ -38,13 +40,6 @@ function startPaymentExpiryJob() {
           .update({
             status: 'cancelled',
             payment_status: 'expired',
-            payment_details: { 
-              audit_logs: [{ 
-                event: 'expired', 
-                timestamp: new Date().toISOString(), 
-                reason: 'Payment timeout after 30 minutes' 
-              }] 
-            }
           })
           .eq('id', order.id)
           .eq('payment_status', 'pending') // CRITICAL: only if still pending
@@ -56,28 +51,7 @@ function startPaymentExpiryJob() {
           continue; // Webhook probably processed it just now!
         }
 
-        // 2. Safely Restore stock now that we successfully cancelled the order
-        if (Array.isArray(order.items)) {
-          for (const item of order.items) {
-            const { data: product } = await supabase
-              .from('products')
-              .select('stock_quantity, stock')
-              .eq('id', item.id)
-              .eq('store_id', order.store_id)
-              .single();
-
-            if (product) {
-              await supabase
-                .from('products')
-                .update({
-                  stock_quantity: (product.stock_quantity || 0) + item.qty,
-                  stock: Math.max((product.stock ?? product.stock_quantity ?? 0) + item.qty, 0)
-                })
-                .eq('id', item.id)
-                .eq('store_id', order.store_id);
-            }
-          }
-        }
+        await supabase.rpc('restore_order_stock', { p_order_id: order.id });
 
         logger.info(`Cancelled expired order ${order.id} and safely restored stock.`);
       }
@@ -88,4 +62,9 @@ function startPaymentExpiryJob() {
   }, 5 * 60 * 1000); // 5 minutes
 }
 
-module.exports = { startPaymentExpiryJob };
+function stopPaymentExpiryJob() {
+  if (paymentExpiryTimer) clearInterval(paymentExpiryTimer);
+  paymentExpiryTimer = null;
+}
+
+module.exports = { startPaymentExpiryJob, stopPaymentExpiryJob };

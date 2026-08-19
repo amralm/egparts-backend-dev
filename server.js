@@ -84,7 +84,8 @@ const whatsappPoolService = require('./services/whatsappPoolService');
 const notificationWorker = require('./services/notificationWorker');
 const whatsappPoolRoutes = require('./routes/whatsappPool');
 const domainValidator = require('./services/domainValidator');
-const { startPaymentExpiryJob } = require('./services/paymentJobs');
+const { startPaymentExpiryJob, stopPaymentExpiryJob } = require('./services/paymentJobs');
+const { stopProofRetentionJob } = require('./services/proofRetentionJob');
 const path = require('path');
 const { clientErrorSchema, validateBody } = require('./middleware/requestValidation');
 const { getFeatureStates } = require('./services/subscriptionLimitService');
@@ -332,15 +333,17 @@ app.post('/api/logs/client-error', clientErrorLimiter, validateBody(clientErrorS
   try {
     const fs = require('fs');
     const { message, stack, url, timestamp, storeName, userAgent } = req.body;
+    const safeMessage = String(message || '').slice(0, 1000);
+    const safeStack = String(stack || '').slice(0, 4000);
     
     // 1. Local File Logging (Fallback / local debugging convenience)
     const logEntry = `[${timestamp || new Date().toISOString()}]
 URL: ${url || 'unknown'}
 Store: ${storeName || 'unknown'}
 User Agent: ${userAgent || 'unknown'}
-Message: ${message || 'No message'}
+Message: ${safeMessage || 'No message'}
 Stack Trace:
-${stack || 'No stack trace available'}
+${safeStack || 'No stack trace available'}
 --------------------------------------------------------------------------------\n`;
 
     const logsDir = path.join(__dirname, 'logs');
@@ -354,11 +357,11 @@ ${stack || 'No stack trace available'}
     const { error } = await supabase
       .from('client_error_logs')
       .insert([{
-        message,
-        stack,
-        url,
-        store_name: storeName,
-        user_agent: userAgent,
+        message: safeMessage,
+        stack: safeStack,
+        url: String(url || '').slice(0, 2048),
+        store_name: String(storeName || '').slice(0, 160),
+        user_agent: String(userAgent || '').slice(0, 512),
         created_at: timestamp || new Date().toISOString()
       }]);
 
@@ -1025,6 +1028,9 @@ const shutdown = async (signal) => {
   logger.info(`${signal} received. Starting graceful shutdown...`);
   healthCollector.stopCollector();
   domainValidator.stopDomainCheckCron();
+  stopPaymentExpiryJob();
+  stopProofRetentionJob();
+  require('./services/staleReservationCleanup').stopCleanupJob();
 
   if (oauthCleanupInterval) {
     clearInterval(oauthCleanupInterval);

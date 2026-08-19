@@ -2624,10 +2624,13 @@ router.post('/invoices/:id/refund', verifyPlatformAdmin, async (req, res) => {
 
 // GET /api/platform/notifications/preferences - Order/payment WhatsApp switches
 router.get('/notifications/preferences', verifyPlatformAdmin, async (req, res) => {
+  const storeId = String(req.query.store_id || '').trim();
+  if (!/^[0-9a-f-]{36}$/i.test(storeId)) return res.status(400).json({ error: 'store_id is required' });
   try {
     const { data, error } = await supabase
       .from('notification_preferences')
-      .select('event_key, display_name, whatsapp_enabled, email_enabled, updated_at')
+      .select('store_id, event_key, display_name, whatsapp_enabled, email_enabled, updated_at')
+      .eq('store_id', storeId)
       .order('event_key');
     if (error) throw error;
     res.json(data || []);
@@ -2640,7 +2643,9 @@ router.get('/notifications/preferences', verifyPlatformAdmin, async (req, res) =
 // PATCH /api/platform/notifications/preferences/:eventKey - Toggle channels
 router.patch('/notifications/preferences/:eventKey', verifyPlatformAdmin, async (req, res) => {
   const eventKey = String(req.params.eventKey || '').trim();
+  const storeId = String(req.body?.store_id || '').trim();
   if (!/^[a-z0-9_]+$/.test(eventKey)) return res.status(400).json({ error: 'Invalid notification event' });
+  if (!/^[0-9a-f-]{36}$/i.test(storeId)) return res.status(400).json({ error: 'store_id is required' });
   const payload = {};
   if (typeof req.body?.whatsapp_enabled === 'boolean') payload.whatsapp_enabled = req.body.whatsapp_enabled;
   if (typeof req.body?.email_enabled === 'boolean') payload.email_enabled = req.body.email_enabled;
@@ -2651,8 +2656,9 @@ router.patch('/notifications/preferences/:eventKey', verifyPlatformAdmin, async 
     const { data, error } = await supabase
       .from('notification_preferences')
       .update(payload)
+      .eq('store_id', storeId)
       .eq('event_key', eventKey)
-      .select('event_key, display_name, whatsapp_enabled, email_enabled, updated_at')
+      .select('store_id, event_key, display_name, whatsapp_enabled, email_enabled, updated_at')
       .maybeSingle();
     if (error) throw error;
     if (!data) return res.status(404).json({ error: 'Notification event not found. Apply migration 48 first.' });

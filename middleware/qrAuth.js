@@ -20,7 +20,8 @@ const isLoopback = (req) => {
 };
 
 const checkAuth = (req) => {
-  if (isLoopback(req)) return true;
+  // Never trust client-controlled proxy headers or loopback detection for an
+  // internet-facing admin surface. Legacy QR access requires its own token.
   const authHeader = req.headers.authorization || '';
   if (authHeader.startsWith('Bearer ')) {
     try {

@@ -52,17 +52,7 @@ class WhatsappService {
       return this.storeId;
     }
 
-    const { data, error } = await supabase
-      .from('stores')
-      .select('id')
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    if (!data?.id) throw new Error('No store found for WhatsApp session storage');
-
-    this.storeId = data.id;
-    logger.info(`WhatsApp session store resolved: ${this.storeId}`);
-    return this.storeId;
+    throw new Error('WHATSAPP_STORE_ID is required for the legacy WhatsApp service; use whatsappPoolService for multi-tenant sessions');
   }
 
   async useSupabaseAuthState() {
