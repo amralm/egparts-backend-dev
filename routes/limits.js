@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { verifyUser } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
-const { getFeatureStates, getUsageSummary, resetMonthlyUsage } = require('../services/subscriptionLimitService');
+const { getFeatureStates, getUsageSummary, resetMonthlyUsage, checkFeatureLimit } = require('../services/subscriptionLimitService');
 const logger = require('../utils/logger');
 
 router.get('/features', verifyUser, async (req, res) => {
@@ -55,32 +55,34 @@ router.get('/platform-dashboard', verifyUser, async (req, res) => {
 
     const [{ data: stores }, { data: usageRows }] = await Promise.all([
       supabase.from('stores').select('id, name, subdomain, status, subscription_expires_at').order('name', { ascending: true }),
-      supabase.from('feature_usage').select('store_id, feature_key, usage, limit_value, period').order('usage', { ascending: false }).limit(50)
+      supabase.from('feature_usage').select('store_id, feature_key, usage_count, period').order('usage_count', { ascending: false }).limit(50)
     ]);
 
-    const topStorageUsers = (usageRows || [])
+    const normalizedUsage = (usageRows || []).map(row => ({ ...row, usage: row.usage_count || 0, limit_value: null }));
+    const productLimits = new Map(await Promise.all((stores || []).map(async store => [store.id, await checkFeatureLimit(store.id, 'products', 0)])));
+    const topStorageUsers = normalizedUsage
       .filter((row) => row.feature_key === 'storage_bytes')
       .sort((a, b) => (b.usage || 0) - (a.usage || 0))
       .slice(0, 5);
 
-    const topWhatsAppUsers = (usageRows || [])
+    const topWhatsAppUsers = normalizedUsage
       .filter((row) => row.feature_key === 'whatsapp_messages_month')
       .sort((a, b) => (b.usage || 0) - (a.usage || 0))
       .slice(0, 5);
 
-    const topAiUsers = (usageRows || [])
+    const topAiUsers = normalizedUsage
       .filter((row) => row.feature_key === 'ai_requests_month')
       .sort((a, b) => (b.usage || 0) - (a.usage || 0))
       .slice(0, 5);
 
     const overLimitStores = (stores || []).filter((store) => {
-      const feature = (usageRows || []).find((row) => row.store_id === store.id && row.feature_key === 'products');
-      return feature && feature.limit_value != null && (feature.usage || 0) >= (feature.limit_value || 0);
+      const feature = productLimits.get(store.id);
+      return feature && !feature.is_unlimited && feature.limit != null && (feature.usage || 0) >= feature.limit;
     });
 
     const nearLimitStores = (stores || []).filter((store) => {
-      const feature = (usageRows || []).find((row) => row.store_id === store.id && row.feature_key === 'products');
-      return feature && feature.limit_value != null && (feature.usage || 0) >= Math.max(1, Math.floor((feature.limit_value || 0) * 0.8));
+      const feature = productLimits.get(store.id);
+      return feature && !feature.is_unlimited && feature.limit != null && (feature.usage || 0) >= Math.max(1, Math.floor(feature.limit * 0.8));
     });
 
     res.json({

@@ -700,6 +700,12 @@ app.post('/qr/logout', (req, res) => {
 
 // ✅ WhatsApp QR Dashboard — ADMIN ONLY
 app.get('/qr', verifyAdminOrLocal, async (req, res) => {
+  if (process.env.ENABLE_LEGACY_WHATSAPP_QR !== 'true') {
+    return res.status(410).json({
+      error: 'LEGACY_WHATSAPP_QR_DISABLED',
+      message: 'استخدم إدارة أرقام واتساب من حوض واتساب المركزي.'
+    });
+  }
   const { phone } = req.query;
   const isConnected = whatsappService.isReady;
   let pairingCode = whatsappService.pairingCode;
@@ -888,6 +894,9 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
 // âœ… Route to aggressively clear session and restart â€” ADMIN ONLY
 // Route to clear session and restart — ADMIN ONLY
 app.post('/qr/reset', verifyAdminOrLocal, async (req, res) => {
+  if (process.env.ENABLE_LEGACY_WHATSAPP_QR !== 'true') {
+    return res.status(410).json({ error: 'LEGACY_WHATSAPP_QR_DISABLED' });
+  }
   try {
     await whatsappService.shutdown();
     whatsappService.isInitializing = false;
@@ -909,6 +918,9 @@ app.post('/qr/reset', verifyAdminOrLocal, async (req, res) => {
 
 // Diagnostic endpoint
 app.get('/qr/debug', verifyAdminOrLocal, async (req, res) => {
+  if (process.env.ENABLE_LEGACY_WHATSAPP_QR !== 'true') {
+    return res.status(410).json({ error: 'LEGACY_WHATSAPP_QR_DISABLED' });
+  }
   const { supabase } = require('./services/supabase');
   const { data: s } = await supabase.from('whatsapp_sessions').select('id').like('id', `${whatsappService.sessionId}:%`).limit(20);
   res.json({
@@ -962,8 +974,11 @@ const server = app.listen(PORT, async () => {
     // Feature Flag Check
     if (process.env.ENABLE_WHATSAPP === 'true') {
       await whatsappPoolService.initializeAll();
-      // Keep the legacy QR endpoint available while accounts migrate to the pool.
-      await whatsappService.initialize();
+      // The platform pool is the only automatically started WhatsApp dispatcher.
+      // The old singleton is opt-in and never starts beside the pool by default.
+      if (process.env.ENABLE_LEGACY_WHATSAPP_QR === 'true') {
+        logger.warn('Legacy WhatsApp QR is enabled explicitly; do not use it with pooled accounts.');
+      }
       notificationWorker.start(); // ðŸŸ¢ Start polling the queue
     } else {
       logger.warn('âš ï¸ WhatsApp service is disabled by feature flag.');

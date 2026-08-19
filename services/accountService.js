@@ -23,7 +23,8 @@ async function getProfileStatus(storeId, userId) {
 }
 
 async function updateProfile(storeId, userId, profile) {
-  const targetStoreId = storeId || '00000000-0000-0000-0000-000000000000';
+  if (!storeId) throw new Error('Tenant context required');
+  const targetStoreId = storeId;
   const { data, error } = await supabase
     .from('user_profiles')
     .upsert({
@@ -42,11 +43,13 @@ async function updateProfile(storeId, userId, profile) {
   return data;
 }
 
-async function listAddresses(userId) {
+async function listAddresses(userId, storeId) {
+  if (!storeId) throw new Error('Tenant context required');
   const { data, error } = await supabase
     .from('user_addresses')
     .select('*')
     .eq('user_id', userId)
+    .eq('store_id', storeId)
     .order('is_default', { ascending: false });
 
   if (error) throw error;
@@ -54,8 +57,8 @@ async function listAddresses(userId) {
 }
 
 async function saveAddress(userId, addressId, payload, storeId) {
-  // store_id is NOT NULL in user_addresses — always pass it
-  const targetStoreId = storeId || payload.store_id || '00000000-0000-0000-0000-000000000000';
+  if (!storeId) throw new Error('Tenant context required');
+  const targetStoreId = storeId;
 
   const data = {
     user_id: userId,
@@ -89,12 +92,14 @@ async function saveAddress(userId, addressId, payload, storeId) {
   return inserted.data;
 }
 
-async function deleteAddress(userId, addressId) {
+async function deleteAddress(userId, addressId, storeId) {
+  if (!storeId) throw new Error('Tenant context required');
   const { error } = await supabase
     .from('user_addresses')
     .delete()
     .eq('id', addressId)
-    .eq('user_id', userId);
+    .eq('user_id', userId)
+    .eq('store_id', storeId);
 
   if (error) throw error;
 }

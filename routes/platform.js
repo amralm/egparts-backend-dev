@@ -902,7 +902,7 @@ router.get('/tenants/metrics', verifyPlatformAdmin, async (req, res) => {
         supabase.from('orders').select('total', { count: 'exact' }).eq('store_id', store.id).gte('created_at', monthStart.toISOString()),
         supabase.from('orders').select('id', { count: 'exact', head: true }).eq('store_id', store.id).eq('status', 'delivered').gte('created_at', monthStart.toISOString()),
         supabase.from('products').select('id', { count: 'exact', head: true }).eq('store_id', store.id),
-        supabase.from('feature_usage').select('used').eq('store_id', store.id).eq('feature_key', 'otp.whatsapp.monthly').gte('period_start', monthStart.toISOString())
+        supabase.from('feature_usage').select('usage_count').eq('store_id', store.id).eq('feature_key', 'otp_messages_month').gte('period_start', monthStart.toISOString())
       ]);
 
       metrics.push({

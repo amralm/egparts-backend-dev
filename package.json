@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "audit:contracts": "node scripts/contract-audit.js"
   },
   "keywords": [],
   "author": "",

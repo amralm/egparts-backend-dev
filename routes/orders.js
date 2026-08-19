@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { optionalAuth, verifyUser, verifyPermission } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
@@ -248,6 +249,8 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, async (req, res)
     customerAddress,
     customerNote = '',
     couponId = null,
+    couponCode = null,
+    idempotencyKey = null,
     paymentMethod = 'cod'
   } = req.body || {};
 
@@ -292,32 +295,26 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, async (req, res)
       return res.status(400).json({ error: 'Invalid cart items' });
     }
 
-    let { data, error } = await supabase.rpc('process_secure_checkout_v2', {
+    const normalizedItems = items.map(item => ({ id: item.id, qty: Number(item.qty ?? item.quantity ?? 0) }));
+    if (normalizedItems.some(item => !item.id || !Number.isInteger(item.qty) || item.qty < 1)) {
+      await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+      return res.status(400).json({ error: 'Invalid cart quantities' });
+    }
+    const stableIdempotencyKey = String(idempotencyKey || `whatsapp-checkout-${req.store.id}-${req.user?.sub || 'guest'}-${crypto.randomUUID()}`).slice(0, 255);
+    let { data, error } = await supabase.rpc('create_order_atomic', {
       p_user_id: req.user?.sub || null,
-      p_items: items,
-      p_customer_phone: customerPhone,
-      p_customer_city: customerCity,
-      p_customer_address: customerAddress,
+      p_items: normalizedItems,
+      p_phone: customerPhone,
+      p_city: customerCity,
+      p_address: customerAddress,
       p_customer_note: customerNote,
-      p_coupon_id: couponId,
       p_payment_method: paymentMethod,
+      p_coupon_code: couponCode || null,
+      p_idempotency_key: stableIdempotencyKey,
+      p_auth_source: req.user?.app_metadata?.provider || 'otp',
+      p_metadata: { coupon_id: couponId },
       p_store_id: req.store.id
     });
-
-    if (error && /p_store_id|schema cache|function/i.test(error.message || '')) {
-      const fallback = await supabase.rpc('process_secure_checkout_v2', {
-        p_user_id: req.user?.sub || null,
-        p_items: items,
-        p_customer_phone: customerPhone,
-        p_customer_city: customerCity,
-        p_customer_address: customerAddress,
-        p_customer_note: customerNote,
-        p_coupon_id: couponId,
-        p_payment_method: paymentMethod
-      });
-      data = fallback.data;
-      error = fallback.error;
-    }
 
     if (error) {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);

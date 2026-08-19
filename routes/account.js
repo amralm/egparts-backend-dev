@@ -15,13 +15,14 @@ router.get('/profile-status', verifyUser, async (req, res) => {
 });
 
 router.get('/profile', verifyUser, async (req, res) => {
+  if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
   try {
     const { data } = await require('../services/supabase').supabase
       .from('user_profiles')
       .select('*')
       .eq('user_id', req.user.sub)
-      .eq('store_id', req.store?.id || '00000000-0000-0000-0000-000000000000')
-      .single();
+      .eq('store_id', req.store.id)
+      .maybeSingle();
     res.json({ success: true, profile: data || null });
   } catch (err) {
     logger.error('[account] profile fetch failed:', err.message);
@@ -31,6 +32,7 @@ router.get('/profile', verifyUser, async (req, res) => {
 
 router.patch('/profile', verifyUser, async (req, res) => {
   try {
+    if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
     const profile = await accountService.updateProfile(req.store?.id, req.user.sub, req.body || {});
     res.json({ success: true, profile });
   } catch (err) {
@@ -41,7 +43,8 @@ router.patch('/profile', verifyUser, async (req, res) => {
 
 router.get('/addresses', verifyUser, async (req, res) => {
   try {
-    const addresses = await accountService.listAddresses(req.user.sub);
+    if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
+    const addresses = await accountService.listAddresses(req.user.sub, req.store.id);
     res.json({ success: true, addresses });
   } catch (err) {
     logger.error('[account] address list failed:', err.message);
@@ -71,7 +74,8 @@ router.patch('/addresses/:id', verifyUser, async (req, res) => {
 
 router.delete('/addresses/:id', verifyUser, async (req, res) => {
   try {
-    await accountService.deleteAddress(req.user.sub, req.params.id);
+    if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
+    await accountService.deleteAddress(req.user.sub, req.params.id, req.store.id);
     res.json({ success: true });
   } catch (err) {
     logger.error('[account] address delete failed:', err.message);
@@ -102,6 +106,7 @@ router.post('/notifications/read-all', verifyUser, async (req, res) => {
 
 router.post('/login-log', verifyUser, async (req, res) => {
   try {
+    if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
     await accountService.recordLogin(req.store?.id, req.user, req.body);
     res.json({ success: true });
   } catch (err) {

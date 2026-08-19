@@ -1,6 +1,20 @@
 const { supabase } = require('./supabase'); // Assuming this exports a configured client
 const cacheProvider = require('./cacheProvider'); // Use the existing cache provider
 const auditLogger = require('./auditLogger'); // Use the existing audit logger
+const { checkFeatureLimit, getFeatureStates, DEFAULT_FEATURE_KEYS } = require('./subscriptionLimitService');
+
+function canonicalFeatureKey(capabilityCode) {
+  const key = String(capabilityCode || '').toLowerCase().trim();
+  const aliases = {
+    'orders.create': 'orders_per_month',
+    'orders.update': 'orders_per_month',
+    'whatsapp.send': 'whatsapp_messages_month',
+    'whatsapp.messages': 'whatsapp_messages_month',
+    'whatsapp.accounts': 'whatsapp_accounts_max',
+    'domains.custom': 'custom_domains'
+  };
+  return aliases[key] || (key.includes('.') ? key.split('.')[0] : key);
+}
 
 class PolicyEngine {
   /**
@@ -13,6 +27,25 @@ class PolicyEngine {
   static async evaluate(storeId, capabilityCode, context = {}, source = 'API') {
     const startTime = Date.now();
     try {
+      const featureKey = canonicalFeatureKey(capabilityCode);
+      const state = await checkFeatureLimit(storeId, featureKey, 0);
+      const requested = Math.max(0, Number(context.requestedAmount || 0));
+      const withinLimit = state.is_unlimited || state.limit == null || Number(state.usage || 0) + requested <= Number(state.limit);
+      const isAllowed = state.allowed === true && withinLimit;
+      return this._logDecision({
+        storeId,
+        capabilityCode,
+        isAllowed,
+        reason: isAllowed ? 'Allowed by canonical feature limit' : (state.reason || 'Feature limit denied'),
+        decisionSource: 'Canonical feature limits',
+        latencyMs: Date.now() - startTime,
+        usage: { ...context, feature_key: featureKey, usage: state.usage, limit: state.limit },
+        appliedLimit: state.limit
+      });
+
+      /* Legacy capabilities/plan_versions engine retained below only for historical reference. */
+      /* istanbul ignore next */
+      {
       // 1. Fetch capability definition
       const { data: cap, error: capErr } = await supabase
         .from('capabilities')
@@ -119,6 +152,7 @@ class PolicyEngine {
         storeId, capabilityCode, isAllowed, reason, decisionSource,
         latencyMs: Date.now() - startTime, usage: context, appliedLimit
       });
+      }
 
     } catch (err) {
       console.error(`[PolicyEngine] Error evaluating ${capabilityCode}:`, err);
@@ -132,6 +166,17 @@ class PolicyEngine {
 
   static async getStoreLimits(storeId) {
     try {
+      const state = await getFeatureStates(storeId, DEFAULT_FEATURE_KEYS);
+      return Object.fromEntries(Object.entries(state.features || {}).map(([key, feature]) => [key, {
+        max_value: feature.limit,
+        is_unlimited: feature.is_unlimited === true,
+        limit_type: feature.limit_type,
+        limit_config: { max_value: feature.limit, period_type: feature.period_type },
+        usage: feature.usage
+      }]));
+
+      /* Legacy capabilities/plan_versions fallback is intentionally unreachable. */
+      /* istanbul ignore next */
       const { data: caps } = await supabase.from('capabilities').select('*');
       if (!caps) return {};
 

@@ -7,7 +7,8 @@ import { supabase } from '../lib/supabase';
  */
 export const syncUserProfile = async (user, storeId) => {
   if (!user) return null;
-  const targetStoreId = storeId || '00000000-0000-0000-0000-000000000000';
+  if (!storeId) throw new Error('Tenant context is required');
+  const targetStoreId = storeId;
 
   try {
     // 1. Check if profile exists for this user and store

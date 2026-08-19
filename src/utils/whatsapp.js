@@ -18,19 +18,28 @@ export async function saveRequestAndOpenWhatsApp({
   totalAmount = 0,
   couponId = null,
   paymentMethod = "cod",
-  phone = ADMIN_WHATSAPP 
+  phone = ADMIN_WHATSAPP,
+  storeId = null
 }) {
   try {
-    // Use RPC for server-side pricing (no client prices sent to DB)
-    let { data: rpcData, error: rpcError } = await supabase.rpc('process_secure_checkout_v2', {
+    if (!storeId) {
+      throw new Error('Tenant context is required to create an order');
+    }
+
+    // Use the canonical order RPC; the removed v2 function was never deployed.
+    const { data: rpcData, error: rpcError } = await supabase.rpc('create_order_atomic', {
       p_user_id: userId,
       p_items: items,
-      p_customer_phone: customerPhone,
-      p_customer_city: customerCity,
-      p_customer_address: customerAddress,
+      p_phone: customerPhone,
+      p_city: customerCity,
+      p_address: customerAddress,
       p_customer_note: customerNote,
-      p_coupon_id: couponId,
-      p_payment_method: paymentMethod
+      p_payment_method: paymentMethod,
+      p_coupon_code: null,
+      p_idempotency_key: `whatsapp-${storeId}-${userId || 'guest'}-${Date.now()}`,
+      p_auth_source: 'whatsapp',
+      p_metadata: { coupon_id: couponId },
+      p_store_id: storeId
     });
 
     if (rpcError) {
