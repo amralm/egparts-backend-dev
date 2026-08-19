@@ -25,6 +25,7 @@ class WhatsappService {
     this.lastQR = null;
     this.pairingCode = null;
     this.connectionState = 'close';
+    this.lastSavePromise = Promise.resolve();
     this.sessionId = 'main_whatsapp_session'; // ✅ Unique ID for session in DB
     this.isInitializing = false;
     
@@ -42,9 +43,10 @@ class WhatsappService {
       try {
         const id = `${this.sessionId}:${key}`;
         const content = JSON.parse(JSON.stringify(data, BufferJSON.replacer));
-        await supabase
+        const { error } = await supabase
           .from('whatsapp_sessions')
           .upsert({ id, data: content, updated_at: new Date() });
+        if (error) throw error;
       } catch (err) {
         logger.error(`Error writing session data for ${key}:`, err.message);
       }
@@ -149,7 +151,10 @@ class WhatsappService {
           }
         }
       },
-      saveCreds: () => writeData(creds, 'creds')
+      saveCreds: () => {
+        this.lastSavePromise = writeData(creds, 'creds');
+        return this.lastSavePromise;
+      }
     };
   }
 
@@ -234,7 +239,8 @@ class WhatsappService {
           // 2. Restart required (status 515) — happens right after QR scan or pairing! Must restart immediately.
           if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
             logger.info('🔄 Restart required by WhatsApp protocol (handshake completed). Reconnecting immediately...');
-            setTimeout(() => this.initialize(), 500);
+            await this.lastSavePromise.catch(() => {});
+            setTimeout(() => this.initialize(), 1000);
             return;
           }
 
@@ -278,6 +284,11 @@ class WhatsappService {
       // WebSocket before asking WhatsApp for a pairing code.
       if (!this.sock) await this.initialize();
 
+      const socketDeadline = Date.now() + 30000;
+      while (!this.sock && this.isInitializing && Date.now() < socketDeadline) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+
       const deadline = Date.now() + 30000;
       while (this.sock && this.connectionState === 'close' && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 250));
@@ -286,6 +297,10 @@ class WhatsappService {
         throw new Error('تعذر إنشاء اتصال واتساب. اضغط إعادة تعيين الجلسة ثم حاول مرة أخرى.');
       }
 
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (!this.sock || this.connectionState === 'close') {
+        throw new Error('اتصال واتساب لم يكتمل بعد. اضغط تحديث الصفحة واطلب كودًا جديدًا.');
+      }
       const code = await this.sock.requestPairingCode(cleanNumber);
       this.pairingCode = code;
       return code;
