@@ -48,7 +48,8 @@ class WhatsappService {
           .upsert({ id, data: content, updated_at: new Date() });
         if (error) throw error;
       } catch (err) {
-        logger.error(`Error writing session data for ${key}:`, err.message);
+        logger.error(`Error writing session data for ${key}: ${err?.message || JSON.stringify(err)}`);
+        throw err;
       }
     };
 
@@ -136,17 +137,20 @@ class WhatsappService {
               if (upserts.length > 0) {
                 for (let i = 0; i < upserts.length; i += 50) {
                   const batch = upserts.slice(i, i + 50);
-                  await supabase.from('whatsapp_sessions').upsert(batch);
+                  const { error } = await supabase.from('whatsapp_sessions').upsert(batch);
+                  if (error) throw error;
                 }
               }
               if (deletes.length > 0) {
                 for (let i = 0; i < deletes.length; i += 50) {
                   const batch = deletes.slice(i, i + 50);
-                  await supabase.from('whatsapp_sessions').delete().in('id', batch);
+                  const { error } = await supabase.from('whatsapp_sessions').delete().in('id', batch);
+                  if (error) throw error;
                 }
               }
             } catch (err) {
-              logger.error('Error in batch set session data:', err.message);
+              logger.error(`Error in batch set session data: ${err?.message || JSON.stringify(err)}`);
+              throw err;
             }
           }
         }
