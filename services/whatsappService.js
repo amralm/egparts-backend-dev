@@ -153,6 +153,7 @@ class WhatsappService {
       },
       saveCreds: () => {
         this.lastSavePromise = writeData(creds, 'creds');
+        this.lastSavePromise.then(() => logger.info('WhatsApp credentials persisted')).catch(() => {});
         return this.lastSavePromise;
       }
     };
@@ -208,7 +209,10 @@ class WhatsappService {
       this.sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        if (connection) this.connectionState = connection;
+        if (connection) {
+          this.connectionState = connection;
+          logger.info(`WhatsApp connection state: ${connection}`);
+        }
 
         if (qr) {
           this.lastQR = qr;
@@ -279,6 +283,7 @@ class WhatsappService {
       if (!/^\d{8,15}$/.test(cleanNumber)) {
         throw new Error('رقم الهاتف غير صالح. استخدم الرقم الدولي بدون + أو مسافات.');
       }
+      logger.info(`Pairing code requested for phone ending ${cleanNumber.slice(-4)}`);
 
       // Ensure socket is initialized, then give Baileys time to establish its
       // WebSocket before asking WhatsApp for a pairing code.
@@ -303,6 +308,7 @@ class WhatsappService {
       }
       const code = await this.sock.requestPairingCode(cleanNumber);
       this.pairingCode = code;
+      logger.info(`Pairing code generated for phone ending ${cleanNumber.slice(-4)}`);
       return code;
     } catch (error) {
       logger.error('Failed to request pairing code:', error.message);
