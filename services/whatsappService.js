@@ -343,7 +343,17 @@ class WhatsappService {
         await new Promise(resolve => setTimeout(resolve, 250));
       }
       if (!this.sock || this.connectionState !== 'open') {
-        throw new Error('اتصال واتساب لم يكتمل خلال المهلة. أعد المحاولة بعد لحظات أو أعد ضبط الجلسة.');
+        // A stale Baileys socket can remain in `connecting` after a failed
+        // handshake. Reset it once so the next request starts with clean auth.
+        await this.resetSession();
+        await this.initialize();
+        const retryDeadline = Date.now() + 30000;
+        while (this.sock && this.connectionState !== 'open' && Date.now() < retryDeadline) {
+          await new Promise(resolve => setTimeout(resolve, 250));
+        }
+        if (!this.sock || this.connectionState !== 'open') {
+          throw new Error('اتصال واتساب لم يكتمل بعد إعادة تهيئة الجلسة. حاول مرة أخرى.');
+        }
       }
 
       const code = await this.sock.requestPairingCode(cleanNumber);
@@ -410,6 +420,23 @@ class WhatsappService {
       this.isReady = false;
       this.connectionState = 'close';
     }
+  }
+
+  async resetSession() {
+    await this.shutdown();
+    if (this.accountId) {
+      const { error } = await supabase
+        .from('whatsapp_sessions')
+        .delete()
+        .like('id', `${this.sessionId}:%`);
+      if (error) throw error;
+    }
+    this.isShutdown = false;
+    this.pairingCode = null;
+    this.lastQR = null;
+    this.lastError = null;
+    this.lastErrorAt = null;
+    this.connectionState = 'close';
   }
 }
 
