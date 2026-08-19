@@ -158,7 +158,7 @@ async function renderNotification(templateCode, channel, language, variables) {
 /**
  * Sends notification and records delivery audit log in the background
  */
-async function sendNotification({ templateCode, recipient, language = 'ar', variables = {} }) {
+async function sendNotification({ templateCode, channel: requestedChannel = null, recipient, language = 'ar', variables = {} }) {
   logger.info(`[NotificationEngine] Dispatching event: ${templateCode} to ${recipient}`);
   const startTime = Date.now();
 
@@ -171,6 +171,10 @@ async function sendNotification({ templateCode, recipient, language = 'ar', vari
     .eq('language', activeLanguage)
     .eq('is_active', true);
 
+  if (requestedChannel) {
+    templates = (templates || []).filter(template => template.channel === requestedChannel);
+  }
+
   if ((!templates || templates.length === 0) && activeLanguage !== 'en') {
     activeLanguage = 'en';
     const fallback = await supabase
@@ -180,6 +184,9 @@ async function sendNotification({ templateCode, recipient, language = 'ar', vari
       .eq('language', activeLanguage)
       .eq('is_active', true);
     templates = fallback.data;
+    if (requestedChannel) {
+      templates = (templates || []).filter(template => template.channel === requestedChannel);
+    }
     lookupErr = fallback.error;
   }
 

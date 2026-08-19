@@ -9,6 +9,7 @@ const logger = require('../utils/logger');
 const { z } = require('zod');
 const { validateBody } = require('../middleware/requestValidation');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
+const whatsappPoolService = require('../services/whatsappPoolService');
 
 const planPayloadSchema = z.object({
   code: z.string().trim().min(1).max(80).regex(/^[a-z0-9_-]+$/i),
@@ -1696,6 +1697,44 @@ router.get('/invitations', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
+function normalizeInvitationPhone(value) {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = `2${digits}`;
+  if (!/^20\d{10}$/.test(digits)) throw new Error('رقم واتساب غير صالح. استخدم رقمًا مصريًا مثل 2010xxxxxxxx');
+  return digits;
+}
+
+async function sendInvitationWhatsApp({ phone, activationLink, storeName, invitationId, storeId }) {
+  const recipient = normalizeInvitationPhone(phone);
+  const variables = {
+    activation_link: activationLink,
+    expires_hours: 48,
+    phone: recipient,
+    store_name: storeName || 'EG-PARTS Cloud',
+    store_id: storeId,
+    idempotency_key: `tenant-invitation-${invitationId}`
+  };
+
+  const templated = await require('../services/notificationEngine').sendNotification({
+    templateCode: 'tenant_invitation',
+    channel: 'whatsapp',
+    recipient,
+    language: 'ar',
+    variables
+  });
+  const templateDelivery = (templated || []).find(result => result.channel === 'whatsapp');
+  if (templateDelivery?.status === 'sent') {
+    return { status: 'sent', provider: 'template', recipient };
+  }
+
+  const body = `مرحباً بك في EG-PARTS Cloud\n\nتمت دعوتك لتصبح مدير متجر${storeName ? ` في متجر ${storeName}` : ''}.\n\nرابط تفعيل الحساب:\n${activationLink}\n\nصلاحية الرابط: 48 ساعة.\n\nإذا لم تطلب هذه الدعوة، تجاهل الرسالة.`;
+  const delivery = await whatsappPoolService.sendMessage(recipient, body, {
+    idempotencyKey: `tenant-invitation-${invitationId}`
+  });
+  return { status: delivery ? 'sent' : 'failed', provider: 'pool', recipient };
+}
+
 // POST /api/platform/invitations - Create owner invitation (via email/WhatsApp)
 router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
   const { email, phone, store_id, role_id } = req.body;
@@ -1731,30 +1770,33 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
     if (error) throw error;
     await auditPlatform(req, 'platform.invitation.create', 'tenant_invitation', invitation.id, {}, invitation, store_id);
 
-    // Send invitation link via WhatsApp if phone is provided
-    if (phone && phone.trim()) {
-      const { sendNotification } = require('../services/notificationEngine');
-      
-      const { data: storeInfo } = await supabase.from('stores').select('subdomain').eq('id', store_id).single();
-      const storeSubdomain = storeInfo?.subdomain || 'admin';
-      const baseDomain = process.env.PRIMARY_DOMAIN || 'egparts.store';
-      const activationLink = `https://${storeSubdomain}.${baseDomain}/accept-invitation?token=${token}`;
+    let whatsapp = { status: 'not_requested' };
+    const { data: storeInfo } = await supabase.from('stores').select('name, subdomain').eq('id', store_id).single();
+    const storeSubdomain = storeInfo?.subdomain || 'admin';
+    const baseDomain = process.env.PRIMARY_DOMAIN || 'egparts.store';
+    const activationLink = `https://${storeSubdomain}.${baseDomain}/accept-invitation?token=${token}`;
 
+    if (email && email.trim()) {
+      const { sendNotification } = require('../services/notificationEngine');
       sendNotification({
         templateCode: 'tenant_invitation',
-        recipient: phone.trim(),
+        channel: 'email',
+        recipient: email.trim().toLowerCase(),
         language: 'ar',
-        variables: {
-          activation_link: activationLink,
-          expires_hours: 48,
-          phone: phone.trim(),
-          store_id,
-          idempotency_key: `tenant-invitation-${invitation.id}`
-        }
-      }).catch(err => logger.error('Failed to send invitation WhatsApp in background:', err));
+        variables: { activation_link: activationLink, expires_hours: 48, store_name: storeInfo?.name || 'EG-PARTS Cloud', store_id }
+      }).catch(err => logger.error('Failed to send invitation email:', err));
     }
 
-    res.json({ success: true, invitation });
+    if (phone && phone.trim()) {
+      try {
+        whatsapp = await sendInvitationWhatsApp({ phone, activationLink, storeName: storeInfo?.name, invitationId: invitation.id, storeId: store_id });
+      } catch (error) {
+        whatsapp = { status: 'failed', error: error.message };
+        logger.error('Failed to send invitation WhatsApp:', error.message);
+      }
+    }
+
+    res.json({ success: true, invitation, whatsapp });
   } catch (err) {
     logger.error('Failed to create invitation:', err.message);
     res.status(500).json({ error: 'Failed to create invitation' });
@@ -1794,25 +1836,22 @@ router.post('/invitations/:id/resend', verifyPlatformAdmin, async (req, res) => 
 
     if (updateErr) throw updateErr;
 
-    const { sendNotification } = require('../services/notificationEngine');
-    const { data: storeInfo } = await supabase.from('stores').select('subdomain').eq('id', invite.store_id).single();
+    const { data: storeInfo } = await supabase.from('stores').select('name, subdomain').eq('id', invite.store_id).single();
     const storeSubdomain = storeInfo?.subdomain || 'admin';
     const baseDomain = process.env.PRIMARY_DOMAIN || 'egparts.store';
     const activationLink = `https://${storeSubdomain}.${baseDomain}/accept-invitation?token=${token}`;
     
-    // Run in background - send via WhatsApp to phone
-    sendNotification({
-      channel: 'whatsapp',
-      recipient: invite.phone,
-      variables: {
-        activation_link: activationLink,
-        expires_hours: 48,
-        phone: invite.phone
-      },
-      bodyText: `مرحباً!\n\nتم إعادة إرسال دعوتك لتصبح مدير متجر على منصة EG-PARTS Cloud.\n\nرابط التفعيل:\n${activationLink}\n\nصلاحية الرابط: 48 ساعة\n\nEG-PARTS Cloud`
-    }).catch(err => logger.error('Failed to resend invitation WhatsApp in background:', err));
+    let whatsapp = { status: 'not_requested' };
+    if (invite.phone) {
+      try {
+        whatsapp = await sendInvitationWhatsApp({ phone: invite.phone, activationLink, storeName: storeInfo?.name, invitationId: id, storeId: invite.store_id });
+      } catch (error) {
+        whatsapp = { status: 'failed', error: error.message };
+        logger.error('Failed to resend invitation WhatsApp:', error.message);
+      }
+    }
 
-    res.json({ success: true, invitation: updated });
+    res.json({ success: true, invitation: updated, whatsapp });
   } catch (err) {
     logger.error('Failed to resend invitation:', err.message);
     res.status(500).json({ error: 'Failed to resend invitation' });
