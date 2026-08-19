@@ -188,6 +188,8 @@ class WhatsappService {
     if (this.isInitializing) return;
     this.isShutdown = false;
     this.isInitializing = true;
+    this.isReady = false;
+    this.connectionState = 'connecting';
 
     try {
       logger.info(`🔐 Initializing WhatsApp with Supabase persistent storage...`);
@@ -257,6 +259,7 @@ class WhatsappService {
           this.pairingCode = null;
           this.lastError = error?.message || `Connection closed (${statusCode || 'unknown'})`;
           this.lastErrorAt = new Date().toISOString();
+          await this.syncAccountStatus(this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS ? 'failed' : 'pending');
 
           // 1. Session logged out — clean DB and recreate fresh
           if (statusCode === DisconnectReason.loggedOut) {
@@ -294,6 +297,7 @@ class WhatsappService {
           this.lastError = null;
           this.lastErrorAt = null;
           this.lastConnectedAt = new Date().toISOString();
+          await this.syncAccountStatus('connected');
         }
       });
 
@@ -437,6 +441,23 @@ class WhatsappService {
     this.lastError = null;
     this.lastErrorAt = null;
     this.connectionState = 'close';
+    await this.syncAccountStatus('pending');
+  }
+
+  async syncAccountStatus(status) {
+    if (!this.accountId) return;
+    const payload = { status, updated_at: new Date().toISOString() };
+    if (status === 'connected') {
+      const now = new Date().toISOString();
+      payload.last_connected_at = now;
+      payload.last_success_at = now;
+    }
+    if (status === 'pending') {
+      payload.last_error = null;
+      payload.last_error_at = null;
+    }
+    const { error } = await supabase.from('whatsapp_accounts').update(payload).eq('id', this.accountId);
+    if (error) logger.debug(`Failed to sync WhatsApp account ${this.accountId} status: ${error.message}`);
   }
 }
 

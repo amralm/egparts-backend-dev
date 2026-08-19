@@ -54,14 +54,14 @@ class WhatsAppPoolService {
   }
 
   isConnected() {
-    return [...this.accounts.values()].some(({ service }) => service.isReady);
+    return [...this.accounts.values()].some(({ service }) => service.isReady && service.sock && service.connectionState === 'open');
   }
 
   getStatus() {
     const accounts = [...this.accounts.values()].map(({ row, service }) => ({
       id: row.id,
       phone_number: row.phone_number,
-      status: service.isReady ? 'connected' : service.getStatus(),
+      status: service.isReady && service.sock && service.connectionState === 'open' ? 'connected' : service.getStatus(),
       active_jobs: row.active_jobs || 0,
       max_concurrency: row.max_concurrency || 1,
       circuit_state: row.circuit_state || 'closed',
@@ -133,7 +133,7 @@ class WhatsAppPoolService {
     const candidates = options.accountId
       ? [this.accounts.get(options.accountId)].filter(Boolean)
       : [...this.accounts.values()]
-        .filter(({ row, service }) => row.enabled && service.isReady)
+        .filter(({ row, service }) => row.enabled && service.isReady && service.sock && service.connectionState === 'open')
         .filter(({ row }) => (row.circuit_state || 'closed') !== 'open')
         .sort((a, b) => {
           const score = (x) => ((x.row.active_jobs || 0) / Math.max(1, x.row.weight || 1)) * 1000 + (x.row.priority || 100);
