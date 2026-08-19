@@ -45,17 +45,62 @@ const s3Client = new S3Client({
 async function emptyS3Directory(bucket, dir) {
   const listParams = { Bucket: bucket, Prefix: dir };
   let listedObjects;
+  let deletedCount = 0;
+  let deletedBytes = 0;
   do {
     listedObjects = await s3Client.send(new ListObjectsV2Command(listParams));
     if (listedObjects.Contents?.length > 0) {
       const deleteParams = { Bucket: bucket, Delete: { Objects: [] } };
-      listedObjects.Contents.forEach(({ Key }) => {
+      listedObjects.Contents.forEach(({ Key, Size = 0 }) => {
         deleteParams.Delete.Objects.push({ Key });
+        deletedCount += 1;
+        deletedBytes += Number(Size) || 0;
       });
       await s3Client.send(new DeleteObjectsCommand(deleteParams));
     }
     listParams.ContinuationToken = listedObjects.NextContinuationToken;
   } while (listedObjects.IsTruncated);
+  return { deletedCount, deletedBytes };
+}
+
+async function listS3Objects(bucket, prefix) {
+  const objects = [];
+  let continuationToken;
+  do {
+    const result = await s3Client.send(new ListObjectsV2Command({
+      Bucket: bucket,
+      Prefix: prefix,
+      ContinuationToken: continuationToken
+    }));
+    for (const object of result.Contents || []) {
+      objects.push({
+        key: object.Key,
+        size: Number(object.Size) || 0,
+        lastModified: object.LastModified || null
+      });
+    }
+    continuationToken = result.IsTruncated ? result.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return objects;
+}
+
+function buildStorageTree(objects, prefix) {
+  const folders = new Map();
+  const files = [];
+  for (const object of objects) {
+    const relative = object.key.slice(prefix.length);
+    const parts = relative.split('/').filter(Boolean);
+    if (parts.length <= 1) {
+      files.push(object);
+      continue;
+    }
+    const folder = parts[0];
+    const current = folders.get(folder) || { name: folder, prefix: `${prefix}${folder}/`, files: 0, bytes: 0 };
+    current.files += 1;
+    current.bytes += object.size;
+    folders.set(folder, current);
+  }
+  return { folders: [...folders.values()].sort((a, b) => a.name.localeCompare(b.name)), files };
 }
 
 router.use(verifyPlatformPermission('platform.access'));
@@ -851,15 +896,97 @@ router.post('/stores/:id/recover', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
+// Super Admin storage explorer. R2 is the source of truth because older uploads
+// may predate platform_storage_objects tracking. Keys are always constrained to
+// the selected tenant prefix; a client can never browse or delete another scope.
+router.get('/storage', verifyPlatformAdmin, async (req, res) => {
+  try {
+    if (!process.env.R2_BUCKET_NAME || !process.env.R2_ACCOUNT_ID) {
+      return res.status(503).json({ success: false, error: 'R2 storage is not configured.' });
+    }
+    const { data: stores, error } = await supabase
+      .from('stores')
+      .select('id,name,subdomain,status,is_active')
+      .order('name', { ascending: true });
+    if (error) throw error;
+    const selectedId = typeof req.query.store_id === 'string' ? req.query.store_id : null;
+    const selected = (stores || []).find((store) => store.id === selectedId);
+    if (!selected) return res.json({ success: true, stores: stores || [], selected: null, tree: null });
+
+    const rootPrefix = `stores/${selected.id}/`;
+    const requestedPrefix = typeof req.query.prefix === 'string' ? req.query.prefix.trim() : rootPrefix;
+    if (!requestedPrefix.startsWith(rootPrefix) || !requestedPrefix.endsWith('/') || requestedPrefix.includes('..')) {
+      return res.status(400).json({ success: false, error: 'Invalid storage folder.' });
+    }
+    const prefix = requestedPrefix;
+    const objects = await listS3Objects(process.env.R2_BUCKET_NAME, prefix);
+    const tree = buildStorageTree(objects, prefix);
+    res.json({
+      success: true,
+      stores: stores || [],
+      selected,
+      prefix,
+      totals: { files: objects.length, bytes: objects.reduce((sum, item) => sum + item.size, 0) },
+      tree
+    });
+  } catch (err) {
+    logger.error('Platform storage listing failed:', err.message);
+    res.status(500).json({ success: false, error: 'Unable to load platform storage.' });
+  }
+});
+
+router.delete('/storage/object', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const key = typeof req.body?.key === 'string' ? req.body.key.trim() : '';
+    const storeId = typeof req.body?.store_id === 'string' ? req.body.store_id : '';
+    if (!key || !storeId || !key.startsWith(`stores/${storeId}/`) || key.includes('..')) {
+      return res.status(400).json({ success: false, error: 'A valid store-scoped object key is required.' });
+    }
+    const { data: store } = await supabase.from('stores').select('id').eq('id', storeId).maybeSingle();
+    if (!store) return res.status(404).json({ success: false, error: 'Store not found.' });
+    await s3Client.send(new DeleteObjectsCommand({ Bucket: process.env.R2_BUCKET_NAME, Delete: { Objects: [{ Key: key }] } }));
+    await auditPlatform(req, 'platform.storage.object_delete', 'storage_object', key, { store_id: storeId }, null, storeId);
+    res.json({ success: true, key });
+  } catch (err) {
+    logger.error('Platform storage object deletion failed:', err.message);
+    res.status(500).json({ success: false, error: 'Unable to delete storage object.' });
+  }
+});
+
+router.delete('/storage/folder', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const storeId = typeof req.body?.store_id === 'string' ? req.body.store_id : '';
+    const requestedPrefix = typeof req.body?.prefix === 'string' ? req.body.prefix.trim() : '';
+    const root = `stores/${storeId}/`;
+    if (!storeId || !requestedPrefix || !requestedPrefix.startsWith(root) || !requestedPrefix.endsWith('/') || requestedPrefix.includes('..')) {
+      return res.status(400).json({ success: false, error: 'A valid store-scoped folder is required.' });
+    }
+    const { data: store } = await supabase.from('stores').select('id').eq('id', storeId).maybeSingle();
+    if (!store) return res.status(404).json({ success: false, error: 'Store not found.' });
+    const result = await emptyS3Directory(process.env.R2_BUCKET_NAME, requestedPrefix);
+    await auditPlatform(req, 'platform.storage.folder_delete', 'storage_folder', requestedPrefix, { store_id: storeId }, result, storeId);
+    res.json({ success: true, prefix: requestedPrefix, ...result });
+  } catch (err) {
+    logger.error('Platform storage folder deletion failed:', err.message);
+    res.status(500).json({ success: false, error: 'Unable to delete storage folder.' });
+  }
+});
+
 router.delete('/stores/:id', verifyPlatformAdmin, async (req, res) => {
   const { id } = req.params;
   try {
     const { data: oldStore } = await supabase.from('stores').select('*').eq('id', id).maybeSingle();
     if (!oldStore) return res.status(404).json({ error: 'Store not found' });
 
+    const confirmation = typeof req.body?.confirmation === 'string' ? req.body.confirmation.trim() : '';
+    if (!confirmation || confirmation !== oldStore.name) {
+      return res.status(409).json({ error: 'Type the exact store name to confirm permanent deletion.', code: 'DELETE_CONFIRMATION_REQUIRED' });
+    }
+
     // 1. Wipe all files associated with the store from R2
+    let storageResult = { deletedCount: 0, deletedBytes: 0 };
     if (process.env.R2_BUCKET_NAME) {
-      await emptyS3Directory(process.env.R2_BUCKET_NAME, `stores/${id}/`);
+      storageResult = await emptyS3Directory(process.env.R2_BUCKET_NAME, `stores/${id}/`);
     }
 
     // 2. Hard delete the store from database (Cascades to products, orders, etc.)
@@ -870,8 +997,8 @@ router.delete('/stores/:id', verifyPlatformAdmin, async (req, res) => {
 
     if (error) throw error;
 
-    await auditPlatform(req, 'platform.store.delete_hard', 'store', id, oldStore, null, id);
-    res.json({ success: true, message: 'Store completely deleted.' });
+    await auditPlatform(req, 'platform.store.delete_hard', 'store', id, oldStore, { storageResult }, id);
+    res.json({ success: true, message: 'Store completely deleted.', storage: storageResult });
   } catch (err) {
     logger.error('Failed to hard delete store:', err.message);
     res.status(500).json({ error: 'Failed to delete store' });
