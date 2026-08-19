@@ -343,24 +343,39 @@ class WhatsappService {
       }
 
       const deadline = Date.now() + 30000;
-      while (this.sock && this.connectionState !== 'open' && Date.now() < deadline) {
+      while (this.sock && this.connectionState === 'close' && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 250));
       }
-      if (!this.sock || this.connectionState !== 'open') {
-        // A stale Baileys socket can remain in `connecting` after a failed
-        // handshake. Reset it once so the next request starts with clean auth.
+      if (!this.sock || this.connectionState === 'close') {
+        throw new Error('تعذر إنشاء socket واتساب. أعد المحاولة بعد لحظات.');
+      }
+
+      // Baileys pairing is intentionally requested while the socket is
+      // connecting; waiting for `open` prevents unregistered accounts from
+      // ever receiving a pairing code.
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (!this.sock || this.connectionState === 'close') {
+        throw new Error('اتصال socket واتساب غير صالح.');
+      }
+
+      let code;
+      try {
+        code = await this.sock.requestPairingCode(cleanNumber);
+      } catch (firstError) {
+        // Retry once from a clean session; the first socket can be half-open
+        // even while its connection state still reports `connecting`.
         await this.resetSession();
         await this.initialize();
         const retryDeadline = Date.now() + 30000;
-        while (this.sock && this.connectionState !== 'open' && Date.now() < retryDeadline) {
+        while (this.sock && this.connectionState === 'close' && Date.now() < retryDeadline) {
           await new Promise(resolve => setTimeout(resolve, 250));
         }
-        if (!this.sock || this.connectionState !== 'open') {
-          throw new Error('اتصال واتساب لم يكتمل بعد إعادة تهيئة الجلسة. حاول مرة أخرى.');
+        if (!this.sock || this.connectionState === 'close') {
+          throw new Error('تعذر إعادة تهيئة socket واتساب. حاول مرة أخرى.');
         }
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        code = await this.sock.requestPairingCode(cleanNumber);
       }
-
-      const code = await this.sock.requestPairingCode(cleanNumber);
       this.pairingCode = code;
       logger.info(`Pairing code generated for phone ending ${cleanNumber.slice(-4)}`);
       return code;
