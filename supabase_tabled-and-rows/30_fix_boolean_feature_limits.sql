@@ -66,7 +66,7 @@ BEGIN
   LIMIT 1;
 
   IF v_plan_id IS NULL THEN
-    RETURN QUERY SELECT true, NULL::bigint, NULL::bigint, 0::bigint, 'No active plan found', lower(p_feature_key), NULL::text, 'lifetime', true;
+    RETURN QUERY SELECT false, 0::bigint, 0::bigint, 0::bigint, 'No active plan found', lower(p_feature_key), NULL::text, 'lifetime', false;
     RETURN;
   END IF;
 
@@ -86,7 +86,7 @@ BEGIN
   LIMIT 1;
 
   IF v_limit_type IS NULL AND v_limit_config IS NULL THEN
-    RETURN QUERY SELECT true, NULL::bigint, NULL::bigint, 0::bigint, 'No limit configured for this plan', lower(p_feature_key), NULL::text, 'lifetime', true;
+    RETURN QUERY SELECT false, 0::bigint, 0::bigint, 0::bigint, 'No limit configured for this plan', lower(p_feature_key), NULL::text, 'lifetime', false;
     RETURN;
   END IF;
 
@@ -144,7 +144,9 @@ BEGIN
     v_remaining := 0;
     v_limit_value := 0;
     v_reason := 'Feature disabled by current plan';
-  ELSIF COALESCE((v_limit_config->>'mode')::text, '') = 'unlimited' OR COALESCE(v_limit_type, '') = 'unlimited' THEN
+  ELSIF COALESCE((v_limit_config->>'mode')::text, '') = 'unlimited'
+     OR COALESCE(v_limit_type, '') = 'unlimited'
+     OR COALESCE((v_limit_config->>'max_value')::bigint, 0) = -1 THEN
     v_allowed := true;
     v_remaining := NULL;
     v_limit_value := NULL;

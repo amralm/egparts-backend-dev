@@ -6,6 +6,27 @@ const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = require('@aws-s
 const { supabase } = require('../services/supabase');
 const { verifyPlatformAdmin, verifyPlatformPermission } = require('../middleware/platformAdmin');
 const logger = require('../utils/logger');
+const { z } = require('zod');
+const { validateBody } = require('../middleware/requestValidation');
+const subscriptionLimitService = require('../services/subscriptionLimitService');
+
+const planPayloadSchema = z.object({
+  code: z.string().trim().min(1).max(80).regex(/^[a-z0-9_-]+$/i),
+  display_name: z.string().trim().min(1).max(160),
+  price_monthly: z.number().finite().min(0).max(1_000_000).optional().default(0),
+  price_yearly: z.number().finite().min(0).max(10_000_000).optional().default(0),
+  trial_days: z.number().int().min(0).max(365).optional().default(0),
+  trial_enabled: z.boolean().optional().default(false),
+  sort_order: z.number().int().min(0).max(10000).optional().default(0),
+  features: z.array(z.object({
+    key: z.string().trim().min(1).max(100).regex(/^[a-z0-9_]+$/i),
+    display_name: z.string().trim().max(160).optional().default(''),
+    limits: z.array(z.object({
+      limit_type: z.enum(['count', 'boolean', 'unlimited', 'disabled', 'storage', 'amount']),
+      limit_config: z.record(z.string(), z.any()).default({})
+    }).strict()).max(8).optional().default([])
+  }).strict()).max(200).optional().default([])
+}).strict();
 const { encryptCredentials, decryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
 const { sanitizeThemeOverrides } = require('../services/themeSettingsService');
 const { tenantCache } = require('../utils/cache');
@@ -480,11 +501,8 @@ router.get('/plans', verifyPlatformAdmin, async (req, res) => {
 });
 
 // 4. POST /api/platform/plans - Create or update subscription plan and limits
-router.post('/plans', verifyPlatformAdmin, async (req, res) => {
+router.post('/plans', verifyPlatformAdmin, validateBody(planPayloadSchema), async (req, res) => {
   const { code, display_name, price_monthly, price_yearly, trial_days, trial_enabled, sort_order, features } = req.body;
-  if (!code || !display_name) {
-    return res.status(400).json({ error: 'code and display_name are required' });
-  }
 
   try {
     const { data: plan, error: planErr } = await supabase
@@ -521,18 +539,26 @@ router.post('/plans', verifyPlatformAdmin, async (req, res) => {
 
         if (mappingErr) throw mappingErr;
 
-        // Wipe old limits to prevent orphans when types change
+        // Replace limits only after the complete request passed schema validation.
         const { error: delErr } = await supabase.from('feature_limits').delete().eq('plan_feature_id', planFeat.id);
         if (delErr) throw delErr;
 
         if (feat.limits && Array.isArray(feat.limits)) {
           for (const lim of feat.limits) {
+            const config = { ...(lim.limit_config || {}) };
+            if (Object.prototype.hasOwnProperty.call(config, 'max_value')) {
+              const value = Number(config.max_value);
+              if (!Number.isInteger(value) || (value < 0 && value !== -1)) {
+                throw new Error(`Invalid limit for feature ${feat.key}`);
+              }
+              config.max_value = value;
+            }
             const { error: limitErr } = await supabase
               .from('feature_limits')
               .upsert({
                 plan_feature_id: planFeat.id,
                 limit_type: lim.limit_type,
-                limit_config: lim.limit_config
+                limit_config: config
               }, { onConflict: 'plan_feature_id,limit_type' });
 
             if (limitErr) throw limitErr;
@@ -542,6 +568,7 @@ router.post('/plans', verifyPlatformAdmin, async (req, res) => {
     }
 
     await auditPlatform(req, 'platform.plan.update', 'plan', plan.id, null, { code, display_name, features }, null);
+    await subscriptionLimitService.clearStoreCache(null);
 
     res.json({ success: true, plan });
   } catch (err) {
@@ -1586,11 +1613,12 @@ router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
     if (store_id) query = query.eq('store_id', store_id);
     if (action) query = query.eq('action', action);
     if (search) {
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search);
+      const safeSearch = String(search).slice(0, 80).replace(/[^a-zA-Z0-9@._: -]/g, ' ').replace(/\s+/g, ' ').trim();
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(safeSearch);
       if (isUuid) {
-        query = query.or(`ip_address.ilike.%${search}%,user_id.eq.${search},entity_id.eq.${search}`);
+        query = query.or(`ip_address.ilike.%${safeSearch}%,user_id.eq.${safeSearch},entity_id.ilike.%${safeSearch}%`);
       } else {
-        query = query.or(`ip_address.ilike.%${search}%,entity_id.ilike.%${search}%`);
+        query = query.or(`ip_address.ilike.%${safeSearch}%,entity_id.ilike.%${safeSearch}%`);
       }
     }
 

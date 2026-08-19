@@ -7,6 +7,7 @@ const DEFAULT_FEATURE_KEYS = [
   'branches', 'warehouses', 'shelves', 'employees', 'roles', 'customers', 'suppliers',
   'orders_per_month', 'active_orders', 'coupons', 'discount_campaigns', 'return_requests',
   'storage_bytes', 'uploaded_images', 'uploaded_files', 'banner_images', 'logos',
+  'whatsapp_enabled', 'whatsapp_accounts_max', 'whatsapp_concurrency',
   'whatsapp_messages_month', 'otp_messages_month', 'email_messages_month', 'push_notifications_month',
   'custom_domains', 'api_keys', 'webhooks', 'integrations', 'payment_gateways',
   'ai_requests_month', 'forecast_jobs', 'report_generation', 'analytics_exports',
@@ -303,6 +304,9 @@ async function clearStoreCache(storeId) {
   // To keep it simple, we could flush all or specific keys. In distributed env, tag based flush is better.
   // For now, we clear the states cache.
   await cacheProvider.del(`feature_states:${storeId}:${DEFAULT_FEATURE_KEYS.join(',')}`);
+  if (typeof cacheProvider.flushAll === 'function') {
+    await cacheProvider.flushAll();
+  }
 }
 
 async function decrementFeatureUsage(storeId, featureKey, amount = 1) {

@@ -1,5 +1,5 @@
 const { supabase } = require('./supabase');
-const whatsappService = require('./whatsappService');
+const whatsappService = require('./whatsappPoolService');
 const logger = require('../utils/logger');
 
 class NotificationWorker {
@@ -93,7 +93,7 @@ class NotificationWorker {
   async handleJob(job) {
     try {
       // Skip if WhatsApp is not ready
-      if (!whatsappService.isReady) {
+      if (!whatsappService.isConnected()) {
         // Revert status to failed but don't increment retry yet, just wait for service
         await supabase.from('notification_queue').update({ status: 'failed', last_error: 'WhatsApp service not ready' }).eq('id', job.id);
         return;
@@ -102,7 +102,10 @@ class NotificationWorker {
       const { recipient, payload, type } = job;
 
       if (type === 'whatsapp') {
-        await whatsappService.sendMessage(recipient, payload.message);
+        await whatsappService.sendMessage(recipient, payload.message, {
+          storeId: job.store_id,
+          idempotencyKey: job.idempotency_key || `notification-${job.id}`
+        });
       }
 
       // 2. Mark as sent

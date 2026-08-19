@@ -79,10 +79,14 @@ const geocodeRoutes = require('./routes/geocode');
 const analyticsRoutes = require('./routes/analytics');
 const healthCollector = require('./services/healthCollector');
 const whatsappService = require('./services/whatsappService');
+const whatsappPoolService = require('./services/whatsappPoolService');
 const notificationWorker = require('./services/notificationWorker');
+const whatsappPoolRoutes = require('./routes/whatsappPool');
 const domainValidator = require('./services/domainValidator');
 const { startPaymentExpiryJob } = require('./services/paymentJobs');
 const path = require('path');
+const { clientErrorSchema, validateBody } = require('./middleware/requestValidation');
+const { getFeatureStates } = require('./services/subscriptionLimitService');
 
 // âœ… Start Background Jobs
 startPaymentExpiryJob();
@@ -130,6 +134,7 @@ const ALLOWED_ORIGINS = [
   process.env.FRONTEND_URL,
   'http://localhost:5173',
   'http://localhost:5174',
+  ...(process.env.ALLOWED_EXTRA_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean),
 ].filter(Boolean);
 
 // In-memory cache for validated custom domains to avoid database queries on every request
@@ -184,16 +189,7 @@ app.use(async (req, res, next) => {
         ) {
           isAllowed = true;
         }
-        // 3. Vercel deployment preview / main apps
-        else if (hostname === 'vercel.app' || hostname.endsWith('.vercel.app')) {
-          isAllowed = true;
-        }
-        // 4. Cloudflare Workers/Pages subdomains
-        else if (hostname === 'workers.dev' || hostname.endsWith('.workers.dev')) {
-          isAllowed = true;
-        }
-
-        // 5. Configured Frontend URL domain and subdomains
+        // 3. Configured Frontend URL domain and subdomains
         if (!isAllowed && process.env.FRONTEND_URL) {
           try {
             const frontendUrl = new URL(process.env.FRONTEND_URL);
@@ -207,7 +203,7 @@ app.use(async (req, res, next) => {
           }
         }
 
-        // 6. Dynamic Tenant Custom Domains (Database lookup with cache)
+        // 4. Dynamic Tenant Custom Domains (Database lookup with cache)
         if (!isAllowed) {
           const now = Date.now();
           if (now - lastCacheUpdate > CACHE_TTL) {
@@ -293,7 +289,7 @@ app.use(['/qr', '/qr/reset', '/qr/logout', '/api/auth/qr-login'], (req, res, nex
 
 // ✅ Raw body for Paymob webhook
 app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
-app.use(express.json());
+app.use(express.json({ limit: '256kb' }));
 app.use(cookieParser());
 
 // ✅ Enforce UTF-8 charset on all JSON responses to prevent garbled Arabic text
@@ -320,9 +316,18 @@ app.use('/api/health', healthRoutes);
 
 // ✅ Platform SaaS Administration APIs (bypasses tenantResolver, verified via public.super_admins)
 app.use('/api/platform', platformRoutes);
+app.use('/api/platform/whatsapp', whatsappPoolRoutes);
 
 // ✅ Client Error Logger Endpoint (bypasses tenantResolver)
-app.post('/api/logs/client-error', async (req, res) => {
+const clientErrorLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { success: false, code: 'RATE_LIMITED', error: 'طلبات كثيرة جداً.' }
+});
+
+app.post('/api/logs/client-error', clientErrorLimiter, validateBody(clientErrorSchema), async (req, res) => {
   try {
     const fs = require('fs');
     const { message, stack, url, timestamp, storeName, userAgent } = req.body;
@@ -490,6 +495,10 @@ app.get('/api/store-usage', async (req, res) => {
     const limits = await PolicyEngine.getStoreLimits(req.store.id);
 
     const usagesMap = Object.fromEntries((usageResult.data || []).map(u => [u.feature_key, u.usage_count]));
+    const entitlementState = await getFeatureStates(req.store.id, [
+      'whatsapp_enabled', 'whatsapp_accounts_max', 'whatsapp_messages_month', 'whatsapp_concurrency',
+      'products', 'orders_per_month', 'custom_domains'
+    ]);
 
     // Fetch OTP limits from otp_messages_month or fallback to whatsapp_notifications
     const otpLimit = limits['otp_messages_month']?.max_value ?? 
@@ -511,6 +520,7 @@ app.get('/api/store-usage', async (req, res) => {
           name: subscriptionResult.data.plans.display_name
         } : null
       } : null,
+      entitlements: entitlementState,
       otp: {
         sent_today: todayOtp.count || 0,
         sent_this_month: monthOtp.count || 0,
@@ -541,7 +551,7 @@ app.get('/api/store-usage', async (req, res) => {
           is_unlimited: limits['staff_users']?.max_value === null
         },
         custom_domain: {
-          enabled: limits['custom_domain'] ? (limits['custom_domain'].limit_type === 'boolean' ? !!limits['custom_domain'].limit_config?.enabled : limits['custom_domain'].limit_type !== 'disabled') : false
+          enabled: entitlementState.features.custom_domains?.allowed === true
         },
         storage_bytes: {
           usage: usagesMap['storage_bytes'] || 0,
@@ -574,7 +584,10 @@ app.get('/api/store-usage', async (req, res) => {
           is_unlimited: !limits['banner_images'] || limits['banner_images'].max_value === null
         },
         whatsapp_notifications: {
-          enabled: limits['whatsapp_notifications'] ? (limits['whatsapp_notifications'].limit_type === 'boolean' ? !!limits['whatsapp_notifications'].limit_config?.enabled : limits['whatsapp_notifications'].limit_type !== 'disabled') : false
+          enabled: entitlementState.features.whatsapp_enabled?.allowed === true,
+          limit: entitlementState.features.whatsapp_messages_month?.limit,
+          usage: entitlementState.features.whatsapp_messages_month?.usage,
+          is_unlimited: entitlementState.features.whatsapp_messages_month?.is_unlimited === true
         },
         payment_gateways: {
           enabled: limits['payment_gateways'] ? (limits['payment_gateways'].limit_type === 'boolean' ? !!limits['payment_gateways'].limit_config?.enabled : limits['payment_gateways'].limit_type !== 'disabled') : false
@@ -909,7 +922,7 @@ app.get('/qr/debug', verifyAdminOrLocal, async (req, res) => {
 
 
 app.get('/', (req, res) => {
-  const whatsappStatus = whatsappService.getStatus();
+  const whatsappStatus = whatsappPoolService.getStatus();
   
   res.status(200).json({
     status: 'online',
@@ -948,6 +961,8 @@ const server = app.listen(PORT, async () => {
 
     // Feature Flag Check
     if (process.env.ENABLE_WHATSAPP === 'true') {
+      await whatsappPoolService.initializeAll();
+      // Keep the legacy QR endpoint available while accounts migrate to the pool.
       await whatsappService.initialize();
       notificationWorker.start(); // ðŸŸ¢ Start polling the queue
     } else {
@@ -1002,6 +1017,7 @@ const shutdown = async (signal) => {
     logger.info('HTTP server closed.');
     
     try {
+      await whatsappPoolService.shutdown();
       await whatsappService.shutdown();
       notificationWorker.stop(); // ðŸ›‘ Stop polling
       logger.info('WhatsApp connection closed.');

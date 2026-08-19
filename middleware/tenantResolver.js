@@ -72,6 +72,13 @@ module.exports = async function tenantResolver(req, res, next) {
 
     // Clean subdomain and handle staging/testing subdomains mapping
     subdomain = subdomain.toLowerCase().trim();
+
+    // Only a DNS label or a normalized custom domain is valid here. Keeping
+    // this strict also prevents user input from being interpreted as a
+    // PostgREST filter expression.
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(subdomain)) {
+      return res.status(400).json({ success: false, code: 'INVALID_TENANT_IDENTIFIER', error: 'معرف المتجر غير صالح' });
+    }
     
     const isReserved = 
       subdomain === 'egparts-frontend' ||
@@ -93,11 +100,15 @@ module.exports = async function tenantResolver(req, res, next) {
 
     if (!store) {
       // Query store status
-      const { data, error } = await supabase
-        .from('stores')
-        .select('*')
-        .or(`subdomain.eq.${subdomain},custom_domain.eq.${subdomain}`)
-        .single();
+      const { data: subdomainStore, error: subdomainError } = await supabase
+        .from('stores').select('*').eq('subdomain', subdomain).maybeSingle();
+      let data = subdomainStore;
+      let error = subdomainError;
+      if (!data && !error) {
+        const customResult = await supabase.from('stores').select('*').eq('custom_domain', subdomain).maybeSingle();
+        data = customResult.data;
+        error = customResult.error;
+      }
 
       if (error || !data) {
         return res.status(404).json({ success: false, error: 'المتجر غير موجود' });

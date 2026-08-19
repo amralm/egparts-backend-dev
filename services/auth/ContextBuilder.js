@@ -19,19 +19,38 @@ class ContextBuilder {
     } catch {
       hostname = origin.split(':')[0]; // Fallback for raw host
     }
+    hostname = String(hostname || '').toLowerCase().trim();
+    if (!/^[a-z0-9][a-z0-9.-]{0,250}$/.test(hostname)) {
+      const err = new Error('Invalid host');
+      err.statusCode = 400;
+      throw err;
+    }
 
     // Default to the main store if parsing fails, but ideally look up by domain
     // For this implementation, we will query the `stores` or `domains` table.
     // We assume there's a `domains` table or a `custom_domain` column in `stores`.
     
     // We will do a generic lookup. If you have a specific table for domains, adjust this.
-    const { data: store, error } = await supabase
+    const subdomain = hostname.endsWith('.egparts.store')
+      ? hostname.slice(0, -'.egparts.store'.length)
+      : hostname;
+    let { data: store, error } = await supabase
       .from('stores')
       .select('id, store_name, custom_domain, subdomain, status, plan_id')
-      .or(`custom_domain.eq.${hostname},subdomain.eq.${hostname.replace('.egparts.store', '')}`)
+      .eq('custom_domain', hostname)
       .eq('status', 'active')
       .limit(1)
       .maybeSingle();
+
+    if (!store && !error) {
+      ({ data: store, error } = await supabase
+        .from('stores')
+        .select('id, store_name, custom_domain, subdomain, status, plan_id')
+        .eq('subdomain', subdomain)
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle());
+    }
 
     if (error || !store) {
       // If we can't resolve from domain, we might need a fallback or fail.

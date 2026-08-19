@@ -83,7 +83,16 @@ async function listCatalogProducts(storeId, filters = {}) {
     .eq('is_active', true)
     .neq('is_deleted', true);
 
-  if (filters.q) query = query.or(`name.ilike.%${filters.q}%,part_number.ilike.%${filters.q}%,category.ilike.%${filters.q}%`);
+  if (filters.q) {
+    // PostgREST's .or() syntax is an expression language. Never interpolate
+    // raw query text into it; strip operators and cap the search term first.
+    const safeSearch = String(filters.q)
+      .slice(0, 80)
+      .replace(/[\\,%()]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (safeSearch) query = query.or(`name.ilike.%${safeSearch}%,part_number.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%`);
+  }
   if (filters.category && filters.category !== 'All') query = query.eq('category', filters.category);
   if (filters.brand && filters.brand !== 'All') query = query.eq('brand', filters.brand);
   query = query.gte('price', Number(filters.min) || 0).lte('price', Number(filters.max) || 100000);

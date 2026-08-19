@@ -17,7 +17,7 @@ const { supabase } = require('./supabase');
 
 // ✅ Initialize Supabase for Session Storage
 class WhatsappService {
-  constructor() {
+  constructor(options = {}) {
     this.sock = null;
     this.isReady = false;
     this.reconnectAttempts = 0;
@@ -26,7 +26,8 @@ class WhatsappService {
     this.pairingCode = null;
     this.connectionState = 'close';
     this.lastSavePromise = Promise.resolve();
-    this.sessionId = 'main_whatsapp_session'; // ✅ Unique ID for session in DB
+    this.accountId = options.accountId || null;
+    this.sessionId = options.sessionId || (this.accountId ? `whatsapp_account_${this.accountId}` : 'main_whatsapp_session');
     this.storeId = null;
     this.isInitializing = false;
     
@@ -68,7 +69,7 @@ class WhatsappService {
         const content = JSON.parse(JSON.stringify(data, BufferJSON.replacer));
         const { error } = await supabase
           .from('whatsapp_sessions')
-          .upsert({ id, store_id: storeId, data: content, updated_at: new Date() });
+          .upsert({ id, store_id: storeId, whatsapp_account_id: this.accountId, data: content, updated_at: new Date() });
         if (error) throw error;
       } catch (err) {
         logger.error(`Error writing session data for ${key}: ${err?.message || JSON.stringify(err)}`);
@@ -147,6 +148,7 @@ class WhatsappService {
                   upserts.push({
                     id: key,
                     store_id: storeId,
+                    whatsapp_account_id: this.accountId,
                     data: JSON.parse(JSON.stringify(value, BufferJSON.replacer)),
                     updated_at: new Date()
                   });
@@ -400,3 +402,4 @@ class WhatsappService {
 
 const instance = new WhatsappService();
 module.exports = instance;
+module.exports.WhatsappService = WhatsappService;

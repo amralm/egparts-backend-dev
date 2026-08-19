@@ -1,5 +1,6 @@
 const { supabase } = require('./supabase');
 const whatsappService = require('./whatsappService');
+const whatsappPoolService = require('./whatsappPoolService');
 const notificationWorker = require('./notificationWorker');
 const nodemailer = require('nodemailer');
 const logger = require('../utils/logger');
@@ -155,8 +156,9 @@ async function collectHealth() {
     // 2. WhatsApp Status
     if (process.env.ENABLE_WHATSAPP === 'true') {
       try {
-        const status = whatsappService.getStatus();
-        snapshot.whatsapp = status === 'connected' ? 'healthy' : (status === 'connecting' ? 'warning' : 'unhealthy');
+        const poolStatus = whatsappPoolService.getStatus();
+        snapshot.whatsapp = poolStatus.status === 'connected' ? 'healthy' : 'unhealthy';
+        snapshot.whatsapp_accounts = poolStatus.accounts;
       } catch {
         snapshot.whatsapp = 'unhealthy';
       }

@@ -1,6 +1,6 @@
 const bcrypt = require('bcrypt');
 const { Mutex } = require('async-mutex');
-const whatsappService = require('./whatsappService');
+const whatsappService = require('./whatsappPoolService');
 const { supabase } = require('./supabase');
 const logger = require('../utils/logger');
 

@@ -2,7 +2,7 @@ const Handlebars = require('handlebars');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const { supabase } = require('./supabase');
-const whatsappService = require('./whatsappService');
+const whatsappService = require('./whatsappPoolService');
 const logger = require('../utils/logger');
 const { TemplatePipeline, SafeHandlebars } = require('../utils/templatePipeline');
 

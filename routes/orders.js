@@ -412,7 +412,7 @@ router.post('/', verifyUser, async (req, res) => {
     
     const { data: products, error: prodError } = await supabase
       .from('products')
-      .select('id, name, price, stock_quantity')
+      .select('id, name, price, cost_price, stock_quantity')
       .in('id', productIds)
       .eq('store_id', req.store.id);
 
@@ -427,13 +427,20 @@ router.post('/', verifyUser, async (req, res) => {
         await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
         return res.status(404).json({ error: `المنتج غير موجود أو غير متاح في هذا المتجر` });
       }
-      if (dbProduct.stock < item.qty) {
+      if ((dbProduct.stock_quantity || 0) < item.qty) {
         await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
         return res.status(400).json({ error: `عذراً، الكمية المتاحة من "${dbProduct.name}" غير كافية لإتمام طلبك` });
       }
 
       calculatedSubtotal += dbProduct.price * item.qty;
-      itemsWithPrices.push({ id: dbProduct.id, title: dbProduct.name, qty: item.qty, price: dbProduct.price });
+      itemsWithPrices.push({
+        id: dbProduct.id,
+        title: dbProduct.name,
+        qty: item.qty,
+        price: dbProduct.price,
+        unit_cost_snapshot: dbProduct.cost_price || 0,
+        gross_profit: ((dbProduct.price || 0) - (dbProduct.cost_price || 0)) * item.qty
+      });
     }
 
     const { data: zone } = await supabase.from('shipping_zones').select('shipping_fee').eq('city_name', city).eq('store_id', req.store.id).single();

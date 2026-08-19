@@ -18,12 +18,23 @@ class DomainResolutionStrategy {
         if (host && host !== 'localhost' && !host.includes('localhost:')) {
             // Check if it's a known custom domain or subdomain
             // Assuming caching is handled by CacheManager at a higher level, but for now we query
-            const { data: store, error } = await supabase
+            const normalizedHost = host.split(':')[0].toLowerCase().trim();
+            if (!/^[a-z0-9][a-z0-9.-]{0,250}$/.test(normalizedHost)) throw new Error('Invalid host');
+            let { data: store, error } = await supabase
                 .from('stores')
                 .select('id')
-                .or(`custom_domain.eq.${host},subdomain.eq.${host.split('.')[0]}`)
+                .eq('custom_domain', normalizedHost)
                 .eq('status', 'active')
                 .maybeSingle();
+
+            if (!store && !error) {
+                ({ data: store, error } = await supabase
+                    .from('stores')
+                    .select('id')
+                    .eq('subdomain', normalizedHost.split('.')[0])
+                    .eq('status', 'active')
+                    .maybeSingle());
+            }
                 
             if (store) {
                 return store.id;
