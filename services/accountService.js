@@ -77,6 +77,7 @@ async function saveAddress(userId, addressId, payload, storeId) {
       .update(data)
       .eq('id', addressId)
       .eq('user_id', userId)
+      .eq('store_id', storeId)
       .select('*')
       .maybeSingle();
     if (updated.error) throw updated.error;
@@ -104,11 +105,13 @@ async function deleteAddress(userId, addressId, storeId) {
   if (error) throw error;
 }
 
-async function listNotifications(userId, limit = 10) {
+async function listNotifications(userId, storeId, limit = 10) {
+  if (!storeId) throw new Error('Tenant context required');
   const { data, error } = await supabase
     .from('user_notifications')
     .select('*')
     .eq('user_id', userId)
+    .eq('store_id', storeId)
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -116,24 +119,27 @@ async function listNotifications(userId, limit = 10) {
   return data || [];
 }
 
-async function markNotificationsRead(userId) {
+async function markNotificationsRead(userId, storeId) {
+  if (!storeId) throw new Error('Tenant context required');
   const { data, error } = await supabase
     .from('user_notifications')
     .update({ is_read: true })
     .eq('user_id', userId)
+    .eq('store_id', storeId)
     .select('*');
 
   if (error) throw error;
   return data || [];
 }
 
-async function recordLogin(storeId, user, body) {
+async function recordLogin(storeId, user, body = {}) {
+  if (!storeId) throw new Error('Tenant context required');
   const { error } = await supabase.from('user_login_logs').insert({
-    store_id: storeId || null,
+    store_id: storeId,
     user_id: user.sub,
-    email: user.email || body?.email || null,
-    ip_address: body?.ip_address || null,
-    user_agent: body?.user_agent || null,
+    email: user.email || null,
+    ip_address: body.ip_address || null,
+    user_agent: body.user_agent || null,
     login_method: body?.login_method || 'email'
   });
 

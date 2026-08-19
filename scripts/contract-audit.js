@@ -8,8 +8,17 @@ const files = [
   'routes/limits.js',
   'routes/platform.js',
   'routes/account.js',
+  'routes/auth.js',
+  'routes/analytics.js',
+  'routes/geocode.js',
+  'routes/seo.js',
+  'routes/whatsappPool.js',
   'services/accountService.js',
   'services/policyEngine.js',
+  'services/notificationEngine.js',
+  'services/otpService.js',
+  'services/storefrontService.js',
+  'services/userProfileService.js',
   'services/whatsappPoolService.js'
 ];
 
@@ -18,7 +27,8 @@ const forbiddenContracts = [
   ['process_secure_checkout_v2', 'removed checkout RPC'],
   ['feature_usage.used', 'removed feature_usage.used column'],
   ['otp.whatsapp.monthly', 'removed legacy OTP feature key'],
-  ['main_whatsapp_session', 'legacy singleton session in active runtime']
+  ['main_whatsapp_session', 'legacy singleton session in active runtime'],
+  ["supabase.from('feature_usage').select('used')", 'removed feature_usage.used select']
 ];
 
 const failures = forbiddenContracts

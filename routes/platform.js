@@ -1201,7 +1201,8 @@ router.post('/users/:user_id/reset-link', verifyPlatformAdmin, async (req, res) 
         recipient: phone.trim(),
         language: 'ar',
         variables: {
-          reset_link: resetLink
+          reset_link: resetLink,
+          idempotency_key: `platform-reset-${userId}`
         }
       }).catch(err => {
         logger.error(`Failed to send WhatsApp reset link to ${phone}: ${err.message}`);
@@ -1613,12 +1614,18 @@ router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
     if (store_id) query = query.eq('store_id', store_id);
     if (action) query = query.eq('action', action);
     if (search) {
-      const safeSearch = String(search).slice(0, 80).replace(/[^a-zA-Z0-9@._: -]/g, ' ').replace(/\s+/g, ' ').trim();
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(safeSearch);
-      if (isUuid) {
-        query = query.or(`ip_address.ilike.%${safeSearch}%,user_id.eq.${safeSearch},entity_id.ilike.%${safeSearch}%`);
-      } else {
-        query = query.or(`ip_address.ilike.%${safeSearch}%,entity_id.ilike.%${safeSearch}%`);
+      const safeSearch = String(search)
+        .slice(0, 80)
+        .replace(/[^a-zA-Z0-9@_:\- ]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (safeSearch) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(safeSearch);
+        if (isUuid) {
+          query = query.or(`ip_address.ilike.%${safeSearch}%,user_id.eq.${safeSearch},entity_id.ilike.%${safeSearch}%`);
+        } else {
+          query = query.or(`ip_address.ilike.%${safeSearch}%,entity_id.ilike.%${safeSearch}%`);
+        }
       }
     }
 
@@ -1740,7 +1747,9 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
         variables: {
           activation_link: activationLink,
           expires_hours: 48,
-          phone: phone.trim()
+          phone: phone.trim(),
+          store_id,
+          idempotency_key: `tenant-invitation-${invitation.id}`
         }
       }).catch(err => logger.error('Failed to send invitation WhatsApp in background:', err));
     }

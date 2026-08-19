@@ -9,17 +9,18 @@ const VALID_EVENTS = new Set([
 ]);
 
 router.post('/event', async (req, res) => {
+  if (!req.store?.id) return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED' });
   // Always respond immediately — fire and forget
   res.json({ success: true });
   
-  const { event_type, store_id, metadata } = req.body || {};
+  const { event_type, metadata } = req.body || {};
   if (!event_type || !VALID_EVENTS.has(event_type)) return;
   
   try {
     await supabase.from('analytics_events').insert({
       event_type,
-      store_id: store_id || null,
-      metadata: metadata || {},
+      store_id: req.store.id,
+      metadata: metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {},
       created_at: new Date().toISOString()
     });
   } catch (err) {

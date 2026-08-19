@@ -88,7 +88,9 @@ async function listCatalogProducts(storeId, filters = {}) {
     // raw query text into it; strip operators and cap the search term first.
     const safeSearch = String(filters.q)
       .slice(0, 80)
-      .replace(/[\\,%()]/g, ' ')
+      // Keep only text, numbers and simple separators. This prevents the
+      // PostgREST filter grammar from being supplied by the client.
+      .replace(/[^\p{L}\p{N}\s_-]/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim();
     if (safeSearch) query = query.or(`name.ilike.%${safeSearch}%,part_number.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%`);

@@ -3,7 +3,7 @@ const router = express.Router();
 const { z } = require('zod');
 const rateLimit = require('express-rate-limit');
 const otpService = require('../services/otpService');
-const whatsappService = require('../services/whatsappService');
+const whatsappService = require('../services/whatsappPoolService');
 const { supabase } = require('../services/supabase');
 const logger = require('../utils/logger');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
@@ -49,8 +49,12 @@ const sendOTPSchema = z.object({
 });
 
 const verifyOTPSchema = z.object({
-  phone: z.string(),
+  phone: z.string().min(10).max(15).regex(/^\+?[1-9]\d{1,14}$/),
   code: z.string().length(6, 'كود التحقق يجب أن يكون 6 أرقام'),
+});
+const resolvePhoneSchema = z.object({
+  phone: z.string().min(10).max(15).regex(/^\+?[1-9]\d{1,14}$/),
+  password: z.string().min(1).max(256)
 });
 
 // Strict per-IP rate limiter for OTP send (2 req / 5 min per IP)
@@ -107,6 +111,14 @@ const perPhoneVerifyLimiter = rateLimit({ validate: { trustProxy: false },
   },
 });
 
+const phoneLoginLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'محاولات تسجيل دخول كثيرة جداً، حاول لاحقاً' }
+});
+
 // Rate limiter for sensitive write operations (5 req / 1 min per IP)
 const sensitiveWriteRateLimiter = rateLimit({ validate: { trustProxy: false }, validate: { trustProxy: false },
   windowMs: 60 * 1000,
@@ -114,6 +126,31 @@ const sensitiveWriteRateLimiter = rateLimit({ validate: { trustProxy: false }, v
   message: { error: 'طلبات كثيرة جداً، يرجى المحاولة لاحقاً' },
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+// Resolve phone login server-side so the browser never calls a privileged
+// password-checking RPC directly from Supabase.
+router.post('/resolve-phone', phoneLoginLimiter, async (req, res) => {
+  const parsed = resolvePhoneSchema.safeParse(req.body);
+  if (!parsed.success || !req.store?.id) {
+    return res.status(400).json({ success: false, error: 'بيانات تسجيل الدخول غير صالحة' });
+  }
+  let phone = parsed.data.phone;
+  if (phone.startsWith('+2')) phone = phone.slice(2);
+  if (phone.startsWith('20')) phone = phone.slice(2);
+  if (phone.startsWith('1')) phone = `0${phone}`;
+  try {
+    const { data, error } = await supabase.rpc('get_email_by_phone_and_password', {
+      p_phone: phone,
+      p_password: parsed.data.password,
+      p_store_id: req.store.id
+    });
+    if (error || !data) return res.status(401).json({ success: false, error: 'بيانات الدخول غير صحيحة' });
+    return res.json({ success: true, email: data });
+  } catch (err) {
+    logger.warn('Phone login resolution failed:', err.message);
+    return res.status(401).json({ success: false, error: 'بيانات الدخول غير صحيحة' });
+  }
 });
 
 
@@ -129,7 +166,8 @@ const exchangeRateLimiter = rateLimit({ validate: { trustProxy: false },
 // Route: Request OTP — IP limit + per-phone limit
 router.post('/profile/sync', verifyUser, sensitiveWriteRateLimiter, async (req, res) => {
   try {
-    const profile = await userProfileService.syncUserProfile(req.user, req.body?.store_id);
+    if (!req.store?.id) return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context required' });
+    const profile = await userProfileService.syncUserProfile(req.user, req.store.id);
     return res.json({ success: true, profile });
   } catch (err) {
     logger.error('Profile sync failed:', err.message);
@@ -142,7 +180,8 @@ router.post('/profile/sync', verifyUser, sensitiveWriteRateLimiter, async (req, 
 
 router.post('/profile/mark-email-verified', verifyUser, sensitiveWriteRateLimiter, async (req, res) => {
   try {
-    const profile = await userProfileService.markEmailVerified(req.user, req.body?.store_id);
+    if (!req.store?.id) return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context required' });
+    const profile = await userProfileService.markEmailVerified(req.user, req.store.id);
     return res.json({ success: true, profile });
   } catch (err) {
     logger.error('Mark email verified failed:', err.message);
@@ -155,7 +194,8 @@ router.post('/profile/mark-email-verified', verifyUser, sensitiveWriteRateLimite
 
 router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req, res) => {
   try {
-    const profile = await userProfileService.updateProfilePhone(req.user, req.body?.store_id, req.body?.phone);
+    if (!req.store?.id) return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context required' });
+    const profile = await userProfileService.updateProfilePhone(req.user, req.store.id, req.body?.phone);
     return res.json({ success: true, profile });
   } catch (err) {
     logger.error('Profile phone update failed:', err.message);

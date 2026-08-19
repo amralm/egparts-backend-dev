@@ -55,8 +55,11 @@ router.patch('/accounts/:id', validateBody(accountSchema.partial()), async (req,
 router.post('/accounts/:id/reset', async (req, res) => {
   const { data: account, error } = await supabase.from('whatsapp_accounts').select('id').eq('id', req.params.id).single();
   if (error) return res.status(404).json({ error: 'WhatsApp account not found' });
-  await supabase.from('whatsapp_sessions').delete().eq('whatsapp_account_id', account.id);
-  await supabase.from('whatsapp_accounts').update({ status: 'pending', active_jobs: 0, consecutive_failures: 0, circuit_state: 'closed', circuit_opened_at: null, last_error: null, updated_at: new Date().toISOString() }).eq('id', account.id);
+  const { error: sessionError } = await supabase.from('whatsapp_sessions').delete().eq('whatsapp_account_id', account.id);
+  if (sessionError) return res.status(500).json({ error: 'Failed to clear WhatsApp session' });
+  const { error: updateError } = await supabase.from('whatsapp_accounts').update({ status: 'pending', active_jobs: 0, consecutive_failures: 0, circuit_state: 'closed', circuit_opened_at: null, last_error: null, updated_at: new Date().toISOString() }).eq('id', account.id);
+  if (updateError) return res.status(500).json({ error: 'Failed to reset WhatsApp account' });
+  await pool.loadAccounts();
   res.json({ success: true });
 });
 

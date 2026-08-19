@@ -55,16 +55,19 @@ async function syncUserProfile(decodedUser, storeId) {
   }
 
   const userId = decodedUser.sub;
-  const targetStoreId = storeId || DEFAULT_STORE_ID;
+  if (!storeId || storeId === DEFAULT_STORE_ID) {
+    const err = new Error('Tenant context is required');
+    err.statusCode = 400;
+    throw err;
+  }
+  const targetStoreId = storeId;
   const authUser = await loadAuthUser(decodedUser);
   const existingProfile = await fetchProfile(userId, targetStoreId);
   const metadata = getMetadata(authUser);
   const googleAvatar = metadata.avatar_url || metadata.picture || '';
 
   if (!existingProfile) {
-    const masterProfile = targetStoreId === DEFAULT_STORE_ID
-      ? null
-      : await fetchProfile(userId, DEFAULT_STORE_ID);
+    const masterProfile = null;
 
     const insertPayload = {
       user_id: userId,
@@ -123,7 +126,12 @@ async function markEmailVerified(decodedUser, storeId) {
     throw err;
   }
 
-  const targetStoreId = storeId || DEFAULT_STORE_ID;
+  if (!storeId || storeId === DEFAULT_STORE_ID) {
+    const err = new Error('Tenant context is required');
+    err.statusCode = 400;
+    throw err;
+  }
+  const targetStoreId = storeId;
   const profile = await syncUserProfile(decodedUser, targetStoreId);
 
   const { data, error } = await supabase
@@ -150,7 +158,12 @@ async function updateProfilePhone(decodedUser, storeId, phone) {
     throw err;
   }
 
-  const targetStoreId = storeId || DEFAULT_STORE_ID;
+  if (!storeId || storeId === DEFAULT_STORE_ID) {
+    const err = new Error('Tenant context is required');
+    err.statusCode = 400;
+    throw err;
+  }
+  const targetStoreId = storeId;
   await syncUserProfile(decodedUser, targetStoreId);
 
   const { data, error } = await supabase

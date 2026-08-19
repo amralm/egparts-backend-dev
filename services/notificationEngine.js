@@ -228,8 +228,11 @@ async function sendNotification({ templateCode, recipient, language = 'ar', vari
         let cleanPhone = recipient.replace(/\D/g, '');
         if (cleanPhone.startsWith('0')) cleanPhone = '2' + cleanPhone;
         
-        const success = await whatsappService.sendMessage(cleanPhone, rendered.bodyText);
-        if (success) {
+        const delivery = await whatsappService.sendMessage(cleanPhone, rendered.bodyText, {
+          storeId: variables.store_id || null,
+          idempotencyKey: variables.idempotency_key || `notification-${templateCode}-${cleanPhone}-${variables.event_id || Date.now()}`
+        });
+        if (delivery) {
           status = 'sent';
           providerMessageId = `wa_${crypto.randomBytes(8).toString('hex')}`;
         } else {

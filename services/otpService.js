@@ -115,7 +115,10 @@ class OTPService {
     }
     
     try {
-      await whatsappService.sendMessage(phone, message);
+      await whatsappService.sendMessage(phone, message, {
+        storeId: store.id,
+        idempotencyKey: `otp-${store.id}-${phone}-${expiry.getTime()}`
+      });
       logger.info(`OTP sent successfully to masked number: ${phone.slice(0, 6)}XXXX`);
       return true;
     } catch (error) {

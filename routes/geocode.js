@@ -1,14 +1,26 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 // in-memory geocode cache
 const geocodeCache = new Map();
 const CACHE_TTL = 24 * 60 * 60 * 1000;
+const geocodeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, code: 'RATE_LIMITED', error: 'Too many geocoding requests.' }
+});
 
-router.get('/reverse', async (req, res) => {
+router.get('/reverse', geocodeLimiter, async (req, res) => {
   const { lat, lng } = req.query;
-  if (!lat || !lng) return res.status(400).json({ success: false, error: 'lat and lng are required' });
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    return res.status(400).json({ success: false, error: 'Valid latitude and longitude are required' });
+  }
   
-  const cacheKey = `${Math.round(parseFloat(lat) * 1000) / 1000},${Math.round(parseFloat(lng) * 1000) / 1000}`;
+  const cacheKey = `${Math.round(latitude * 1000) / 1000},${Math.round(longitude * 1000) / 1000}`;
   const cached = geocodeCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL) {
     return res.json({ success: true, ...cached.data, cached: true });
@@ -16,7 +28,7 @@ router.get('/reverse', async (req, res) => {
   
   try {
     const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&accept-language=ar`,
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&accept-language=ar`,
       { headers: { 'User-Agent': 'EGParts-Store/1.0 (contact@egparts.store)' } }
     );
     if (!response.ok) throw new Error(`Nominatim error: ${response.status}`);
@@ -29,7 +41,7 @@ router.get('/reverse', async (req, res) => {
     geocodeCache.set(cacheKey, { ts: Date.now(), data: result });
     res.json({ success: true, ...result });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(502).json({ success: false, error: 'Geocoding provider unavailable.' });
   }
 });
 

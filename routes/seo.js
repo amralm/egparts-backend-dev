@@ -17,6 +17,7 @@ router.get('/robots.txt', async (req, res) => {
 // Dynamic sitemap.xml
 router.get('/sitemap.xml', async (req, res) => {
   try {
+    if (!req.store?.id) return res.status(404).send('Store not found');
     const host = req.get('host');
     const protocol = req.protocol;
     const baseUrl = `${protocol}://${host}`;
@@ -33,22 +34,14 @@ router.get('/sitemap.xml', async (req, res) => {
     // 2. Add Dynamic Product Pages (Only Public/Active Products)
     const { data: products, error: productsError } = await supabase
       .from('products')
-      .select('id, updated_at, store_id');
+      .select('id, updated_at')
+      .eq('store_id', req.store.id)
+      .eq('is_active', true)
+      .neq('is_deleted', true);
 
     if (!productsError && products) {
       products.forEach(product => {
         xml += `  <url>\n    <loc>${baseUrl}/product/${product.id}</loc>\n    <lastmod>${new Date(product.updated_at).toISOString()}</lastmod>\n    <changefreq>weekly</changefreq>\n    <priority>0.8</priority>\n  </url>\n`;
-      });
-    }
-
-    // 3. Add Store Pages
-    const { data: stores, error: storesError } = await supabase
-      .from('stores')
-      .select('id, created_at');
-
-    if (!storesError && stores) {
-      stores.forEach(store => {
-        xml += `  <url>\n    <loc>${baseUrl}/store/${store.id}</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
       });
     }
 

@@ -5,6 +5,7 @@ const { verifyUser } = require('../middleware/auth');
 const accountService = require('../services/accountService');
 
 router.get('/profile-status', verifyUser, async (req, res) => {
+  if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
   try {
     const status = await accountService.getProfileStatus(req.store?.id, req.user.sub);
     res.json({ success: true, ...status });
@@ -54,21 +55,23 @@ router.get('/addresses', verifyUser, async (req, res) => {
 
 router.post('/addresses', verifyUser, async (req, res) => {
   try {
+    if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
     const address = await accountService.saveAddress(req.user.sub, null, req.body || {}, req.store?.id);
     res.json({ success: true, address });
   } catch (err) {
     logger.error('[account] address create failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to save address.', detail: err.message });
+    res.status(err.statusCode || 500).json({ success: false, error: 'Unable to save address.' });
   }
 });
 
 router.patch('/addresses/:id', verifyUser, async (req, res) => {
   try {
+    if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
     const address = await accountService.saveAddress(req.user.sub, req.params.id, req.body || {}, req.store?.id);
     res.json({ success: true, address });
   } catch (err) {
     logger.error('[account] address update failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to save address.', detail: err.message });
+    res.status(err.statusCode || 500).json({ success: false, error: 'Unable to save address.' });
   }
 });
 
@@ -85,8 +88,9 @@ router.delete('/addresses/:id', verifyUser, async (req, res) => {
 
 router.get('/notifications', verifyUser, async (req, res) => {
   try {
+    if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
     const limit = Math.min(Number(req.query.limit) || 10, 50);
-    const notifications = await accountService.listNotifications(req.user.sub, limit);
+    const notifications = await accountService.listNotifications(req.user.sub, req.store.id, limit);
     res.json({ success: true, notifications });
   } catch (err) {
     logger.error('[account] notifications list failed:', err.message);
@@ -96,7 +100,8 @@ router.get('/notifications', verifyUser, async (req, res) => {
 
 router.post('/notifications/read-all', verifyUser, async (req, res) => {
   try {
-    const notifications = await accountService.markNotificationsRead(req.user.sub);
+    if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
+    const notifications = await accountService.markNotificationsRead(req.user.sub, req.store.id);
     res.json({ success: true, notifications });
   } catch (err) {
     logger.error('[account] notifications mark-read failed:', err.message);
