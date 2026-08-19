@@ -59,7 +59,7 @@ router.post('/accounts/:id/reset', async (req, res) => {
   if (sessionError) return res.status(500).json({ error: 'Failed to clear WhatsApp session' });
   const { error: updateError } = await supabase.from('whatsapp_accounts').update({ status: 'pending', active_jobs: 0, consecutive_failures: 0, circuit_state: 'closed', circuit_opened_at: null, last_error: null, updated_at: new Date().toISOString() }).eq('id', account.id);
   if (updateError) return res.status(500).json({ error: 'Failed to reset WhatsApp account' });
-  await pool.loadAccounts();
+  await pool.resetAccount(account.id);
   res.json({ success: true });
 });
 

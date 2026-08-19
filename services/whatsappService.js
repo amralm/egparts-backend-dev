@@ -25,6 +25,10 @@ class WhatsappService {
     this.lastQR = null;
     this.pairingCode = null;
     this.connectionState = 'close';
+    this.lastError = null;
+    this.lastErrorAt = null;
+    this.lastConnectedAt = null;
+    this.isShutdown = false;
     this.lastSavePromise = Promise.resolve();
     this.accountId = options.accountId || null;
     this.sessionId = options.sessionId || (this.accountId ? `whatsapp_account_${this.accountId}` : 'main_whatsapp_session');
@@ -191,6 +195,7 @@ class WhatsappService {
 
   async initialize() {
     if (this.isInitializing) return;
+    this.isShutdown = false;
     this.isInitializing = true;
 
     try {
@@ -259,6 +264,8 @@ class WhatsappService {
 
           this.isReady = false;
           this.pairingCode = null;
+          this.lastError = error?.message || `Connection closed (${statusCode || 'unknown'})`;
+          this.lastErrorAt = new Date().toISOString();
 
           // 1. Session logged out — clean DB and recreate fresh
           if (statusCode === DisconnectReason.loggedOut) {
@@ -266,7 +273,7 @@ class WhatsappService {
             await supabase.from('whatsapp_sessions').delete().like('id', `${this.sessionId}:%`).catch(() => {});
             this.reconnectAttempts = 0;
             this.lastQR = null;
-            setTimeout(() => this.initialize(), 1000);
+            setTimeout(() => { if (!this.isShutdown) this.initialize(); }, 1000);
             return;
           }
 
@@ -274,7 +281,7 @@ class WhatsappService {
           if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
             logger.info('🔄 Restart required by WhatsApp protocol (handshake completed). Reconnecting immediately...');
             await this.lastSavePromise.catch(() => {});
-            setTimeout(() => this.initialize(), 1000);
+            setTimeout(() => { if (!this.isShutdown) this.initialize(); }, 1000);
             return;
           }
 
@@ -283,7 +290,7 @@ class WhatsappService {
             this.reconnectAttempts++;
             const delay = Math.min(Math.pow(2, Math.min(this.reconnectAttempts, 4)) * 1000, 15000);
             logger.info(`Reconnecting in ${delay / 1000}s (Attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS})...`);
-            setTimeout(() => this.initialize(), delay);
+            setTimeout(() => { if (!this.isShutdown) this.initialize(); }, delay);
           } else {
             logger.error('Max reconnection attempts reached. Please use /qr/reset to start fresh.');
           }
@@ -293,6 +300,9 @@ class WhatsappService {
           this.reconnectAttempts = 0;
           this.lastQR = null;
           this.pairingCode = null;
+          this.lastError = null;
+          this.lastErrorAt = null;
+          this.lastConnectedAt = new Date().toISOString();
         }
       });
 
@@ -317,7 +327,10 @@ class WhatsappService {
 
       // Ensure socket is initialized, then give Baileys time to establish its
       // WebSocket before asking WhatsApp for a pairing code.
-      if (!this.sock) await this.initialize();
+      if (!this.sock || this.connectionState === 'close') {
+        this.reconnectAttempts = 0;
+        await this.initialize();
+      }
 
       const socketDeadline = Date.now() + 30000;
       while (!this.sock && this.isInitializing && Date.now() < socketDeadline) {
@@ -349,7 +362,8 @@ class WhatsappService {
   // ✅ New Method: Get Connection Status
   getStatus() {
     if (this.isReady) return 'connected';
-    if (this.sock && this.reconnectAttempts > 0) return 'connecting';
+    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) return 'failed';
+    if (this.connectionState === 'connecting' || (this.sock && this.reconnectAttempts > 0)) return this.reconnectAttempts > 0 ? 'retrying' : 'connecting';
     return 'disconnected';
   }
 
@@ -388,6 +402,8 @@ class WhatsappService {
   }
 
   async shutdown() {
+    this.isShutdown = true;
+    this.reconnectAttempts = 0;
     if (this.sock) {
       try {
         this.sock.ev.removeAllListeners();

@@ -65,7 +65,11 @@ class WhatsAppPoolService {
       active_jobs: row.active_jobs || 0,
       max_concurrency: row.max_concurrency || 1,
       circuit_state: row.circuit_state || 'closed',
-      last_error: row.last_error || null
+      connection_state: service.connectionState,
+      reconnect_attempts: service.reconnectAttempts || 0,
+      last_error: service.lastError || row.last_error || null,
+      last_error_at: service.lastErrorAt || row.last_error_at || null,
+      last_connected_at: service.lastConnectedAt || row.last_connected_at || null
     }));
     return {
       status: accounts.some(a => a.status === 'connected') ? 'connected' : 'disconnected',
@@ -79,6 +83,17 @@ class WhatsAppPoolService {
     if (!account) throw new Error('WhatsApp account not found');
     if (!account.service.sock) await account.service.initialize();
     return account.service.requestPairingCode(phoneNumber);
+  }
+
+  async resetAccount(accountId) {
+    await this.loadAccounts();
+    const account = this.accounts.get(accountId);
+    if (!account) throw new Error('WhatsApp account not found');
+    await account.service.shutdown();
+    this.accounts.set(accountId, {
+      row: account.row,
+      service: new WhatsappService({ accountId })
+    });
   }
 
   selectAccount() {
