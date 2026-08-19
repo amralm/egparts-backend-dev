@@ -8,14 +8,6 @@ ALTER TABLE public.notification_preferences
 CREATE UNIQUE INDEX IF NOT EXISTS notification_preferences_store_event_uq
   ON public.notification_preferences (store_id, event_key);
 
-INSERT INTO public.notification_preferences (store_id, event_key, display_name, whatsapp_enabled, email_enabled)
-SELECT s.id, p.event_key, p.display_name, p.whatsapp_enabled, p.email_enabled
-FROM public.stores s
-JOIN public.notification_preferences p ON p.store_id IS NULL
-ON CONFLICT (store_id, event_key) DO NOTHING;
-
-DELETE FROM public.notification_preferences WHERE store_id IS NULL;
-
 DO $$
 DECLARE v_pk text;
 BEGIN
@@ -27,6 +19,14 @@ BEGIN
     EXECUTE format('ALTER TABLE public.notification_preferences DROP CONSTRAINT %I', v_pk);
   END IF;
 END $$;
+
+INSERT INTO public.notification_preferences (store_id, event_key, display_name, whatsapp_enabled, email_enabled)
+SELECT s.id, p.event_key, p.display_name, p.whatsapp_enabled, p.email_enabled
+FROM public.stores s
+JOIN public.notification_preferences p ON p.store_id IS NULL
+ON CONFLICT (store_id, event_key) DO NOTHING;
+
+DELETE FROM public.notification_preferences WHERE store_id IS NULL;
 
 ALTER TABLE public.notification_preferences
   ALTER COLUMN store_id SET NOT NULL;
