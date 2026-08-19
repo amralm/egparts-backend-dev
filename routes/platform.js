@@ -2495,6 +2495,48 @@ router.post('/invoices/:id/refund', verifyPlatformAdmin, async (req, res) => {
 // 10. Notification Template Control
 // ============================================================
 
+// GET /api/platform/notifications/preferences - Order/payment WhatsApp switches
+router.get('/notifications/preferences', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('notification_preferences')
+      .select('event_key, display_name, whatsapp_enabled, email_enabled, updated_at')
+      .order('event_key');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    logger.error('Failed to load notification preferences:', err.message);
+    res.status(500).json({ error: 'Failed to retrieve notification preferences' });
+  }
+});
+
+// PATCH /api/platform/notifications/preferences/:eventKey - Toggle channels
+router.patch('/notifications/preferences/:eventKey', verifyPlatformAdmin, async (req, res) => {
+  const eventKey = String(req.params.eventKey || '').trim();
+  if (!/^[a-z0-9_]+$/.test(eventKey)) return res.status(400).json({ error: 'Invalid notification event' });
+  const payload = {};
+  if (typeof req.body?.whatsapp_enabled === 'boolean') payload.whatsapp_enabled = req.body.whatsapp_enabled;
+  if (typeof req.body?.email_enabled === 'boolean') payload.email_enabled = req.body.email_enabled;
+  if (Object.keys(payload).length === 0) return res.status(400).json({ error: 'No channel setting provided' });
+  payload.updated_at = new Date().toISOString();
+
+  try {
+    const { data, error } = await supabase
+      .from('notification_preferences')
+      .update(payload)
+      .eq('event_key', eventKey)
+      .select('event_key, display_name, whatsapp_enabled, email_enabled, updated_at')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'Notification event not found. Apply migration 48 first.' });
+    await auditPlatform(req, 'platform.notification_preference.update', 'notification_preference', eventKey, {}, data);
+    res.json(data);
+  } catch (err) {
+    logger.error('Failed to update notification preference:', err.message);
+    res.status(500).json({ error: 'Failed to update notification preference' });
+  }
+});
+
 // GET /api/platform/notifications/templates - List templates
 router.get('/notifications/templates', verifyPlatformAdmin, async (req, res) => {
   try {

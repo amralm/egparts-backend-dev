@@ -49,13 +49,22 @@ const sendOTPSchema = z.object({
 });
 
 const verifyOTPSchema = z.object({
-  phone: z.string().min(10).max(15).regex(/^\+?[1-9]\d{1,14}$/),
-  code: z.string().length(6, 'كود التحقق يجب أن يكون 6 أرقام'),
+  phone: z.string().min(10).max(16).regex(/^\+?[1-9]\d{1,14}$/),
+  code: z.string().regex(/^\d{6}$/, 'كود التحقق يجب أن يكون 6 أرقام'),
 });
 const resolvePhoneSchema = z.object({
   phone: z.string().min(10).max(15).regex(/^\+?[1-9]\d{1,14}$/),
   password: z.string().min(1).max(256)
 });
+
+function normalizeEgyptianPhone(value) {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = `2${digits}`;
+  if (digits.startsWith('1') && digits.length === 10) digits = `20${digits}`;
+  if (!/^20\d{10}$/.test(digits)) throw new Error('رقم هاتف مصري غير صالح');
+  return digits;
+}
 
 // Strict per-IP rate limiter for OTP send (2 req / 5 min per IP)
 const otpRateLimiter = rateLimit({ validate: { trustProxy: false },
@@ -209,6 +218,12 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req,
 
 router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) => {
   const { phone, user_id, purpose, turnstileToken } = { ...req.body, ...sendOTPSchema.parse(req.body) };
+  let normalizedPhone;
+  try {
+    normalizedPhone = normalizeEgyptianPhone(phone);
+  } catch (error) {
+    return res.status(400).json({ success: false, error: error.message });
+  }
 
   if (!req.store?.id) {
     return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'OTP is only available inside a tenant store.' });
@@ -253,7 +268,7 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
     }
   }
 
-  const localPhone = phone.startsWith('2') ? phone.slice(1) : phone;
+  const localPhone = normalizedPhone.slice(1);
 
   // تأكد إن الرقم مش مرتبط بحساب تاني
   // لو purpose = forgot → سيبها (نسيان كلمة المرور)
@@ -284,12 +299,12 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
   }
 
   try {
-    await otpService.sendOTP(phone, req.store);
+    await otpService.sendOTP(normalizedPhone, req.store);
     if (reservationKey) await subscriptionLimitService.commitFeatureUsage(reservationKey);
     
     await recordOtpAudit({
       store_id: req.store.id,
-      phone,
+      phone: normalizedPhone,
       purpose: purpose || 'login',
       status: 'sent',
       ip_address: req.ip,
@@ -300,7 +315,7 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
     
     await recordOtpAudit({
       store_id: req.store.id,
-      phone,
+      phone: normalizedPhone,
       purpose: purpose || 'login',
       status: 'failed',
       error_message: err.message,
@@ -316,12 +331,18 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
 // Route: Verify OTP — IP rate limited + Phone rate limited to prevent distributed brute force
 router.post('/verify-otp', verifyRateLimiter, perPhoneVerifyLimiter, async (req, res) => {
   const { phone, code } = verifyOTPSchema.parse(req.body);
+  let normalizedPhone;
+  try {
+    normalizedPhone = normalizeEgyptianPhone(phone);
+  } catch (error) {
+    return res.status(400).json({ success: false, error: error.message });
+  }
 
   if (!req.store?.id) {
     return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'OTP is only available inside a tenant store.' });
   }
 
-  const isValid = await otpService.verifyOTP(phone, code, req.store);
+  const isValid = await otpService.verifyOTP(normalizedPhone, code, req.store);
 
   if (isValid) {
     res.json({ success: true, message: 'تم التحقق بنجاح' });
@@ -333,7 +354,7 @@ router.post('/verify-otp', verifyRateLimiter, perPhoneVerifyLimiter, async (req,
 // Validation Schema for Reset Password
 const resetPasswordSchema = z.object({
   phone: z.string(),
-  code: z.string().length(6),
+  code: z.string().regex(/^\d{6}$/),
   new_password: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'),
 });
 
@@ -341,19 +362,20 @@ const resetPasswordSchema = z.object({
 router.post('/reset-password', sensitiveWriteRateLimiter, async (req, res) => {
   try {
     const { phone, code, new_password } = resetPasswordSchema.parse(req.body);
+    const normalizedPhone = normalizeEgyptianPhone(phone);
 
     // 1. Verify OTP
     if (!req.store?.id) {
       return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'OTP is only available inside a tenant store.' });
     }
 
-    const isValid = await otpService.verifyOTP(phone, code, req.store);
+    const isValid = await otpService.verifyOTP(normalizedPhone, code, req.store);
     if (!isValid) {
       return res.status(400).json({ success: false, error: 'كود التحقق غير صحيح أو انتهت صلاحيته' });
     }
 
     // 2. Extract local phone number (remove country code "2")
-    const localPhone = phone.startsWith('2') ? phone.slice(1) : phone;
+    const localPhone = normalizedPhone.slice(1);
 
     // 3. Look up user by phone in user_profiles
     const { data: profiles, error: profileError } = await supabase

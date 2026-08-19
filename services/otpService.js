@@ -122,6 +122,10 @@ class OTPService {
       logger.info(`OTP sent successfully to masked number: ${phone.slice(0, 6)}XXXX`);
       return true;
     } catch (error) {
+      // Do not leave a code that cannot be delivered and blocks the next request.
+      await this.deleteOTP(phone, store.id).catch(cleanupError => {
+        logger.warn(`Failed to clean undelivered OTP: ${cleanupError.message}`);
+      });
       logger.error(`Error sending OTP to WhatsApp: ${error.message}`);
       throw new Error('فشل في إرسال الرسالة عبر واتساب، يرجى المحاولة لاحقاً');
     }
