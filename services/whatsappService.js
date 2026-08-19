@@ -24,6 +24,7 @@ class WhatsappService {
     this.MAX_RECONNECT_ATTEMPTS = 10;
     this.lastQR = null;
     this.pairingCode = null;
+    this.connectionState = 'close';
     this.sessionId = 'main_whatsapp_session'; // ✅ Unique ID for session in DB
     this.isInitializing = false;
     
@@ -197,9 +198,12 @@ class WhatsappService {
         emitOwnEvents: false,
         syncFullHistory: false
       });
+      this.connectionState = 'connecting';
 
       this.sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
+
+        if (connection) this.connectionState = connection;
 
         if (qr) {
           this.lastQR = qr;
@@ -264,12 +268,24 @@ class WhatsappService {
   async requestPairingCode(phoneNumber) {
     try {
       if (this.isReady) throw new Error('WhatsApp is already connected.');
-      
-      // Ensure socket is initialized
+
+      const cleanNumber = String(phoneNumber || '').replace(/\D/g, '');
+      if (!/^\d{8,15}$/.test(cleanNumber)) {
+        throw new Error('رقم الهاتف غير صالح. استخدم الرقم الدولي بدون + أو مسافات.');
+      }
+
+      // Ensure socket is initialized, then give Baileys time to establish its
+      // WebSocket before asking WhatsApp for a pairing code.
       if (!this.sock) await this.initialize();
-      
-      // phoneNumber should be digits only without + (e.g. 201122551272)
-      const cleanNumber = phoneNumber.replace(/\D/g, '');
+
+      const deadline = Date.now() + 30000;
+      while (this.sock && this.connectionState === 'close' && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      if (!this.sock || this.connectionState === 'close') {
+        throw new Error('تعذر إنشاء اتصال واتساب. اضغط إعادة تعيين الجلسة ثم حاول مرة أخرى.');
+      }
+
       const code = await this.sock.requestPairingCode(cleanNumber);
       this.pairingCode = code;
       return code;
@@ -328,6 +344,7 @@ class WhatsappService {
       } catch (e) {}
       this.sock = null;
       this.isReady = false;
+      this.connectionState = 'close';
     }
   }
 }
