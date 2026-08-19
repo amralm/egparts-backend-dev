@@ -27,6 +27,7 @@ class WhatsappService {
     this.connectionState = 'close';
     this.lastSavePromise = Promise.resolve();
     this.sessionId = 'main_whatsapp_session'; // ✅ Unique ID for session in DB
+    this.storeId = null;
     this.isInitializing = false;
     
     this.queue = new PQueue({ 
@@ -38,14 +39,36 @@ class WhatsappService {
   }
 
   // ✅ High-Performance DB-backed Auth State with Batch Queries
+  async resolveStoreId() {
+    if (this.storeId) return this.storeId;
+
+    if (process.env.WHATSAPP_STORE_ID) {
+      this.storeId = process.env.WHATSAPP_STORE_ID.trim();
+      return this.storeId;
+    }
+
+    const { data, error } = await supabase
+      .from('stores')
+      .select('id')
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data?.id) throw new Error('No store found for WhatsApp session storage');
+
+    this.storeId = data.id;
+    logger.info(`WhatsApp session store resolved: ${this.storeId}`);
+    return this.storeId;
+  }
+
   async useSupabaseAuthState() {
+    const storeId = await this.resolveStoreId();
     const writeData = async (data, key) => {
       try {
         const id = `${this.sessionId}:${key}`;
         const content = JSON.parse(JSON.stringify(data, BufferJSON.replacer));
         const { error } = await supabase
           .from('whatsapp_sessions')
-          .upsert({ id, data: content, updated_at: new Date() });
+          .upsert({ id, store_id: storeId, data: content, updated_at: new Date() });
         if (error) throw error;
       } catch (err) {
         logger.error(`Error writing session data for ${key}: ${err?.message || JSON.stringify(err)}`);
@@ -123,6 +146,7 @@ class WhatsappService {
                 if (value) {
                   upserts.push({
                     id: key,
+                    store_id: storeId,
                     data: JSON.parse(JSON.stringify(value, BufferJSON.replacer)),
                     updated_at: new Date()
                   });
