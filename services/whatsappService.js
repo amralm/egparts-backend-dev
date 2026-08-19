@@ -34,6 +34,7 @@ class WhatsappService {
     this.sessionId = options.sessionId || (this.accountId ? `whatsapp_account_${this.accountId}` : 'main_whatsapp_session');
     this.storeId = null;
     this.isInitializing = false;
+    this.pairingRequestPromise = null;
     
     this.queue = new PQueue({ 
       concurrency: 1, 
@@ -306,6 +307,16 @@ class WhatsappService {
 
   // ✅ New Method: Request Pairing Code via Phone Number
   async requestPairingCode(phoneNumber) {
+    if (this.pairingRequestPromise) return this.pairingRequestPromise;
+    this.pairingRequestPromise = this._requestPairingCode(phoneNumber);
+    try {
+      return await this.pairingRequestPromise;
+    } finally {
+      this.pairingRequestPromise = null;
+    }
+  }
+
+  async _requestPairingCode(phoneNumber) {
     try {
       if (this.isReady) throw new Error('WhatsApp is already connected.');
 
@@ -328,17 +339,13 @@ class WhatsappService {
       }
 
       const deadline = Date.now() + 30000;
-      while (this.sock && this.connectionState === 'close' && Date.now() < deadline) {
+      while (this.sock && this.connectionState !== 'open' && Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 250));
       }
-      if (!this.sock || this.connectionState === 'close') {
-        throw new Error('تعذر إنشاء اتصال واتساب. اضغط إعادة تعيين الجلسة ثم حاول مرة أخرى.');
+      if (!this.sock || this.connectionState !== 'open') {
+        throw new Error('اتصال واتساب لم يكتمل خلال المهلة. أعد المحاولة بعد لحظات أو أعد ضبط الجلسة.');
       }
 
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      if (!this.sock || this.connectionState === 'close') {
-        throw new Error('اتصال واتساب لم يكتمل بعد. اضغط تحديث الصفحة واطلب كودًا جديدًا.');
-      }
       const code = await this.sock.requestPairingCode(cleanNumber);
       this.pairingCode = code;
       logger.info(`Pairing code generated for phone ending ${cleanNumber.slice(-4)}`);
