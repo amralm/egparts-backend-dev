@@ -92,19 +92,17 @@ class WhatsappService {
     };
 
     const readData = async (key) => {
-      try {
-        const id = `${this.sessionId}:${key}`;
-        const { data, error } = await supabase
-          .from('whatsapp_sessions')
-          .select('data')
-          .eq('id', id)
-          .maybeSingle();
-        
-        if (error || !data) return null;
-        return JSON.parse(JSON.stringify(data.data), BufferJSON.reviver);
-      } catch (err) {
-        return null;
-      }
+      const id = `${this.sessionId}:${key}`;
+      const { data, error } = await supabase
+        .from('whatsapp_sessions')
+        .select('data')
+        .eq('id', id)
+        .maybeSingle();
+      // A database outage is not an empty session. Failing open here creates
+      // fresh credentials and can orphan the real WhatsApp identity.
+      if (error) throw error;
+      if (!data) return null;
+      return JSON.parse(JSON.stringify(data.data), BufferJSON.reviver);
     };
 
     const removeData = async (key) => {
@@ -133,7 +131,8 @@ class WhatsappService {
                 .select('id, data')
                 .in('id', fullIds);
 
-              if (!error && rows) {
+              if (error) throw error;
+              if (rows) {
                 const prefix = `${this.sessionId}:${type}-`;
                 for (const row of rows) {
                   const rawId = row.id.replace(prefix, '');
@@ -196,7 +195,11 @@ class WhatsappService {
         }
       },
       saveCreds: () => {
-        this.lastSavePromise = writeData(creds, 'creds');
+        // Baileys can emit creds.update several times in a single tick. Chain
+        // writes so an older request can never finish after a newer snapshot.
+        this.lastSavePromise = this.lastSavePromise
+          .catch(() => {})
+          .then(() => writeData(creds, 'creds'));
         this.lastSavePromise.then(() => logger.info('WhatsApp credentials persisted')).catch(() => {});
         return this.lastSavePromise;
       }
