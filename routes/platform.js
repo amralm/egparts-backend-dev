@@ -850,7 +850,7 @@ router.post('/stores', verifyPlatformAdmin, async (req, res) => {
     const settingsPayload = {
       store_id: store.id,
       brand_name: name.trim(),
-      store_description: 'New tenant store on EGParts Cloud',
+      store_description: 'واجهة احترافية لعرض المنتجات والخدمات وإدارة الطلبات بسهولة.',
       theme_colors: {
         primary: '#dc2626',
         primary_hover: '#b91c1c',

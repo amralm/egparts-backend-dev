@@ -1,4 +1,5 @@
 const { supabase } = require('./supabase');
+const { normalizeLegacyText } = require('./tenantContentNormalizer');
 
 async function listProductCategories(storeId) {
   const { data, error } = await supabase
@@ -19,7 +20,7 @@ async function getStoreContent(storeId) {
     .maybeSingle();
 
   if (error) throw error;
-  return data?.content || null;
+  return normalizeLegacyText(data?.content || null);
 }
 
 async function updateStoreContent(storeId, content) {

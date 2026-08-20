@@ -1,4 +1,5 @@
 const { supabase } = require('./supabase');
+const { normalizeTenantSettings } = require('./tenantContentNormalizer');
 
 async function getSettings(storeId) {
   const { data, error } = await supabase
@@ -7,7 +8,7 @@ async function getSettings(storeId) {
     .eq('store_id', storeId)
     .maybeSingle();
   if (error) throw error;
-  if (!data?.theme_id) return data || {};
+  if (!data?.theme_id) return normalizeTenantSettings(data || {});
 
   let activeTheme = null;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.theme_id);
@@ -23,7 +24,7 @@ async function getSettings(storeId) {
     activeTheme = themeData;
   }
   
-  return { ...data, active_theme: activeTheme || null };
+  return normalizeTenantSettings({ ...data, active_theme: activeTheme || null });
 }
 
 async function getHome(storeId) {
@@ -42,7 +43,7 @@ async function getHome(storeId) {
     banners: banners.data || [],
     latest_products: latest.data || [],
     trending_products: trending.data || [],
-    settings: settings.data || null
+    settings: normalizeTenantSettings(settings.data || null)
   };
 }
 
