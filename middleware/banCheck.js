@@ -11,15 +11,15 @@ async function refreshBannedUsersForStore(storeId) {
   try {
     const { data, error } = await supabase
       .from('ban_logs')
-      .select('user_id, ban_scope')
-      .eq('store_id', storeId)
+      .select('user_id, ban_scope, banned_until')
+      .or(`store_id.eq.${storeId},store_id.is.null`)
       .eq('is_active', true);
 
     if (error) throw error;
 
     const userBans = {};
     if (data) {
-      data.forEach(row => {
+      data.filter((row) => !row.banned_until || new Date(row.banned_until).getTime() > Date.now()).forEach(row => {
         if (!userBans[row.user_id]) userBans[row.user_id] = [];
         userBans[row.user_id].push(row.ban_scope);
       });

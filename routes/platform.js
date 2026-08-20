@@ -921,6 +921,34 @@ router.post('/stores/:id/recover', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
+// Lightweight, searchable store directory for selectors. Never force an admin
+// page to download the entire tenant table just to render a dropdown.
+router.get('/stores/options', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const rawLimit = Number.parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 5), 50) : 25;
+    const search = typeof req.query.search === 'string'
+      ? req.query.search.trim().slice(0, 80).replace(/[,*().]/g, ' ')
+      : '';
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
+    let query = supabase
+      .from('stores')
+      .select('id,name,subdomain,custom_domain,is_active,status')
+      .order('name', { ascending: true })
+      .limit(limit + 1);
+    if (search) query = query.or(`name.ilike.%${search}%,subdomain.ilike.%${search}%,custom_domain.ilike.%${search}%`);
+    if (cursor) query = query.gt('name', cursor);
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = data || [];
+    const items = rows.slice(0, limit);
+    res.json({ items, nextCursor: rows.length > limit ? items[items.length - 1]?.name || null : null });
+  } catch (err) {
+    logger.error('Failed to retrieve store options:', err.message);
+    res.status(500).json({ error: 'Failed to retrieve store options' });
+  }
+});
+
 // Super Admin storage explorer. R2 is the source of truth because older uploads
 // may predate platform_storage_objects tracking. Keys are always constrained to
 // the selected tenant prefix; a client can never browse or delete another scope.
@@ -929,14 +957,15 @@ router.get('/storage', verifyPlatformAdmin, async (req, res) => {
     if (!process.env.R2_BUCKET_NAME || !process.env.R2_ACCOUNT_ID) {
       return res.status(503).json({ success: false, error: 'R2 storage is not configured.' });
     }
-    const { data: stores, error } = await supabase
+    const selectedId = typeof req.query.store_id === 'string' ? req.query.store_id : null;
+    if (!selectedId) return res.json({ success: true, stores: [], selected: null, tree: null });
+    const { data: selected, error } = await supabase
       .from('stores')
       .select('id,name,subdomain,status,is_active')
-      .order('name', { ascending: true });
+      .eq('id', selectedId)
+      .maybeSingle();
     if (error) throw error;
-    const selectedId = typeof req.query.store_id === 'string' ? req.query.store_id : null;
-    const selected = (stores || []).find((store) => store.id === selectedId);
-    if (!selected) return res.json({ success: true, stores: stores || [], selected: null, tree: null });
+    if (!selected) return res.status(404).json({ success: false, error: 'Store not found' });
 
     const rootPrefix = `stores/${selected.id}/`;
     const requestedPrefix = typeof req.query.prefix === 'string' ? req.query.prefix.trim() : rootPrefix;
@@ -948,7 +977,7 @@ router.get('/storage', verifyPlatformAdmin, async (req, res) => {
     const tree = buildStorageTree(objects, prefix);
     res.json({
       success: true,
-      stores: stores || [],
+      stores: [selected],
       selected,
       prefix,
       totals: { files: objects.length, bytes: objects.reduce((sum, item) => sum + item.size, 0) },
@@ -1750,8 +1779,12 @@ router.post('/stores/subscription', verifyPlatformAdmin, async (req, res) => {
 
 // 6. GET /api/platform/audit-logs - Retrieve global audit logs
 router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
-  const { store_id, action, search, limit = 50, offset = 0 } = req.query;
+  const { store_id, action, search } = req.query;
   try {
+    const parsedLimit = Number.parseInt(req.query.limit, 10);
+    const parsedOffset = Number.parseInt(req.query.offset, 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 50;
+    const offset = Number.isFinite(parsedOffset) ? Math.max(parsedOffset, 0) : 0;
     let query = supabase
       .from('audit_logs')
       .select(`
@@ -1762,22 +1795,24 @@ router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
         )
       `, { count: 'exact' })
       .order('created_at', { ascending: false })
-      .range(parseInt(offset, 10), parseInt(offset, 10) + parseInt(limit, 10) - 1);
+      .range(offset, offset + limit - 1);
 
     if (store_id) query = query.eq('store_id', store_id);
-    if (action) query = query.eq('action', action);
+    if (action) query = query.ilike('action', `%${String(action).slice(0, 80).replace(/[,*().%]/g, '')}%`);
     if (search) {
       const safeSearch = String(search)
         .slice(0, 80)
-        .replace(/[^a-zA-Z0-9@_:\- ]/g, ' ')
+        // PostgREST operators are syntax, not data. Strip them before using OR.
+        .replace(/[,*().]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
       if (safeSearch) {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(safeSearch);
+        const escaped = safeSearch.replace(/[%\\]/g, (value) => `\\${value}`);
         if (isUuid) {
-          query = query.or(`ip_address.ilike.%${safeSearch}%,user_id.eq.${safeSearch},entity_id.ilike.%${safeSearch}%`);
+          query = query.or(`ip_address.ilike.%${escaped}%,user_id.eq.${escaped},entity_id.ilike.%${escaped}%,action.ilike.%${escaped}%`);
         } else {
-          query = query.or(`ip_address.ilike.%${safeSearch}%,entity_id.ilike.%${safeSearch}%`);
+          query = query.or(`ip_address.ilike.%${escaped}%,entity_id.ilike.%${escaped}%,action.ilike.%${escaped}%`);
         }
       }
     }
@@ -1799,7 +1834,7 @@ router.delete('/audit-logs', verifyPlatformAdmin, async (req, res) => {
   try {
     let query = supabase.from('audit_logs').delete();
     
-    if (mode === 'older_than' && typeof days === 'number') {
+    if (mode === 'older_than' && Number.isInteger(days) && days >= 1 && days <= 3650) {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - days);
       query = query.lt('created_at', cutoff.toISOString());
@@ -2897,10 +2932,15 @@ router.get('/notifications/history', verifyPlatformAdmin, async (req, res) => {
 // GET /api/platform/login-logs
 router.get('/login-logs', verifyPlatformAdmin, async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const requestedPage = Number.parseInt(req.query.page, 10);
+    const requestedLimit = Number.parseInt(req.query.limit, 10);
+    const page = Number.isFinite(requestedPage) ? Math.max(requestedPage, 1) : 1;
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 20;
     const filter = req.query.filter || 'all';
     const store_id = req.query.store_id;
+    const search = typeof req.query.search === 'string'
+      ? req.query.search.trim().slice(0, 80).replace(/[,*().]/g, ' ')
+      : '';
 
     let query = supabase
       .from('user_login_logs')
@@ -2915,6 +2955,7 @@ router.get('/login-logs', verifyPlatformAdmin, async (req, res) => {
     } else if (filter === 'registered') {
       query = query.neq('login_method', 'guest');
     }
+    if (search) query = query.or(`email.ilike.%${search}%,ip_address.ilike.%${search}%,user_id.ilike.%${search}%`);
 
     const { data: logs, count, error } = await query
       .order('created_at', { ascending: false })
@@ -2961,9 +3002,18 @@ router.delete('/login-logs', verifyPlatformAdmin, async (req, res) => {
 // GET /api/platform/blocked-ips
 router.get('/blocked-ips', verifyPlatformAdmin, async (req, res) => {
   try {
-    const { data: ips, error } = await supabase.from('blocked_ips').select('*').order('created_at', { ascending: false });
+    const requestedLimit = Number.parseInt(req.query.limit, 10);
+    const requestedOffset = Number.parseInt(req.query.offset, 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50;
+    const offset = Number.isFinite(requestedOffset) ? Math.max(requestedOffset, 0) : 0;
+    let query = supabase.from('blocked_ips').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range(offset, offset + limit - 1);
+    if (typeof req.query.search === 'string' && req.query.search.trim()) {
+      const search = req.query.search.trim().slice(0, 80).replace(/[,*().]/g, ' ');
+      query = query.ilike('ip_address', `%${search}%`);
+    }
+    const { data: ips, count, error } = await query;
     if (error) throw error;
-    res.json({ ips: ips || [] });
+    res.json({ ips: ips || [], total: count || 0, limit, offset });
   } catch (err) {
     logger.error('Failed to fetch blocked IPs:', err.message);
     res.status(500).json({ error: 'Failed to fetch blocked IPs' });
@@ -2973,14 +3023,20 @@ router.get('/blocked-ips', verifyPlatformAdmin, async (req, res) => {
 // POST /api/platform/blocked-ips/block
 router.post('/blocked-ips/block', verifyPlatformAdmin, async (req, res) => {
   try {
-    const { ip_address, reason } = req.body;
+    const ip_address = typeof req.body?.ip_address === 'string' ? req.body.ip_address.trim() : '';
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : '';
     if (!ip_address) return res.status(400).json({ error: 'IP is required' });
+    const ipPattern = /^(?:(?:\d{1,3}\.){3}\d{1,3}|[0-9a-f:]+)(?:\/\d{1,3})?$/i;
+    if (!ipPattern.test(ip_address)) return res.status(400).json({ error: 'Invalid IP address' });
 
-    const { error } = await supabase.from('blocked_ips').insert([{
+    const { data: existing } = await supabase.from('blocked_ips').select('id').eq('ip_address', ip_address).maybeSingle();
+    const { error } = existing
+      ? await supabase.from('blocked_ips').update({ reason: reason || 'Blocked by platform admin', blocked_by: req.user.sub }).eq('id', existing.id)
+      : await supabase.from('blocked_ips').insert({
       ip_address,
       reason: reason || 'Blocked by platform admin',
       blocked_by: req.user.sub
-    }]);
+    });
 
     if (error) throw error;
     res.json({ success: true });
@@ -2993,7 +3049,7 @@ router.post('/blocked-ips/block', verifyPlatformAdmin, async (req, res) => {
 // POST /api/platform/blocked-ips/unblock
 router.post('/blocked-ips/unblock', verifyPlatformAdmin, async (req, res) => {
   try {
-    const { ip_address } = req.body;
+    const ip_address = typeof req.body?.ip_address === 'string' ? req.body.ip_address.trim() : '';
     if (!ip_address) return res.status(400).json({ error: 'IP is required' });
 
     const { error } = await supabase.from('blocked_ips').delete().eq('ip_address', ip_address);

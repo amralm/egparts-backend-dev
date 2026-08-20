@@ -16,6 +16,16 @@ let r2Telemetry = {
   uploadCount: 0,
   totalUploadTimeMs: 0
 };
+let r2Inventory = {
+  status: 'pending',
+  scannedAt: null,
+  objectCount: null,
+  storageUsedBytes: null,
+  lastUpload: null,
+  error: null
+};
+let r2InventoryPromise = null;
+const R2_INVENTORY_REFRESH_MS = 10 * 60 * 1000;
 
 function recordR2Upload(durationMs) {
   r2Telemetry.uploadCount++;
@@ -26,6 +36,42 @@ function recordR2Upload(durationMs) {
 
 function recordR2Delete() {
   r2Telemetry.lastDeleteTime = new Date().toISOString();
+}
+
+async function refreshR2Inventory(client) {
+  if (r2InventoryPromise) return r2InventoryPromise;
+  r2InventoryPromise = (async () => {
+    let token;
+    let count = 0;
+    let bytes = 0;
+    let lastUpload = null;
+    do {
+      const page = await client.send(new ListObjectsV2Command({
+        Bucket: process.env.R2_BUCKET_NAME,
+        MaxKeys: 1000,
+        ContinuationToken: token
+      }));
+      for (const object of page.Contents || []) {
+        count += 1;
+        bytes += Number(object.Size) || 0;
+        if (object.LastModified && (!lastUpload || object.LastModified > lastUpload)) lastUpload = object.LastModified;
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    r2Inventory = {
+      status: 'ready',
+      scannedAt: new Date().toISOString(),
+      objectCount: count,
+      storageUsedBytes: bytes,
+      lastUpload: lastUpload?.toISOString?.() || r2Telemetry.lastUploadTime,
+      error: null
+    };
+    return r2Inventory;
+  })().catch((error) => {
+    r2Inventory = { ...r2Inventory, status: 'error', error: error.message, scannedAt: r2Inventory.scannedAt };
+    throw error;
+  }).finally(() => { r2InventoryPromise = null; });
+  return r2InventoryPromise;
 }
 
 // Enum representing the status of the collector task itself
@@ -240,30 +286,36 @@ async function collectHealth() {
           },
         });
 
-        const probe = await r2Client.send(new ListObjectsV2Command({
-          Bucket: process.env.R2_BUCKET_NAME,
-          MaxKeys: 1
-        }));
-        const firstObject = probe.Contents?.[0];
+        const probe = await r2Client.send(new ListObjectsV2Command({ Bucket: process.env.R2_BUCKET_NAME, MaxKeys: 1 }));
+        // Listing one object only proves connectivity and falsely rendered the
+        // dashboard as "0 files". Keep a cached, paginated inventory instead.
+        if (!r2Inventory.scannedAt || Date.now() - new Date(r2Inventory.scannedAt).getTime() > R2_INVENTORY_REFRESH_MS) {
+          refreshR2Inventory(r2Client).catch((error) => logger.error('HealthCollector: R2 inventory refresh failed', error.message));
+        }
 
         snapshot.r2 = 'healthy';
         snapshot.r2_stats = {
           bucketName: process.env.R2_BUCKET_NAME,
-          storageUsedBytes: null,
-          objectCount: null,
-          lastUpload: firstObject?.LastModified?.toISOString?.() || r2Telemetry.lastUploadTime,
+          storageUsedBytes: r2Inventory.storageUsedBytes,
+          objectCount: r2Inventory.objectCount,
+          lastUpload: r2Inventory.lastUpload || r2Telemetry.lastUploadTime,
           lastDelete: r2Telemetry.lastDeleteTime,
-          averageUploadTimeMs: r2Telemetry.averageUploadTimeMs
+          averageUploadTimeMs: r2Telemetry.uploadCount ? r2Telemetry.averageUploadTimeMs : null,
+          inventoryStatus: r2Inventory.status,
+          inventoryScannedAt: r2Inventory.scannedAt,
+          inventoryError: r2Inventory.error
         };
       } catch (err) {
         snapshot.r2 = 'unhealthy';
         snapshot.r2_stats = {
           bucketName: process.env.R2_BUCKET_NAME || 'unknown',
-          storageUsedBytes: 0,
-          objectCount: 0,
+          storageUsedBytes: null,
+          objectCount: null,
           lastUpload: null,
           lastDelete: r2Telemetry.lastDeleteTime,
-          averageUploadTimeMs: r2Telemetry.averageUploadTimeMs
+          averageUploadTimeMs: r2Telemetry.uploadCount ? r2Telemetry.averageUploadTimeMs : null,
+          inventoryStatus: 'error',
+          inventoryError: err.message
         };
         logger.error('HealthCollector: R2 list objects check failed', err);
       }

@@ -34,6 +34,26 @@ async function loadPlatformUser(req, res) {
       return null;
     }
 
+    // Platform-wide blocks must also apply to platform routes, which bypass the
+    // tenant middleware by design. This closes the old enforcement gap.
+    const clientIp = req.clientIp || req.ip || null;
+    const [ipResult, banResult] = await Promise.all([
+      clientIp
+        ? supabase.from('blocked_ips').select('id').is('store_id', null).eq('ip_address', clientIp).limit(1)
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from('ban_logs').select('id,banned_until').is('store_id', null).eq('user_id', decoded.sub).eq('is_active', true).limit(20)
+    ]);
+    if (ipResult.error || banResult.error) {
+      logger.error('Platform security policy lookup failed:', ipResult.error?.message || banResult.error?.message);
+      res.status(503).json({ error: 'Security policy is temporarily unavailable' });
+      return null;
+    }
+    const activeUserBan = (banResult.data || []).some((ban) => !ban.banned_until || new Date(ban.banned_until).getTime() > Date.now());
+    if ((ipResult.data || []).length || activeUserBan) {
+      res.status(403).json({ error: 'Platform access is blocked by security policy' });
+      return null;
+    }
+
     return decoded;
   } catch (err) {
     logger.error('verifyPlatformAdmin token error:', err.message);

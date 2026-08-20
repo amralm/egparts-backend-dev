@@ -43,12 +43,13 @@ const { supabase } = require('./services/supabase');
 const app = express();
 
 
-// ✅ Ensure Express trusts all proxies (Cloudflare -> Render -> Node)
-app.set('trust proxy', true);
+// Render sits behind a single trusted edge hop. Trusting arbitrary proxy chains
+// lets a client forge req.ip and bypass IP policy.
+app.set('trust proxy', 1);
 
 // ✅ Extract Real Client IP (Cloudflare 'cf-connecting-ip' or 'x-forwarded-for')
 app.use((req, res, next) => {
-  req.clientIp = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
+  req.clientIp = req.ip || req.socket?.remoteAddress || null;
   next();
 });
 

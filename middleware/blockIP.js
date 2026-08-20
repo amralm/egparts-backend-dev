@@ -11,7 +11,7 @@ async function fetchBlockedIPsForStore(storeId) {
     const { data, error } = await supabase
       .from('blocked_ips')
       .select('ip_address')
-      .eq('store_id', storeId);
+      .or(`store_id.eq.${storeId},store_id.is.null`);
     
     if (error) throw error;
 
@@ -41,10 +41,7 @@ async function blockIPMiddleware(req, res, next) {
     await fetchBlockedIPsForStore(storeId);
   }
 
-  const clientIP =
-    req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
-    req.ip ||
-    req.connection?.remoteAddress;
+  const clientIP = req.clientIp || req.ip || req.connection?.remoteAddress;
 
   const storeBlockedIPs = blockedIPsCache.get(storeId);
   if (clientIP && storeBlockedIPs && storeBlockedIPs.has(clientIP)) {

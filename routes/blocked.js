@@ -15,7 +15,7 @@ async function refreshBlockedCacheForStore(storeId) {
     const { data } = await supabase
       .from('blocked_ips')
       .select('ip_address')
-      .eq('store_id', storeId);
+      .or(`store_id.eq.${storeId},store_id.is.null`);
     const s = new Set();
     if (data) data.forEach(r => s.add(r.ip_address));
     blockedIPsCache.set(storeId, s);
@@ -39,10 +39,7 @@ router.get('/check', async (req, res) => {
     await refreshBlockedCacheForStore(storeId);
   }
 
-  const clientIP =
-    req.headers['x-forwarded-for']?.split(',')[0]?.trim() ||
-    req.ip ||
-    req.connection?.remoteAddress;
+  const clientIP = req.clientIp || req.ip || req.connection?.remoteAddress;
 
   const storeBlockedIPs = blockedIPsCache.get(storeId);
   const blocked = clientIP && storeBlockedIPs ? storeBlockedIPs.has(clientIP) : false;
