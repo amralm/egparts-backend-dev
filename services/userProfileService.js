@@ -163,7 +163,7 @@ async function updateProfilePhone(decodedUser, storeId, phone) {
     throw err;
   }
 
-  if (!storeId || storeId === DEFAULT_STORE_ID) {
+  if (!storeId) {
     const err = new Error('Tenant context is required');
     err.statusCode = 400;
     throw err;
