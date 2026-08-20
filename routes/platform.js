@@ -11,6 +11,24 @@ const { validateBody } = require('../middleware/requestValidation');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
 const whatsappPoolService = require('../services/whatsappPoolService');
 
+const SUPPORTED_PLAN_FEATURE_KEYS = new Set([
+  'products', 'categories', 'brands', 'product_images', 'product_variants', 'attributes',
+  'branches', 'warehouses', 'shelves', 'employees', 'roles', 'customers', 'suppliers',
+  'orders', 'orders_per_month', 'active_orders', 'coupons', 'discount_campaigns', 'return_requests',
+  'storage_bytes', 'uploaded_images', 'uploaded_files', 'banner_images', 'logos',
+  'whatsapp_enabled', 'whatsapp_accounts_max', 'whatsapp_messages_month', 'whatsapp_concurrency',
+  'otp_messages_month', 'email_messages_month', 'push_notifications_month', 'custom_domains',
+  'api_keys', 'webhooks', 'integrations', 'payment_gateways', 'ai_requests_month', 'forecast_jobs',
+  'report_generation', 'analytics_exports', 'api_requests_day', 'export_formats', 'copilot_messages_day',
+  'staff_users', 'r2_storage', 'platform_billing', 'whatsapp_notifications', 'custom_domain',
+  'whatsapp_customer_notifications'
+]);
+const FEATURE_KEY_ALIASES = {
+  staff_users: 'employees',
+  custom_domain: 'custom_domains',
+  whatsapp_notifications: 'whatsapp_enabled'
+};
+
 const planPayloadSchema = z.object({
   code: z.string().trim().min(1).max(80).regex(/^[a-z0-9_-]+$/i),
   display_name: z.string().trim().min(1).max(160),
@@ -23,7 +41,7 @@ const planPayloadSchema = z.object({
     key: z.string().trim().min(1).max(100).regex(/^[a-z0-9_]+$/i),
     display_name: z.string().trim().max(160).optional().default(''),
     limits: z.array(z.object({
-      limit_type: z.enum(['count', 'boolean', 'unlimited', 'disabled', 'storage', 'amount']),
+      limit_type: z.enum(['count', 'boolean', 'unlimited', 'disabled', 'storage', 'amount', 'export_formats']),
       limit_config: z.record(z.string(), z.any()).default({})
     }).strict()).max(8).optional().default([])
   }).strict()).max(200).optional().default([])
@@ -549,6 +567,13 @@ router.get('/plans', verifyPlatformAdmin, async (req, res) => {
 // 4. POST /api/platform/plans - Create or update subscription plan and limits
 router.post('/plans', verifyPlatformAdmin, validateBody(planPayloadSchema), async (req, res) => {
   const { code, display_name, price_monthly, price_yearly, trial_days, trial_enabled, sort_order, features } = req.body;
+  const unsupportedFeature = (features || []).find((feature) => !SUPPORTED_PLAN_FEATURE_KEYS.has(feature.key.toLowerCase()));
+  if (unsupportedFeature) return res.status(400).json({ error: `Unsupported plan feature: ${unsupportedFeature.key}` });
+  const normalizedFeatures = (features || []).reduce((items, feature) => {
+    const key = FEATURE_KEY_ALIASES[feature.key.toLowerCase()] || feature.key.toLowerCase();
+    if (!items.some((item) => item.key === key)) items.push({ ...feature, key });
+    return items;
+  }, []);
 
   try {
     const { data: plan, error: planErr } = await supabase
@@ -567,8 +592,8 @@ router.post('/plans', verifyPlatformAdmin, validateBody(planPayloadSchema), asyn
 
     if (planErr) throw planErr;
 
-    if (features && Array.isArray(features)) {
-      for (const feat of features) {
+    if (normalizedFeatures.length > 0) {
+      for (const feat of normalizedFeatures) {
         const { data: dbFeat, error: featErr } = await supabase
           .from('features')
           .upsert({ key: feat.key, display_name: feat.display_name }, { onConflict: 'key' })
@@ -1920,6 +1945,20 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
       } catch (error) {
         whatsapp = { status: 'failed', error: error.message };
         logger.error('Failed to send invitation WhatsApp:', error.message);
+      }
+
+      const { data: currentMappings, error: mappingListError } = await supabase
+        .from('plan_features')
+        .select('id, features(key)')
+        .eq('plan_id', plan.id);
+      if (mappingListError) throw mappingListError;
+      const submittedKeys = new Set(normalizedFeatures.map((feature) => feature.key));
+      const staleIds = (currentMappings || [])
+        .filter((mapping) => !submittedKeys.has(mapping.features?.key))
+        .map((mapping) => mapping.id);
+      if (staleIds.length > 0) {
+        const { error: staleDeleteError } = await supabase.from('plan_features').delete().in('id', staleIds);
+        if (staleDeleteError) throw staleDeleteError;
       }
     }
 
