@@ -1,15 +1,43 @@
 const express = require('express');
 const router = express.Router();
 const { verifyUser, verifyPermission } = require('../middleware/auth');
-const { requireEntitlement } = require('../server/kernel/policy/policyMiddleware');
-const { FEATURES } = require('../server/kernel/core/FeatureRegistry');
 const { supabase } = require('../services/supabase');
 const aiService = require('../services/aiService');
 const toolRegistry = require('../services/toolRegistry');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
-const EntitlementFacade = require('../server/kernel/policy/EntitlementFacade');
 const cacheProvider = require('../services/cacheProvider');
 const logger = require('../utils/logger');
+
+// Copilot still uses the platform's legacy feature keys. The generic kernel
+// keys are not present in production plans, so routing through them produces
+// a false "Policy Enforced" before the controller can run.
+const COPILOT_FEATURES = ['copilot_messages_day', 'ai_requests_month'];
+async function reserveCopilot(req, res, next) {
+  const storeId = req.store?.id;
+  if (!storeId) return res.status(400).json({ error: 'Store context required', code: 'STORE_CONTEXT_REQUIRED' });
+  const reservations = [];
+  try {
+    for (const feature of COPILOT_FEATURES) {
+      const key = `${req.headers['x-request-id'] || req.correlationId || require('crypto').randomUUID()}:${feature}`;
+      const ok = await subscriptionLimitService.reserveFeatureUsage(storeId, feature, 1, key, 10);
+      if (!ok) {
+        await Promise.all(reservations.map(r => subscriptionLimitService.rollbackFeatureUsage(r)));
+        const status = feature === 'copilot_messages_day' ? 403 : 429;
+        return res.status(status).json({
+          error: 'Policy Enforced', code: feature === 'copilot_messages_day' ? 'FEATURE_DISABLED' : 'QUOTA_EXCEEDED',
+          feature, answer: feature === 'copilot_messages_day' ? 'ميزة Copilot غير مفعّلة في باقة متجرك الحالية.' : 'انتهى الحد الشهري لطلبات Copilot.'
+        });
+      }
+      reservations.push(key);
+    }
+    req.copilotReservations = reservations;
+    next();
+  } catch (error) {
+    await Promise.all(reservations.map(r => subscriptionLimitService.rollbackFeatureUsage(r)));
+    logger.error('[copilot] entitlement reservation failed:', error.message);
+    return res.status(503).json({ error: 'تعذر التحقق من صلاحية Copilot مؤقتًا', code: 'POLICY_SERVICE_UNAVAILABLE' });
+  }
+}
 
 // Copilot dashboard data endpoint. Keep this as a read-only endpoint so a
 // disabled Copilot feature is reported as a normal entitlement state instead
@@ -40,10 +68,7 @@ router.get('/usage', verifyUser, async (req, res) => {
  */
 router.post('/consultant', 
   verifyUser, 
-  requireEntitlement([
-    { feature: FEATURES.AI_MESSAGES_DAILY, consume: 1 },
-    { feature: FEATURES.AI_REQUESTS_MONTHLY, consume: 1 }
-  ]),
+  reserveCopilot,
   async (req, res) => {
   const { message, currentRoute, history } = req.body;
   const storeId = req.store?.id;
@@ -64,8 +89,7 @@ router.post('/consultant',
   const cached = await cacheProvider.get(cacheKey);
   if (cached) {
     // If cached, we didn't actually hit the AI. We should refund both policies.
-    await EntitlementFacade.refund(storeId, FEATURES.COPILOT_MONTHLY_MESSAGES, 1, { source: 'CacheHit' });
-    await EntitlementFacade.refund(storeId, FEATURES.COPILOT_DAILY_MESSAGES, 1, { source: 'CacheHit' });
+    await Promise.all((req.copilotReservations || []).map(key => subscriptionLimitService.rollbackFeatureUsage(key)));
     return res.json(cached);
   }
 
@@ -108,14 +132,14 @@ router.post('/consultant',
 
     // Cache successful responses for 10 minutes
     await cacheProvider.set(cacheKey, aiResponse, 600);
+    await Promise.all((req.copilotReservations || []).map(key => subscriptionLimitService.commitFeatureUsage(key)));
 
     res.json(aiResponse);
 
   } catch (err) {
     logger.error('Failed to run AI consultant query:', err.message);
     // Rollback limits on failure
-    await EntitlementFacade.refund(storeId, FEATURES.AI_MESSAGES_DAILY, 1, { source: 'ErrorRollback' });
-    await EntitlementFacade.refund(storeId, FEATURES.AI_REQUESTS_MONTHLY, 1, { source: 'ErrorRollback' });
+    await Promise.all((req.copilotReservations || []).map(key => subscriptionLimitService.rollbackFeatureUsage(key)));
     res.status(500).json({ error: 'Failed to communicate with AI partner' });
   }
 });
