@@ -15,7 +15,7 @@ const SUPPORTED_PLAN_FEATURE_KEYS = new Set([
   'products', 'categories', 'brands', 'product_images', 'product_variants', 'attributes',
   'branches', 'warehouses', 'shelves', 'employees', 'roles', 'customers', 'suppliers',
   'orders', 'orders_per_month', 'active_orders', 'coupons', 'discount_campaigns', 'return_requests',
-  'storage_bytes', 'uploaded_images', 'uploaded_files', 'banner_images', 'logos',
+  'storage_bytes', 'uploaded_images', 'uploaded_files', 'uploads', 'banner_images', 'logos',
   'whatsapp_enabled', 'whatsapp_accounts_max', 'whatsapp_messages_month', 'whatsapp_concurrency',
   'otp_messages_month', 'email_messages_month', 'push_notifications_month', 'custom_domains',
   'api_keys', 'webhooks', 'integrations', 'payment_gateways', 'ai_requests_month', 'forecast_jobs',
@@ -574,6 +574,21 @@ router.post('/plans', verifyPlatformAdmin, validateBody(planPayloadSchema), asyn
     if (!items.some((item) => item.key === key)) items.push({ ...feature, key });
     return items;
   }, []);
+
+  // Validate every limit before touching the plan. Previously one hidden or
+  // unsupported feature could make the request fail after earlier limits had
+  // already been deleted. -1 is the only allowed negative value and means
+  // unlimited.
+  for (const feature of normalizedFeatures) {
+    for (const limit of feature.limits || []) {
+      if (!Object.prototype.hasOwnProperty.call(limit.limit_config || {}, 'max_value')) continue;
+      const value = Number(limit.limit_config.max_value);
+      if (!Number.isInteger(value) || (value < 0 && value !== -1)) {
+        return res.status(400).json({ error: `Invalid limit for feature ${feature.key}`, code: 'INVALID_FEATURE_LIMIT' });
+      }
+      limit.limit_config.max_value = value;
+    }
+  }
 
   try {
     const { data: plan, error: planErr } = await supabase
