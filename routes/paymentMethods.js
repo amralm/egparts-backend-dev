@@ -18,6 +18,7 @@ const router = express.Router();
 const { supabase } = require('../services/supabase');
 const { decryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
 const { verifyPermission } = require('../middleware/auth');
+const { resolvePaymentMethods, assertPaymentMethodAvailable } = require('../services/paymentMethodPolicy');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -99,6 +100,10 @@ router.get('/', async (req, res) => {
 
   try {
     const storeId = req.store.id;
+    const resolved = await resolvePaymentMethods(storeId);
+    return res.json(resolved);
+
+    /* legacy implementation retained below only as unreachable migration context */
     const methods = [];
 
     // Fetch all gateways for this store in one query
@@ -216,9 +221,11 @@ router.get('/:method/settings', verifyPermission('payments.view'), async (req, r
   }
 
   try {
-    const gateway = await getGateway(storeId, method);
+    const gateway = await getGateway(storeId, method === 'card' ? 'paymob' : method);
+    const resolved = await resolvePaymentMethods(storeId);
     return res.json({
       success: true,
+      availability: resolved.availability[method === 'card' ? 'paymob' : method],
       settings: {
         is_active: gateway ? gateway.is_active : (method === 'cod'), // COD defaults true
       }
@@ -247,6 +254,12 @@ router.post('/:method/toggle', verifyPermission('payments.configure'), async (re
   // COD and manual_wallet can be simply toggled here
 
   try {
+    if (is_active && method === 'manual_wallet') {
+      const resolved = await resolvePaymentMethods(storeId);
+      if (!resolved.availability.manual_wallet || resolved.availability.manual_wallet.reason === 'PLAN_FEATURE_NOT_INCLUDED' || resolved.availability.manual_wallet.reason === 'NO_ACTIVE_SUBSCRIPTION' || resolved.availability.manual_wallet.reason === 'PLAN_FEATURE_DISABLED') {
+        return res.status(409).json({ error: 'Payment method is not included in the active plan', code: 'PAYMENT_METHOD_UNAVAILABLE', reason: resolved.availability.manual_wallet.reason });
+      }
+    }
     const { error } = await supabase
       .from('store_payment_gateways')
       .upsert({

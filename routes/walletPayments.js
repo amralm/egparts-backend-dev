@@ -289,13 +289,16 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
     // 1. Verify the intent belongs to this store
     const { data: intent } = await supabase
       .from('payment_intents')
-      .select('id, order_id, store_id, status')
+      .select('id, order_id, store_id, status, metadata')
       .eq('id', intent_id)
       .eq('store_id', req.store.id)
       .single();
 
     if (!intent) return res.status(404).json({ error: 'Payment intent not found' });
     if (intent.status === 'captured') return res.status(400).json({ error: 'Already confirmed' });
+    if (intent.status === 'waiting_verification') return res.status(409).json({ error: 'Proof already submitted', code: 'PROOF_ALREADY_SUBMITTED' });
+    const { data: intentOrder } = await supabase.from('orders').select('user_id, payment_method').eq('id', intent.order_id).eq('store_id', req.store.id).maybeSingle();
+    if (!intentOrder || intentOrder.user_id !== req.user.sub || intentOrder.payment_method !== 'manual_wallet') return res.status(403).json({ error: 'Payment intent does not belong to this customer' });
 
     // 2. Fetch the actual wallet details to store a snapshot
     let selectedWallet = null;
@@ -355,6 +358,7 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       last_four_digits: last_four_digits || null,
       transfer_time: transfer_time || null,
       wallet_id: wallet_id || null,
+      wallet_snapshot: selectedWallet,
       submitted_at: new Date().toISOString(),
       lifecycle_status: 'uploaded', // uploaded → verified → archived → expired → deleted
     };
@@ -431,6 +435,7 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
           status: 'pending',
           order_id: intent.order_id,
           store_id: req.store.id,
+          idempotency_key: `wallet-proof:${intent_id}`,
         });
       }
     } catch (notifErr) {
@@ -590,62 +595,14 @@ router.post('/approve', verifyPermission('payments.approve'), async (req, res) =
       return res.status(400).json({ error: `Cannot approve payment in status: ${intent.status}` });
     }
 
-    // 2. TRANSACTION: Update Payment + Order + Log Timeline (sequential, all-or-nothing)
+    // One locked database transaction owns intent, order, timeline and outbox.
     const now = new Date().toISOString();
-
-    // Update payment intent to captured
-    const { error: intentUpdateErr } = await supabase
-      .from('payment_intents')
-      .update({
-        status: 'captured',
-        updated_at: now,
-        metadata: {
-          ...(intent.metadata || {}),
-          approved_by: req.user.sub,
-          approved_at: now,
-          proof: {
-            ...(intent.metadata?.proof || {}),
-            lifecycle_status: 'verified',
-          },
-        },
-      })
-      .eq('id', intent_id)
-      .eq('store_id', req.store.id);
-
-    if (intentUpdateErr) throw intentUpdateErr;
-
-    // Update order status
-    const { error: orderUpdateErr } = await supabase
-      .from('orders')
-      .update({
-        payment_status: 'paid',
-        status: 'confirmed',
-        updated_at: now,
-      })
-      .eq('id', intent.order_id)
-      .eq('store_id', req.store.id);
-
-    if (orderUpdateErr) throw orderUpdateErr;
-
-    // Log timeline
-    await supabase.from('payment_timelines').insert({
-      payment_intent_id: intent_id,
-      event_type: 'payment_captured',
-      description: 'Merchant approved manual wallet payment',
-      data: { approved_by: req.user.sub, approved_at: now },
+    const { data: approval, error: approvalError } = await supabase.rpc('approve_manual_wallet_payment', {
+      p_intent_id: intent_id,
+      p_store_id: req.store.id,
+      p_admin_id: req.user.sub,
     });
-
-    // Queue outbox event so Order/Notification modules react via Event Bus
-    await supabase.from('payment_outbox').insert({
-      event_type: 'payment_captured',
-      payload: {
-        intent_id: intent_id,
-        order_id: intent.order_id,
-        provider: 'manual_wallet',
-        approved_by: req.user.sub,
-      },
-      status: 'pending',
-    });
+    if (approvalError) throw approvalError;
 
     // Handle immediate deletion if store's retention policy = 0 days
     const { data: storeSetting } = await supabase
@@ -659,7 +616,7 @@ router.post('/approve', verifyPermission('payments.approve'), async (req, res) =
       const approvedMeta = {
         ...(intent.metadata || {}),
         approved_by: req.user.sub,
-        approved_at: now,
+          approved_at: now,
         proof: { ...(intent.metadata?.proof || {}), lifecycle_status: 'verified' },
       };
       deleteProofImmediately(intent_id, req.store.id, approvedMeta).catch(() => {});
@@ -708,7 +665,7 @@ router.post('/reject', verifyPermission('payments.approve'), async (req, res) =>
       },
     };
 
-    await supabase
+    const { error: intentRejectError } = await supabase
       .from('payment_intents')
       .update({
         status: 'failed',
@@ -716,14 +673,17 @@ router.post('/reject', verifyPermission('payments.approve'), async (req, res) =>
         metadata: rejectedMetadata,
       })
       .eq('id', intent_id);
+    if (intentRejectError) throw intentRejectError;
 
     // Update the associated order's payment_status to 'failed'
     if (intent.order_id) {
-      await supabase
+      const { error: orderRejectError } = await supabase
         .from('orders')
         .update({ payment_status: 'failed' })
         .eq('id', intent.order_id)
         .eq('store_id', req.store.id);
+      if (orderRejectError) throw orderRejectError;
+      await supabase.rpc('restore_order_stock', { p_order_id: intent.order_id });
     }
 
     await supabase.from('payment_timelines').insert({

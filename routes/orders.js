@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const { optionalAuth, verifyUser, verifyPermission } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
+const { assertPaymentMethodAvailable } = require('../services/paymentMethodPolicy');
 
 // Rate limiting for order creation (10 requests per minute per IP)
 const orderRateLimiter = rateLimit({
@@ -149,7 +150,7 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), asyn
   try {
     const { data: oldOrder, error: oldErr } = await supabase
       .from('orders')
-      .select('id, status, payment_status, phone, order_number, user_id')
+      .select('id, status, payment_status, payment_method, phone, order_number, user_id')
       .eq('id', id)
       .eq('store_id', req.store.id)
       .maybeSingle();
@@ -160,9 +161,34 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), asyn
       return res.json({ success: true, order: oldOrder, unchanged: true });
     }
 
+    const nextStatus = status || oldOrder.status;
+    const transitions = {
+      pending: new Set(['confirmed', 'cancelled']),
+      confirmed: new Set(['processing', 'cancelled']),
+      processing: new Set(['shipped', 'cancelled']),
+      shipped: new Set(['delivered', 'cancelled']),
+      delivered: new Set(),
+      cancelled: new Set(),
+    };
+    if (status && status !== oldOrder.status && !transitions[oldOrder.status]?.has(status)) {
+      return res.status(409).json({ error: 'Invalid order status transition', code: 'INVALID_ORDER_TRANSITION' });
+    }
+    if (status === 'delivered' && !['cod', 'cash_on_delivery'].includes(oldOrder.payment_method) && oldOrder.payment_status !== 'paid') {
+      return res.status(409).json({ error: 'Cannot deliver an unpaid non-COD order', code: 'PAYMENT_REQUIRED' });
+    }
+    if (payment_status && payment_status !== oldOrder.payment_status) {
+      const isCod = ['cod', 'cash_on_delivery'].includes(oldOrder.payment_method);
+      if (!isCod || !['unpaid', 'paid'].includes(payment_status)) {
+        return res.status(409).json({ error: 'Payment status is controlled by the payment workflow', code: 'PAYMENT_WORKFLOW_REQUIRED' });
+      }
+      if (payment_status === 'paid' && !['confirmed', 'processing', 'shipped', 'delivered'].includes(oldOrder.status)) {
+        return res.status(409).json({ error: 'COD can be marked paid only after confirmation', code: 'INVALID_PAYMENT_TRANSITION' });
+      }
+    }
     const updatePayload = {};
     if (status) updatePayload.status = status;
     if (payment_status) updatePayload.payment_status = payment_status;
+    if (status === 'delivered' && ['cod', 'cash_on_delivery'].includes(oldOrder.payment_method)) updatePayload.payment_status = 'paid';
 
     const { data: order, error } = await supabase
       .from('orders')
@@ -174,7 +200,7 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), asyn
 
     if (error) throw error;
 
-    if (status === 'cancelled' && oldOrder.status !== 'cancelled') {
+    if (status === 'cancelled' && oldOrder.status !== 'cancelled' && oldOrder.payment_status !== 'paid') {
       const { error: restoreError } = await supabase.rpc('restore_order_stock', { p_order_id: id });
       if (restoreError) throw restoreError;
     }
@@ -271,26 +297,17 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, async (req, res)
   }
   
   const reservationKey = `whatsapp-${req.store.id}-${Date.now()}-${Math.random()}`;
+  try {
+    await assertPaymentMethodAvailable(req.store.id, paymentMethod);
+  } catch (err) {
+    return res.status(err.status || 409).json({ success: false, error: 'وسيلة الدفع غير متاحة', code: err.code || 'PAYMENT_METHOD_UNAVAILABLE', reason: err.message });
+  }
   const isAllowed = await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'orders', 1, reservationKey);
   if (!isAllowed) {
     return res.status(403).json({ error: 'عذراً، المتجر استنفد الحد الأقصى من الطلبات المسموحة في باقته الحالية' });
   }
 
   try {
-    if (paymentMethod === 'cod') {
-      const { data: codGateway } = await supabase
-        .from('store_payment_gateways')
-        .select('is_active')
-        .eq('store_id', req.store.id)
-        .eq('provider_name', 'cod')
-        .maybeSingle();
-        
-      if (codGateway && codGateway.is_active === false) {
-        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-        return res.status(400).json({ success: false, error: 'الدفع عند الاستلام غير متاح حالياً' });
-      }
-    }
-
     const productIds = items.map((item) => item?.id).filter(Boolean);
     const { data: tenantProducts, error: productError } = await supabase
       .from('products')
@@ -379,6 +396,11 @@ router.post('/', verifyUser, async (req, res) => {
   }
 
   try {
+    try {
+      await assertPaymentMethodAvailable(req.store.id, paymentMethod);
+    } catch (err) {
+      return res.status(err.status || 409).json({ error: 'وسيلة الدفع غير متاحة', code: err.code || 'PAYMENT_METHOD_UNAVAILABLE', reason: err.message });
+    }
     // Idempotency: scoped to user and key
     const idempotencyScope = `${userId}-${idempotencyKey}`;
 
@@ -398,20 +420,6 @@ router.post('/', verifyUser, async (req, res) => {
     const isAllowed = await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'orders', 1, reservationKey);
     if (!isAllowed) {
       return res.status(403).json({ error: 'عذراً، المتجر استنفد الحد الأقصى من الطلبات المسموحة في باقته الحالية' });
-    }
-
-    if (paymentMethod === 'cod') {
-      const { data: codGateway } = await supabase
-        .from('store_payment_gateways')
-        .select('is_active')
-        .eq('store_id', req.store.id)
-        .eq('provider_name', 'cod')
-        .maybeSingle();
-        
-      if (codGateway && codGateway.is_active === false) {
-        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-        return res.status(400).json({ error: 'الدفع عند الاستلام غير متاح حالياً' });
-      }
     }
 
     // 3. Server-Side Calculations

@@ -501,7 +501,8 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
           transaction_id: paymobTransactionId,
           amount: obj.amount_cents / 100
         },
-        processed: false
+        status: 'pending',
+        idempotency_key: `payment:${order.id}:transaction:${paymobTransactionId}`
       }).catch(err => console.error('[webhook] outbox insert failed (non-fatal):', err.message));
 
       console.log(`✅ Order ${order.id} confirmed | Transaction ${paymobTransactionId}`);
@@ -634,7 +635,15 @@ router.get('/verify-redirect', async (req, res) => {
         payment_status: 'paid',
         status: 'confirmed',
         paid_at: new Date().toISOString()
-      }).eq('id', order.id);
+      }).eq('id', order.id).eq('store_id', order.store_id);
+      await supabase.from('payment_outbox').insert({
+        store_id: order.store_id,
+        order_id: order.id,
+        event_type: 'payment_confirmed',
+        payload: { order_id: order.id, payment_method: 'card', transaction_id: query.id || null, source: 'verify_redirect' },
+        status: 'pending',
+        idempotency_key: `payment:${order.id}:redirect:${query.id || 'unknown'}`,
+      }).catch((outboxError) => console.error('[verify-redirect] outbox insert failed:', outboxError.message));
     }
 
     if (isBrowserNavigation) {
