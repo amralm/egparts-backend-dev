@@ -11,6 +11,30 @@ const EntitlementFacade = require('../server/kernel/policy/EntitlementFacade');
 const cacheProvider = require('../services/cacheProvider');
 const logger = require('../utils/logger');
 
+// Copilot dashboard data endpoint. Keep this as a read-only endpoint so a
+// disabled Copilot feature is reported as a normal entitlement state instead
+// of a misleading 404.
+router.get('/usage', verifyUser, async (req, res) => {
+  if (!req.store?.id) return res.status(400).json({ success: false, error: 'Store context required' });
+  try {
+    const [daily, monthly] = await Promise.all([
+      subscriptionLimitService.checkFeatureLimit(req.store.id, 'copilot_messages_day', 0),
+      subscriptionLimitService.checkFeatureLimit(req.store.id, 'ai_requests_month', 0),
+    ]);
+    return res.json({
+      success: true,
+      usage: {
+        enabled: daily.allowed === true && monthly.allowed === true,
+        daily: { used: daily.usage || 0, limit: daily.limit, remaining: daily.remaining, unlimited: daily.is_unlimited === true },
+        monthly: { used: monthly.usage || 0, limit: monthly.limit, remaining: monthly.remaining, unlimited: monthly.is_unlimited === true },
+      },
+    });
+  } catch (error) {
+    logger.error('[copilot/usage] Failed to load usage:', error.message);
+    return res.status(500).json({ success: false, error: 'Failed to load Copilot usage' });
+  }
+});
+
 /**
  * Chat with EGParts Copilot (AI Advisor)
  */
