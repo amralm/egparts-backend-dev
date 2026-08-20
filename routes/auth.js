@@ -66,10 +66,20 @@ function normalizeEgyptianPhone(value) {
   return digits;
 }
 
-// Strict per-IP rate limiter for OTP send (2 req / 5 min per IP)
+// Do not rate-limit every customer behind the same Render/Cloudflare edge IP.
+// The short window must be scoped to the phone + client IP; the separate
+// per-phone limiter below still protects against distributed brute force.
+function otpRateLimitKey(req, prefix) {
+  const phone = String(req.body?.phone || '').replace(/\D/g, '') || 'unknown-phone';
+  const clientIp = req.clientIp || req.ip || req.socket?.remoteAddress || 'unknown-ip';
+  return `${prefix}:${clientIp}:${phone}`;
+}
+
+// Short-window limiter scoped to the normalized phone and client IP.
 const otpRateLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 5 * 60 * 1000,
-  max: 2,
+  max: 3,
+  keyGenerator: (req) => otpRateLimitKey(req, 'otp-send'),
   message: { error: 'طلبات كود التحقق كثيرة جداً، حاول بعد 5 دقائق' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -86,17 +96,18 @@ const perPhoneOtpLimiter = rateLimit({ validate: { trustProxy: false },
   keyGenerator: (req) => {
     try {
       const { phone } = sendOTPSchema.parse(req.body);
-      return `${req.ip}_${phone}`;
+      return `${req.clientIp || req.ip}_${normalizeEgyptianPhone(phone)}`;
     } catch {
       return req.ip;
     }
   },
 });
 
-// Per-IP rate limiter for OTP verify (3 req / 1 min per IP) to prevent brute force
+// Short-window limiter scoped to the normalized phone and client IP.
 const verifyRateLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 60 * 1000,
-  max: 3,
+  max: 5,
+  keyGenerator: (req) => otpRateLimitKey(req, 'otp-verify'),
   message: { error: 'محاولات تحقق كثيرة جداً، حاول بعد دقيقة' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -113,7 +124,7 @@ const perPhoneVerifyLimiter = rateLimit({ validate: { trustProxy: false },
   keyGenerator: (req) => {
     try {
       const { phone } = verifyOTPSchema.parse(req.body);
-      return `verify_${phone}`;
+      return `verify_${normalizeEgyptianPhone(phone)}`;
     } catch {
       return `verify_fallback_${req.ip}`;
     }
