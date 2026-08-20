@@ -55,7 +55,10 @@ async function syncUserProfile(decodedUser, storeId) {
   }
 
   const userId = decodedUser.sub;
-  if (!storeId || storeId === DEFAULT_STORE_ID) {
+  // The platform's primary store uses DEFAULT_STORE_ID. It is a valid
+  // profile scope for the authenticated platform user, even though it is
+  // not a normal tenant scope for store data operations.
+  if (!storeId) {
     const err = new Error('Tenant context is required');
     err.statusCode = 400;
     throw err;
@@ -126,7 +129,9 @@ async function markEmailVerified(decodedUser, storeId) {
     throw err;
   }
 
-  if (!storeId || storeId === DEFAULT_STORE_ID) {
+  // Keep platform-admin profiles in the primary store scope. Authorization
+  // remains bound to decodedUser.sub, so this does not grant cross-user access.
+  if (!storeId) {
     const err = new Error('Tenant context is required');
     err.statusCode = 400;
     throw err;
