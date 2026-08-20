@@ -214,8 +214,20 @@ router.post('/profile/mark-email-verified', verifyUser, sensitiveWriteRateLimite
 
 router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req, res) => {
   try {
-    if (!req.store?.id) return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context required' });
-    const profile = await userProfileService.updateProfilePhone(req.user, req.store.id, req.body?.phone);
+    const requestedStoreId = req.body?.store_id || req.store?.id;
+    const platformStoreId = userProfileService.DEFAULT_STORE_ID;
+    const isPlatformProfile = requestedStoreId === platformStoreId && (
+      req.context?.type === 'platform' || req.store?.id === platformStoreId
+    );
+
+    if (!req.store?.id && !isPlatformProfile) {
+      return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context required' });
+    }
+    if (req.store?.id && requestedStoreId !== req.store.id) {
+      return res.status(403).json({ success: false, code: 'STORE_CONTEXT_MISMATCH', error: 'Store context mismatch' });
+    }
+
+    const profile = await userProfileService.updateProfilePhone(req.user, requestedStoreId, req.body?.phone);
     return res.json({ success: true, profile });
   } catch (err) {
     logger.error('Profile phone update failed:', err.message);
