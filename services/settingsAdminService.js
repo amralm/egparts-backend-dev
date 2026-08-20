@@ -40,6 +40,15 @@ async function getSettings(storeId) {
 
 async function saveSettings(storeId, settings, businessType, guaranteeProductIds = []) {
   const { id, store_id, created_at, updated_at, ...updatePayload } = settings || {};
+  if (updatePayload.proof_retention_days !== undefined && updatePayload.proof_retention_days !== null) {
+    const retentionDays = Number(updatePayload.proof_retention_days);
+    if (!Number.isInteger(retentionDays) || retentionDays < 0 || retentionDays > 3650) {
+      const error = new Error('proof_retention_days must be an integer between 0 and 3650');
+      error.statusCode = 400;
+      throw error;
+    }
+    updatePayload.proof_retention_days = retentionDays;
+  }
   const safePayload = normalizeThemeSettings(updatePayload);
 
   const { data, error } = await supabase.from('site_settings').update(safePayload).eq('store_id', storeId).select().maybeSingle();

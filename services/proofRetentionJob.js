@@ -1,218 +1,325 @@
-/**
- * Payment Proof Retention Job
- * Runs on a schedule to delete expired payment proof images from Cloudflare R2.
- *
- * Lifecycle of a proof image:
- *   uploaded → verified → archived → expired → DELETED (by this job)
- *
- * The retention period is per-store (via site_settings.proof_retention_days).
- * Default is 90 days if not set.
- *
- * Supported retention values (days):
- *   0   → delete immediately after approval (handled at approve time, not here)
- *   30  → delete 30 days after approval
- *   90  → delete 90 days after approval  (default)
- *   365 → delete 365 days after approval
- *  -1   → never delete (forever)
- *
- * This job runs once every 24 hours.
- */
+'use strict';
 
+/**
+ * Durable payment-proof retention.
+ *
+ * The Web Service timer is only a best-effort fallback. The authoritative
+ * deadline and retry state live in payment_proof_retention and are processed
+ * by scripts/cleanup-payment-proofs.js from an external Render Cron Job.
+ */
 const { supabase } = require('./supabase');
 const r2 = require('./r2StorageService');
 const logger = require('../utils/logger');
-const subscriptionLimitService = require('./subscriptionLimitService');
 
-const JOB_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-const DEFAULT_RETENTION_DAYS = 30; // Reduced from 90 to 30 for approved
-const REJECTED_RETENTION_DAYS = 1; // 24 hours for rejected
+const JOB_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_RETENTION_DAYS = 30;
+const MAX_RETENTION_DAYS = 3650;
+const LEGACY_FALLBACK_LIMIT = 100;
 
-async function decrementWithRetry(storeId, intentId, proof, retries = 3) {
-  if (proof.quota_bytes === undefined) {
-    logger.warn(`[ProofRetentionJob] Legacy receipt (no quota_bytes) deleted for intent ${intentId}. Skipping storage decrement.`);
+function normalizeDays(value, fallback = DEFAULT_RETENTION_DAYS) {
+  const days = Number(value);
+  if (!Number.isFinite(days) || days < 0 || days > MAX_RETENTION_DAYS) return fallback;
+  return Math.floor(days);
+}
+
+function addDays(date, days) {
+  return new Date(new Date(date).getTime() + normalizeDays(days) * 24 * 60 * 60 * 1000);
+}
+
+async function getPlatformDefaultRetentionDays() {
+  const { data, error } = await supabase
+    .from('system_settings')
+    .select('value')
+    .eq('key', 'payment_proof_retention_default_days')
+    .maybeSingle();
+
+  if (error) {
+    logger.warn(`[ProofRetentionJob] Failed to load platform default: ${error.message}`);
+    return DEFAULT_RETENTION_DAYS;
+  }
+  return normalizeDays(data?.value, DEFAULT_RETENTION_DAYS);
+}
+
+async function getStoreRetentionPolicy(storeId) {
+  const { data, error } = await supabase
+    .from('site_settings')
+    .select('proof_retention_days')
+    .eq('store_id', storeId)
+    .maybeSingle();
+
+  if (!error && data?.proof_retention_days !== null && data?.proof_retention_days !== undefined) {
+    const raw = Number(data.proof_retention_days);
+    if (Number.isFinite(raw) && raw >= 0 && raw <= MAX_RETENTION_DAYS) {
+      return { days: Math.floor(raw), source: 'store_override' };
+    }
   }
 
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      await subscriptionLimitService.decrementFeatureUsage(storeId, 'uploaded_files', 1);
-      if (proof.quota_bytes > 0) {
-        await subscriptionLimitService.decrementFeatureUsage(storeId, 'storage_bytes', proof.quota_bytes);
-      }
-      return; // Success
-    } catch (err) {
-      if (attempt === retries) {
-        logger.error(`[ProofRetentionJob] FAILED_QUOTA_DECREMENT: storeId=${storeId}, intentId=${intentId}, r2_key=${proof.r2_key}, bytes=${proof.quota_bytes || 0}. Manual reconciliation required.`);
-      } else {
-        await new Promise(r => setTimeout(r, 1000 * attempt)); // Exponential backoff: 1s, 2s...
-      }
-    }
+  return {
+    days: await getPlatformDefaultRetentionDays(),
+    source: 'platform_default',
+  };
+}
+
+async function upsertRetentionRecord({
+  intentId,
+  storeId,
+  r2Key,
+  quotaBytes = 0,
+  quotaFeatureKey = 'uploaded_images',
+  submittedAt,
+  expiresAt = null,
+  status = 'active',
+  retentionSource = 'platform_default',
+  resetLifecycle = false,
+}) {
+  const payload = {
+    intent_id: intentId,
+    store_id: storeId,
+    r2_key: r2Key,
+    quota_bytes: Math.max(0, Number(quotaBytes) || 0),
+    quota_feature_key: quotaFeatureKey === 'uploaded_files' ? 'uploaded_files' : 'uploaded_images',
+    submitted_at: submittedAt || new Date().toISOString(),
+    expires_at: expiresAt,
+    status,
+    retention_source: retentionSource,
+    updated_at: new Date().toISOString(),
+  };
+  if (resetLifecycle) {
+    payload.deleted_at = null;
+    payload.quota_released_at = null;
+    payload.deletion_started_at = null;
+    payload.attempts = 0;
+    payload.last_error = null;
+  }
+
+  const { error } = await supabase
+    .from('payment_proof_retention')
+    .upsert(payload, { onConflict: 'intent_id' });
+
+  if (error) throw error;
+}
+
+async function registerProof({ intentId, storeId, r2Key, quotaBytes, submittedAt }) {
+  await upsertRetentionRecord({ intentId, storeId, r2Key, quotaBytes, submittedAt, resetLifecycle: true });
+}
+
+async function applyDecisionToProof({ intentId, storeId, metadata, approved, decisionAt }) {
+  const proof = metadata?.proof;
+  if (!proof?.r2_key) return { expiresAt: null, source: approved ? 'platform_default' : 'immediate_rejected' };
+
+  const decidedAt = decisionAt || new Date().toISOString();
+  const policy = approved
+    ? await getStoreRetentionPolicy(storeId)
+    : { days: 0, source: 'immediate_rejected' };
+  const expiresAt = approved ? addDays(decidedAt, policy.days).toISOString() : decidedAt;
+  const lifecycleStatus = approved ? 'verified' : 'rejected';
+
+  const updatedMetadata = {
+    ...(metadata || {}),
+    proof: {
+      ...proof,
+      lifecycle_status: lifecycleStatus,
+      proof_expires_at: expiresAt,
+      retention_days: policy.days,
+      retention_source: policy.source,
+    },
+  };
+
+  const { error: metadataError } = await supabase
+    .from('payment_intents')
+    .update({ metadata: updatedMetadata, updated_at: decidedAt })
+    .eq('id', intentId)
+    .eq('store_id', storeId);
+  if (metadataError) throw metadataError;
+
+  await upsertRetentionRecord({
+    intentId,
+    storeId,
+    r2Key: proof.r2_key,
+    quotaBytes: proof.quota_bytes,
+    quotaFeatureKey: proof.quota_feature_key,
+    submittedAt: proof.submitted_at,
+    expiresAt,
+    status: approved ? 'active' : 'deletion_pending',
+    retentionSource: policy.source,
+  });
+
+  return { expiresAt, source: policy.source, days: policy.days };
+}
+
+async function releaseQuota(intentId) {
+  const { data, error } = await supabase.rpc('release_payment_proof_quota', { p_intent_id: intentId });
+  if (error) throw error;
+  return data || { released: false };
+}
+
+async function markDeleted(record, reason) {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from('payment_proof_retention')
+    .update({ status: 'deleted', deleted_at: now, last_error: null, updated_at: now })
+    .eq('id', record.id);
+  if (error) throw error;
+
+  // Remove the raw key while retaining lifecycle and audit data in metadata.
+  const { data: intent } = await supabase
+    .from('payment_intents')
+    .select('metadata')
+    .eq('id', record.intent_id)
+    .maybeSingle();
+  if (intent?.metadata?.proof) {
+    await supabase.from('payment_intents').update({
+      metadata: {
+        ...(intent.metadata || {}),
+        proof: {
+          ...intent.metadata.proof,
+          r2_key: null,
+          lifecycle_status: 'deleted',
+          deleted_at: now,
+          deleted_reason: reason,
+        },
+      },
+      updated_at: now,
+    }).eq('id', record.intent_id);
   }
 }
 
-async function runProofRetentionCleanup() {
-  if (runProofRetentionCleanup.running) return;
-  runProofRetentionCleanup.running = true;
-  logger.info('[ProofRetentionJob] Starting payment proof retention cleanup...');
+async function deleteRetentionRecord(record, reason = 'Retention policy expired') {
+  if (!record?.r2_key || record.status === 'deleted') return { deleted: false, reason: 'already_deleted' };
+
+  const now = new Date().toISOString();
+  await supabase.from('payment_proof_retention').update({
+    status: 'deletion_pending',
+    deletion_started_at: now,
+    attempts: Number(record.attempts || 0) + 1,
+    updated_at: now,
+  }).eq('id', record.id).neq('status', 'deleted');
 
   try {
-    // Find all payment_intents with manual_wallet provider where:
-    // - status is 'captured' (approved) OR 'failed' (rejected)
-    // - proof exists (r2_key is set)
-    // - lifecycle_status is NOT 'deleted'
-    const { data: intents, error } = await supabase
-      .from('payment_intents')
-      .select('id, store_id, status, metadata, updated_at')
-      .eq('provider', 'manual_wallet')
-      .in('status', ['captured', 'failed'])
-      .not('metadata->proof->r2_key', 'is', null)
-      .order('updated_at', { ascending: true })
-      .limit(100);
+    await r2.deleteObject(record.r2_key);
+    await releaseQuota(record.intent_id);
+    await markDeleted(record, reason);
+    return { deleted: true };
+  } catch (error) {
+    await supabase.from('payment_proof_retention').update({
+      status: 'deletion_failed',
+      last_error: String(error.message || error).slice(0, 1000),
+      updated_at: new Date().toISOString(),
+    }).eq('id', record.id);
+    logger.error(`[ProofRetentionJob] Deletion failed for ${record.intent_id}: ${error.message}`);
+    return { deleted: false, error };
+  }
+}
 
-    if (error) {
-      logger.error(`[ProofRetentionJob] Error fetching intents: ${error.message}`);
-      return;
+async function deleteProofImmediately(intentId, storeId, metadata, customReason = null) {
+  const proof = metadata?.proof;
+  if (!proof?.r2_key) return { deleted: false, reason: 'no_r2_key' };
+
+  let { data: record } = await supabase
+    .from('payment_proof_retention')
+    .select('*')
+    .eq('intent_id', intentId)
+    .eq('store_id', storeId)
+    .maybeSingle();
+
+  if (!record) {
+    await upsertRetentionRecord({
+      intentId,
+      storeId,
+      r2Key: proof.r2_key,
+      quotaBytes: proof.quota_bytes,
+      quotaFeatureKey: proof.quota_feature_key,
+      submittedAt: proof.submitted_at,
+      expiresAt: new Date().toISOString(),
+      status: 'deletion_pending',
+      retentionSource: 'immediate_rejected',
+    });
+    ({ data: record } = await supabase.from('payment_proof_retention').select('*').eq('intent_id', intentId).maybeSingle());
+  }
+
+  return deleteRetentionRecord(record, customReason || 'Rejected proof: immediate deletion');
+}
+
+async function loadDueRecords(limit = 100) {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('payment_proof_retention')
+    .select('*')
+    .in('status', ['active', 'deletion_pending', 'deletion_failed'])
+    .not('expires_at', 'is', null)
+    .lte('expires_at', now)
+    .order('expires_at', { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
+async function cleanupLegacyRecords(limit = LEGACY_FALLBACK_LIMIT) {
+  // Compatibility path for receipts uploaded before migration 70. It is
+  // intentionally conservative: only records with an explicit decision are
+  // considered, and metadata is converted into the durable queue before use.
+  const { data: intents, error } = await supabase
+    .from('payment_intents')
+    .select('id, order_id, store_id, status, metadata, updated_at')
+    .eq('provider', 'manual_wallet')
+    .in('status', ['captured', 'failed'])
+    .not('metadata->proof->r2_key', 'is', null)
+    .order('updated_at', { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+
+  let converted = 0;
+  for (const intent of intents || []) {
+    const proof = intent.metadata?.proof;
+    if (!proof?.r2_key) continue;
+    const approved = intent.status === 'captured';
+    const expiresAt = proof.proof_expires_at || (approved ? addDays(proof.approved_at || intent.updated_at, DEFAULT_RETENTION_DAYS).toISOString() : new Date().toISOString());
+    await upsertRetentionRecord({
+      intentId: intent.id,
+      storeId: intent.store_id,
+      r2Key: proof.r2_key,
+      quotaBytes: proof.quota_bytes,
+      quotaFeatureKey: proof.quota_feature_key || 'uploaded_images',
+      submittedAt: proof.submitted_at || intent.updated_at,
+      expiresAt,
+      status: approved ? 'active' : 'deletion_pending',
+      retentionSource: proof.retention_source || (approved ? 'platform_default' : 'immediate_rejected'),
+    });
+    converted += 1;
+  }
+  return converted;
+}
+
+async function runProofRetentionCleanup() {
+  if (runProofRetentionCleanup.running) return { deleted: 0, converted: 0 };
+  runProofRetentionCleanup.running = true;
+  try {
+    const converted = await cleanupLegacyRecords();
+    const records = await loadDueRecords();
+    let deleted = 0;
+    let failed = 0;
+    for (const record of records) {
+      const result = await deleteRetentionRecord(record);
+      if (result.deleted) deleted += 1;
+      else if (result.error) failed += 1;
     }
-
-    if (!intents || intents.length === 0) {
-      logger.info('[ProofRetentionJob] No proof images to evaluate.');
-      return;
-    }
-
-    logger.info(`[ProofRetentionJob] Evaluating ${intents.length} proof images...`);
-
-    // Group by store_id to fetch retention settings in batch
-    const storeIds = [...new Set(intents.map((i) => i.store_id))];
-    const { data: settingsRows } = await supabase
-      .from('site_settings')
-      .select('store_id, proof_retention_days')
-      .in('store_id', storeIds);
-
-    const retentionMap = {};
-    for (const row of settingsRows || []) {
-      retentionMap[row.store_id] = row.proof_retention_days ?? DEFAULT_RETENTION_DAYS;
-    }
-
-    let deletedCount = 0;
-
-    for (const intent of intents) {
-      const proof = intent.metadata?.proof;
-      if (!proof?.r2_key) continue;
-      if (proof.lifecycle_status === 'deleted') continue;
-
-      // Fast-path: rejected proofs should have been deleted by the route handler,
-      // but if that failed (network hiccup, etc.), clean them up now without waiting.
-      const isRejectedProof = intent.status === 'failed' && proof.lifecycle_status === 'rejected';
-
-      // Determine retention days and reference date based on status
-      let retentionDays;
-      let referenceDateStr;
-
-      if (intent.status === 'failed') {
-        retentionDays = isRejectedProof ? 0 : REJECTED_RETENTION_DAYS; // rejected proofs: expire immediately
-        referenceDateStr = intent.metadata?.rejected_at || intent.updated_at;
-      } else {
-        retentionDays = retentionMap[intent.store_id] ?? DEFAULT_RETENTION_DAYS;
-        referenceDateStr = intent.metadata?.approved_at || intent.updated_at;
-      }
-
-      // -1 means "keep forever" (only applies to approved, rejected is always cleaned up)
-      if (retentionDays === -1) continue;
-
-      // Calculate expiry
-      const referenceDate = new Date(referenceDateStr);
-      const expiryDate = new Date(referenceDate.getTime() + retentionDays * 24 * 60 * 60 * 1000);
-      const now = new Date();
-
-      if (now < expiryDate) continue; // Not expired yet
-
-      // Delete from R2
-      try {
-        await r2.deleteObject(proof.r2_key);
-        logger.info(`[ProofRetentionJob] Deleted R2 object: ${proof.r2_key}`);
-
-        // Decrement quota with retry
-        await decrementWithRetry(intent.store_id, intent.id, proof);
-
-        // Mark as deleted in metadata (keep audit trail, remove the actual file reference)
-        const updatedProof = {
-          ...proof,
-          r2_key: null,          // Remove reference (file is gone)
-          lifecycle_status: 'deleted',
-          deleted_at: now.toISOString(),
-          deleted_reason: `Retention policy: ${retentionDays} days`,
-        };
-
-        await supabase
-          .from('payment_intents')
-          .update({
-            metadata: {
-              ...(intent.metadata || {}),
-              proof: updatedProof,
-            },
-          })
-          .eq('id', intent.id);
-
-        deletedCount++;
-      } catch (deleteErr) {
-        logger.error(`[ProofRetentionJob] Failed to delete ${proof.r2_key}: ${deleteErr.message}`);
-      }
-    }
-
-    logger.info(`[ProofRetentionJob] Cleanup complete. Deleted ${deletedCount} proof images.`);
-  } catch (err) {
-    logger.error(`[ProofRetentionJob] Fatal error: ${err.message}`);
+    logger.info(`[ProofRetentionJob] Cleanup complete: converted=${converted}, deleted=${deleted}, failed=${failed}`);
+    return { converted, deleted, failed };
+  } catch (error) {
+    logger.error(`[ProofRetentionJob] Cleanup failed: ${error.message}`);
+    throw error;
   } finally {
     runProofRetentionCleanup.running = false;
   }
 }
 
-/**
- * Delete a proof immediately after merchant approval (for stores with retention = 0 days).
- * Called from the approve route.
- *
- * @param {string} intentId
- * @param {string} storeId
- * @param {object} metadata  - current intent metadata
- * @param {string} [customReason] - optional custom reason for deletion
- */
-async function deleteProofImmediately(intentId, storeId, metadata, customReason = null) {
-  const r2Key = metadata?.proof?.r2_key;
-  if (!r2Key) return;
-
-  try {
-    await r2.deleteObject(r2Key);
-
-    await decrementWithRetry(storeId, intentId, metadata.proof);
-
-    const updatedProof = {
-      ...(metadata.proof || {}),
-      r2_key: null,
-      lifecycle_status: 'deleted',
-      deleted_at: new Date().toISOString(),
-      deleted_reason: customReason || 'Retention policy: 0 days (immediate)',
-    };
-
-    await supabase
-      .from('payment_intents')
-      .update({ metadata: { ...metadata, proof: updatedProof } })
-      .eq('id', intentId);
-
-    logger.info(`[ProofRetentionJob] Immediately deleted proof for intent ${intentId}`);
-  } catch (err) {
-    logger.error(`[ProofRetentionJob] Failed to immediately delete proof for ${intentId}: ${err.message}`);
-  }
-}
-
-/**
- * Start the retention cleanup cron (runs every 24 hours).
- */
 let retentionTimer = null;
 function startProofRetentionJob() {
   if (retentionTimer) return;
-  logger.info('[ProofRetentionJob] Scheduled: runs every 24 hours.');
-  // Run once on startup, then every 24h
-  runProofRetentionCleanup();
-  retentionTimer = setInterval(runProofRetentionCleanup, JOB_INTERVAL_MS);
+  // Fallback only. Production deletion is performed by the external cron.
+  logger.info('[ProofRetentionJob] Starting best-effort web fallback; use the external retention cron for production cleanup.');
+  runProofRetentionCleanup().catch(() => {});
+  retentionTimer = setInterval(() => runProofRetentionCleanup().catch(() => {}), JOB_INTERVAL_MS);
 }
 
 function stopProofRetentionJob() {
@@ -220,4 +327,14 @@ function stopProofRetentionJob() {
   retentionTimer = null;
 }
 
-module.exports = { startProofRetentionJob, stopProofRetentionJob, deleteProofImmediately };
+module.exports = {
+  DEFAULT_RETENTION_DAYS,
+  getPlatformDefaultRetentionDays,
+  getStoreRetentionPolicy,
+  registerProof,
+  applyDecisionToProof,
+  runProofRetentionCleanup,
+  startProofRetentionJob,
+  stopProofRetentionJob,
+  deleteProofImmediately,
+};
