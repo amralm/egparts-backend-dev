@@ -53,6 +53,25 @@ class WhatsappService {
       return this.storeId;
     }
 
+    if (this.accountId) {
+      const { data: account, error } = await supabase
+        .from('whatsapp_accounts')
+        .select('store_id')
+        .eq('id', this.accountId)
+        .maybeSingle();
+      if (error) throw error;
+      if (account?.store_id) {
+        this.storeId = account.store_id;
+        return this.storeId;
+      }
+
+      // Central-pool accounts have no tenant owner. Keep their encrypted
+      // auth state under the platform system store, while accountId still
+      // isolates every WhatsApp session and dispatch job.
+      this.storeId = process.env.WHATSAPP_POOL_STORE_ID || '00000000-0000-0000-0000-000000000000';
+      return this.storeId;
+    }
+
     throw new Error('WHATSAPP_STORE_ID is required for the legacy WhatsApp service; use whatsappPoolService for multi-tenant sessions');
   }
 
