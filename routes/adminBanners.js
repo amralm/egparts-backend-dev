@@ -40,7 +40,9 @@ router.post('/', verifyPermission('banners.manage'), async (req, res) => {
   let reservationKey;
   try {
     reservationKey = req.headers['x-idempotency-key'] || `banner_${Date.now()}`;
-    const isAllowed = await subscriptionLimitService.reserveFeatureUsage(storeId, 'banners', 1, reservationKey, 15);
+    // Keep the API contract aligned with the frontend and upload pipeline.
+    // `banners` was a legacy key; production plans expose `banner_images`.
+    const isAllowed = await subscriptionLimitService.reserveFeatureUsage(storeId, 'banner_images', 1, reservationKey, 15);
     if (!isAllowed) {
       return res.status(403).json({ success: false, code: 'FEATURE_LIMIT_EXCEEDED', error: 'تجاوزت الحد الأقصى للبنرات الإعلانية المسموح بها في باقتك.' });
     }
