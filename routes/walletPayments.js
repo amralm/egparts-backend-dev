@@ -20,9 +20,17 @@ const r2 = require('../services/r2StorageService');
 const assetPipeline = require('../services/assetPipeline/AssetPipeline');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
 const { getPaymentService } = require('../server/modules/payments/PaymentModuleFactory');
-const { deleteProofImmediately } = require('../services/proofRetentionJob');
+const {
+  registerProof,
+  applyDecisionToProof,
+  deleteProofImmediately,
+} = require('../services/proofRetentionJob');
 const rateLimit = require('express-rate-limit');
 const { decryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
+
+function proofIsExpired(proof) {
+  return Boolean(proof?.proof_expires_at && new Date(proof.proof_expires_at).getTime() <= Date.now());
+}
 
 // In-memory storage (files go to Cloudflare R2 via AssetPipeline)
 const upload = multer({
@@ -265,23 +273,18 @@ router.post('/initiate', walletRateLimiter, verifyUser, async (req, res) => {
 // Customer uploads screenshot of their transfer as proof.
 router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('receipt'), async (req, res) => {
   const { intent_id, last_four_digits, transfer_time, wallet_id } = req.body;
+  let uploadedProofKey = null;
+  let uploadedQuotaBytes = 0;
+  let retentionRegistered = false;
 
   if (!intent_id || !req.file) {
     return res.status(400).json({ error: 'intent_id and receipt image are required' });
   }
 
-  const reservationKey = `wallet-proof-${req.store.id}-${intent_id}`;
-  const reservedImage = await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'uploaded_images', 1, reservationKey, 15);
-  if (!reservedImage) {
-    return res.status(403).json({ error: 'عذراً، المتجر استنفد الحد الأقصى من مساحة التخزين المسموحة في باقته الحالية' });
-  }
-
   if (!wallet_id) {
-    await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
     return res.status(400).json({ error: 'wallet_id is required' });
   }
   if (!req.store?.id) {
-    await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
     return res.status(404).json({ error: 'Store not found' });
   }
 
@@ -297,7 +300,7 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
     if (!intent) return res.status(404).json({ error: 'Payment intent not found' });
     if (intent.status === 'captured') return res.status(400).json({ error: 'Already confirmed' });
     if (intent.status === 'waiting_verification') return res.status(409).json({ error: 'Proof already submitted', code: 'PROOF_ALREADY_SUBMITTED' });
-    const { data: intentOrder } = await supabase.from('orders').select('user_id, payment_method').eq('id', intent.order_id).eq('store_id', req.store.id).maybeSingle();
+    const { data: intentOrder } = await supabase.from('orders').select('user_id, payment_method, created_at').eq('id', intent.order_id).eq('store_id', req.store.id).maybeSingle();
     if (!intentOrder || intentOrder.user_id !== req.user.sub || intentOrder.payment_method !== 'manual_wallet') return res.status(403).json({ error: 'Payment intent does not belong to this customer' });
 
     // 2. Fetch the actual wallet details to store a snapshot
@@ -350,6 +353,7 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       },
     });
     const r2Key = uploadResult.key;
+    uploadedProofKey = r2Key;
 
     // Save the R2 key (not a URL) in metadata for later presigned URL generation
     const proofMeta = {
@@ -360,8 +364,10 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       wallet_id: wallet_id || null,
       wallet_snapshot: selectedWallet,
       submitted_at: new Date().toISOString(),
+      quota_feature_key: 'uploaded_images',
       lifecycle_status: 'uploaded', // uploaded → verified → archived → expired → deleted
     };
+    uploadedQuotaBytes = proofMeta.quota_bytes;
 
     // Merge metadata and update status
     const { data: existing, error: fetchError } = await supabase
@@ -386,6 +392,15 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       console.error('[wallet/submit-proof] Failed to update intent:', updateIntentError);
       throw updateIntentError;
     }
+
+    await registerProof({
+      intentId: intent_id,
+      storeId: req.store.id,
+      r2Key,
+      quotaBytes: proofMeta.quota_bytes,
+      submittedAt: proofMeta.submitted_at,
+    });
+    retentionRegistered = true;
 
     // Update order payment_status so the frontend reflects 'waiting_verification'
     if (intent.order_id) {
@@ -443,10 +458,21 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       console.error('[wallet/submit-proof] Notification failed (non-fatal):', notifErr.message);
     }
 
-    await subscriptionLimitService.commitFeatureUsage(reservationKey);
     return res.json({ success: true, message: 'Receipt uploaded successfully' });
   } catch (err) {
-    await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+    // If the durable retention record was not created, clean up the object and
+    // its quota immediately so a failed request cannot orphan R2 bytes.
+    if (!retentionRegistered && uploadedProofKey) {
+      try {
+        await r2.deleteObject(uploadedProofKey);
+        if (uploadedQuotaBytes > 0) {
+          await subscriptionLimitService.decrementFeatureUsage(req.store.id, 'storage_bytes', uploadedQuotaBytes);
+        }
+        await subscriptionLimitService.decrementFeatureUsage(req.store.id, 'uploaded_images', 1);
+      } catch (cleanupError) {
+        console.error('[wallet/submit-proof] Upload compensation failed:', cleanupError.message);
+      }
+    }
     console.error('[wallet/submit-proof] Error:', err.message);
     return res.status(500).json({ error: 'Failed to upload receipt' });
   }
@@ -473,7 +499,7 @@ router.get('/pending-proofs', verifyPermission('payments.view'), async (req, res
     const result = await Promise.all((intents || []).map(async (intent) => {
       let proofUrl = null;
       const r2Key = intent.metadata?.proof?.r2_key;
-      if (r2Key) {
+      if (r2Key && !proofIsExpired(intent.metadata?.proof)) {
         try {
           proofUrl = await r2.getPresignedUrl(r2Key, 3600);
         } catch (err) {
@@ -493,6 +519,8 @@ router.get('/pending-proofs', verifyPermission('payments.view'), async (req, res
         last_four_digits: intent.metadata?.proof?.last_four_digits || null,
         transfer_time: intent.metadata?.proof?.transfer_time || null,
         submitted_at: intent.metadata?.proof?.submitted_at || intent.updated_at,
+        proof_expires_at: intent.metadata?.proof?.proof_expires_at || null,
+        proof_available: Boolean(proofUrl),
         proof_url: proofUrl,
       };
     }));
@@ -539,7 +567,7 @@ router.get('/order-proof/:orderId', verifyPermission('payments.view'), async (re
     
     let proofUrl = null;
     const r2Key = activeIntent.metadata?.proof?.r2_key;
-    if (r2Key) {
+    if (r2Key && !proofIsExpired(activeIntent.metadata?.proof)) {
       try {
         proofUrl = await r2.getPresignedUrl(r2Key, 3600);
       } catch (err) {
@@ -560,6 +588,8 @@ router.get('/order-proof/:orderId', verifyPermission('payments.view'), async (re
         last_four_digits: activeIntent.metadata?.proof?.last_four_digits || null,
         transfer_time: activeIntent.metadata?.proof?.transfer_time || null,
         submitted_at: activeIntent.metadata?.proof?.submitted_at || activeIntent.updated_at,
+        proof_expires_at: activeIntent.metadata?.proof?.proof_expires_at || null,
+        proof_available: Boolean(proofUrl),
         proof_url: proofUrl,
       }
     });
@@ -604,22 +634,29 @@ router.post('/approve', verifyPermission('payments.approve'), async (req, res) =
     });
     if (approvalError) throw approvalError;
 
-    // Handle immediate deletion if store's retention policy = 0 days
-    const { data: storeSetting } = await supabase
-      .from('site_settings')
-      .select('proof_retention_days')
+    const { data: approvedIntent, error: approvedIntentError } = await supabase
+      .from('payment_intents')
+      .select('metadata')
+      .eq('id', intent_id)
       .eq('store_id', req.store.id)
-      .maybeSingle();
+      .single();
+    if (approvedIntentError) throw approvedIntentError;
 
-    if ((storeSetting?.proof_retention_days ?? 30) === 0) {
-      // Delete immediately after approval — fire and forget
-      const approvedMeta = {
-        ...(intent.metadata || {}),
-        approved_by: req.user.sub,
-          approved_at: now,
-        proof: { ...(intent.metadata?.proof || {}), lifecycle_status: 'verified' },
-      };
-      deleteProofImmediately(intent_id, req.store.id, approvedMeta).catch(() => {});
+    const decision = await applyDecisionToProof({
+      intentId: intent_id,
+      storeId: req.store.id,
+      metadata: approvedIntent.metadata || intent.metadata || {},
+      approved: true,
+      decisionAt: now,
+    });
+
+    if (decision.days === 0) {
+      await deleteProofImmediately(
+        intent_id,
+        req.store.id,
+        { ...(approvedIntent.metadata || intent.metadata || {}) },
+        'Approved proof: store retention override is 0 days'
+      );
     }
 
     return res.json({ success: true, message: 'تم تأكيد الدفع وتحديث حالة الطلب بنجاح.' });
@@ -653,7 +690,7 @@ router.post('/reject', verifyPermission('payments.approve'), async (req, res) =>
 
     const now = new Date().toISOString();
 
-    // Mark proof lifecycle as 'rejected' so the retention job + GC can track it correctly
+    // Mark proof lifecycle as rejected and persist an immediate deletion deadline.
     const rejectedMetadata = {
       ...(intent.metadata || {}),
       rejected_by: req.user.sub,
@@ -661,7 +698,7 @@ router.post('/reject', verifyPermission('payments.approve'), async (req, res) =>
       rejection_reason: reason || 'Merchant rejected payment',
       proof: {
         ...(intent.metadata?.proof || {}),
-        lifecycle_status: 'rejected',  // rejected → deleted by retention job (REJECTED_RETENTION_DAYS = 1)
+        lifecycle_status: 'rejected',
       },
     };
 
@@ -693,16 +730,23 @@ router.post('/reject', verifyPermission('payments.approve'), async (req, res) =>
       data: { rejected_by: req.user.sub, rejected_at: now },
     });
 
-    // Fire-and-forget: delete proof image from R2 immediately.
-    // Rejected receipts have zero legal/audit value — no need to keep for 24h.
-    // If deletion fails, the proofRetentionJob (REJECTED_RETENTION_DAYS=1) will clean up.
+    await applyDecisionToProof({
+      intentId: intent_id,
+      storeId: req.store.id,
+      metadata: rejectedMetadata,
+      approved: false,
+      decisionAt: now,
+    });
+
+    // Rejected receipts have no retention requirement. Try immediately; the
+    // durable queue retries if R2 or the network is unavailable.
     if (intent.metadata?.proof?.r2_key) {
-      deleteProofImmediately(
+      await deleteProofImmediately(
         intent_id,
         req.store.id,
         rejectedMetadata,
         `Rejected by merchant: ${reason || 'no reason given'}`
-      ).catch((err) => console.error('[wallet/reject] Non-fatal: failed to delete proof:', err.message));
+      );
     }
 
     return res.json({ success: true, message: 'تم رفض إيصال الدفع.' });

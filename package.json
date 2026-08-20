@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "audit:contracts": "node scripts/contract-audit.js"
+    "audit:contracts": "node scripts/contract-audit.js",
+    "retention:cleanup": "node scripts/cleanup-payment-proofs.js"
   },
   "keywords": [],
   "author": "",

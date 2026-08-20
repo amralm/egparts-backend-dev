@@ -447,7 +447,22 @@ router.post('/settings', verifyPlatformAdmin, async (req, res) => {
     return res.status(400).json({ error: 'settings object is required' });
   }
 
+  if (settings.payment_proof_retention_default_days !== undefined) {
+    const retentionDays = Number(settings.payment_proof_retention_default_days);
+    if (!Number.isInteger(retentionDays) || retentionDays < 0 || retentionDays > 3650) {
+      return res.status(400).json({ error: 'payment_proof_retention_default_days must be an integer between 0 and 3650' });
+    }
+  }
+
   try {
+    const requestedKeys = Object.keys(settings);
+    const { data: previousRows, error: previousError } = await supabase
+      .from('system_settings')
+      .select('key, value')
+      .in('key', requestedKeys);
+    if (previousError) throw previousError;
+    const previous = Object.fromEntries((previousRows || []).map(row => [row.key, row.value]));
+
     const upserts = Object.keys(settings).map(key => ({
       key,
       value: settings[key].toString(),
@@ -457,7 +472,7 @@ router.post('/settings', verifyPlatformAdmin, async (req, res) => {
     const { error } = await supabase.from('system_settings').upsert(upserts, { onConflict: 'key' });
     if (error) throw error;
 
-    await auditPlatform(req, 'platform.settings.update', 'system_setting', 'global', null, settings, null);
+    await auditPlatform(req, 'platform.settings.update', 'system_setting', 'global', previous, settings, null);
 
     if (settings.dev_mode_enabled !== undefined) {
       const isDev = settings.dev_mode_enabled === 'true' || settings.dev_mode_enabled === true;
@@ -497,6 +512,94 @@ router.post('/settings', verifyPlatformAdmin, async (req, res) => {
   } catch (err) {
     logger.error('Failed to update system settings:', err.message);
     res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+// Payment-proof retention controls. The platform default lives in
+// system_settings; this endpoint manages an explicit per-store exception.
+router.get('/stores/:id/proof-retention', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const [{ data: store, error: storeError }, { data: setting, error: settingError }, { data: globalSetting, error: globalError }] = await Promise.all([
+      supabase.from('stores').select('id, name').eq('id', req.params.id).maybeSingle(),
+      supabase.from('site_settings').select('proof_retention_days').eq('store_id', req.params.id).maybeSingle(),
+      supabase.from('system_settings').select('value').eq('key', 'payment_proof_retention_default_days').maybeSingle(),
+    ]);
+    if (storeError || settingError || globalError) throw storeError || settingError || globalError;
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+
+    const override = setting?.proof_retention_days;
+    const defaultDays = Number.isInteger(Number(globalSetting?.value)) ? Number(globalSetting.value) : 30;
+    res.json({
+      store: { id: store.id, name: store.name },
+      default_days: defaultDays,
+      override_days: override === null || override === undefined ? null : Number(override),
+      effective_days: override === null || override === undefined ? defaultDays : Number(override),
+      source: override === null || override === undefined ? 'platform_default' : 'store_override',
+    });
+  } catch (err) {
+    logger.error('Failed to load store proof retention:', err.message);
+    res.status(500).json({ error: 'Failed to load proof retention settings' });
+  }
+});
+
+router.patch('/stores/:id/proof-retention', verifyPlatformAdmin, async (req, res) => {
+  const value = req.body?.retention_days;
+  const clearOverride = value === null || value === undefined || value === '';
+  const days = clearOverride ? null : Number(value);
+  if (!clearOverride && (!Number.isInteger(days) || days < 0 || days > 3650)) {
+    return res.status(400).json({ error: 'retention_days must be an integer between 0 and 3650, or null to use the platform default' });
+  }
+
+  try {
+    const { data: store } = await supabase.from('stores').select('id, name').eq('id', req.params.id).maybeSingle();
+    if (!store) return res.status(404).json({ error: 'Store not found' });
+    const { data: before } = await supabase.from('site_settings').select('proof_retention_days').eq('store_id', store.id).maybeSingle();
+    const { error } = await supabase.from('site_settings').upsert({
+      store_id: store.id,
+      proof_retention_days: days,
+    }, { onConflict: 'store_id' });
+    if (error) throw error;
+
+    await auditPlatform(req, 'platform.store.proof_retention.update', 'store_settings', store.id,
+      { proof_retention_days: before?.proof_retention_days ?? null },
+      { proof_retention_days: days }, store.id);
+    res.json({ success: true, store_id: store.id, override_days: days });
+  } catch (err) {
+    logger.error('Failed to update store proof retention:', err.message);
+    res.status(500).json({ error: 'Failed to update store proof retention' });
+  }
+});
+
+router.get('/payment-proofs/retention-health', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const now = new Date().toISOString();
+    const statuses = ['active', 'deletion_pending', 'deletion_failed', 'deleted'];
+    const counts = {};
+    for (const status of statuses) {
+      const { count, error } = await supabase
+        .from('payment_proof_retention')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', status);
+      if (error) throw error;
+      counts[status] = count || 0;
+    }
+    const { count: overdue, error: overdueError } = await supabase
+      .from('payment_proof_retention')
+      .select('id', { count: 'exact', head: true })
+      .in('status', ['active', 'deletion_pending', 'deletion_failed'])
+      .lte('expires_at', now);
+    if (overdueError) throw overdueError;
+
+    res.json({
+      success: true,
+      checked_at: now,
+      counts,
+      overdue: overdue || 0,
+      scheduler: 'external_render_cron_required',
+    });
+  } catch (err) {
+    logger.error('Failed to load payment proof retention health:', err.message);
+    res.status(500).json({ error: 'Failed to load payment proof retention health' });
   }
 });
 
