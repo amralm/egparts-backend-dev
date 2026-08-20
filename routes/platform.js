@@ -2047,7 +2047,57 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Please provide either email or phone, and a valid store_id' });
   }
 
+  const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
+  let normalizedPhone = null;
+  if (phone && String(phone).trim()) {
+    try {
+      normalizedPhone = normalizeInvitationPhone(phone);
+    } catch (error) {
+      return res.status(400).json({ error: error.message, code: 'INVALID_INVITATION_PHONE' });
+    }
+  }
+
   try {
+    // A failed HTTP response must not cause the same invitation to be sent repeatedly.
+    // The previous implementation created the row and sent WhatsApp, then crashed later.
+    const activeStatuses = ['pending', 'sent'];
+    let existingInvitation = null;
+    if (normalizedEmail) {
+      const { data, error: emailLookupError } = await supabase
+        .from('tenant_invitations')
+        .select('id, email, phone, store_id, status, expires_at, token')
+        .eq('store_id', store_id)
+        .eq('email', normalizedEmail)
+        .in('status', activeStatuses)
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (emailLookupError) throw emailLookupError;
+      existingInvitation = data;
+    }
+    if (!existingInvitation && normalizedPhone) {
+      const { data, error: phoneLookupError } = await supabase
+        .from('tenant_invitations')
+        .select('id, email, phone, store_id, status, expires_at, token')
+        .eq('store_id', store_id)
+        .eq('phone', normalizedPhone)
+        .in('status', activeStatuses)
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (phoneLookupError) throw phoneLookupError;
+      existingInvitation = data;
+    }
+    if (existingInvitation) {
+      return res.status(409).json({
+        error: 'توجد دعوة نشطة بالفعل لهذا البريد أو الرقم. استخدم إعادة الإرسال بدل إنشاء دعوة جديدة.',
+        code: 'INVITATION_ALREADY_ACTIVE',
+        invitation: existingInvitation
+      });
+    }
+
     let targetRoleId = role_id;
     if (!targetRoleId) {
       targetRoleId = await ensureOwnerTemplateRole();
@@ -2059,8 +2109,8 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
     const { data: invitation, error } = await supabase
       .from('tenant_invitations')
       .insert([{
-        email: email ? email.trim().toLowerCase() : null,
-        phone: phone ? phone.trim() : null,
+        email: normalizedEmail,
+        phone: normalizedPhone,
         store_id,
         role_id: targetRoleId,
         token,
@@ -2086,15 +2136,15 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
       sendNotification({
         templateCode: 'tenant_invitation',
         channel: 'email',
-        recipient: email.trim().toLowerCase(),
+        recipient: normalizedEmail,
         language: 'ar',
         variables: { activation_link: activationLink, expires_hours: 48, store_name: storeInfo?.name || 'EG-PARTS Cloud', store_id }
       }).catch(err => logger.error('Failed to send invitation email:', err));
     }
 
-    if (phone && phone.trim()) {
+    if (normalizedPhone) {
       try {
-        whatsapp = await sendInvitationWhatsApp({ phone, activationLink, storeName: storeInfo?.name, invitationId: invitation.id, storeId: store_id });
+        whatsapp = await sendInvitationWhatsApp({ phone: normalizedPhone, activationLink, storeName: storeInfo?.name, invitationId: invitation.id, storeId: store_id });
       } catch (error) {
         whatsapp = { status: 'failed', error: error.message };
         logger.error('Failed to send invitation WhatsApp:', error.message);
