@@ -2099,20 +2099,6 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
         whatsapp = { status: 'failed', error: error.message };
         logger.error('Failed to send invitation WhatsApp:', error.message);
       }
-
-      const { data: currentMappings, error: mappingListError } = await supabase
-        .from('plan_features')
-        .select('id, features(key)')
-        .eq('plan_id', plan.id);
-      if (mappingListError) throw mappingListError;
-      const submittedKeys = new Set(normalizedFeatures.map((feature) => feature.key));
-      const staleIds = (currentMappings || [])
-        .filter((mapping) => !submittedKeys.has(mapping.features?.key))
-        .map((mapping) => mapping.id);
-      if (staleIds.length > 0) {
-        const { error: staleDeleteError } = await supabase.from('plan_features').delete().in('id', staleIds);
-        if (staleDeleteError) throw staleDeleteError;
-      }
     }
 
     res.json({ success: true, invitation, whatsapp });
