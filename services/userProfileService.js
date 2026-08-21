@@ -1,4 +1,5 @@
 const { supabase } = require('./supabase');
+const phoneVerificationService = require('./phoneVerificationService');
 
 const DEFAULT_STORE_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -168,12 +169,16 @@ async function updateProfilePhone(decodedUser, storeId, phone) {
     err.statusCode = 400;
     throw err;
   }
+  // user_profiles stores the local Egyptian representation. Normalize here
+  // instead of relying on a database trigger so every API path writes the
+  // same value and unique-phone checks see the canonical representation.
+  const normalizedPhone = phoneVerificationService.normalizeEgyptianPhone(phone).slice(1);
   const targetStoreId = storeId;
   await syncUserProfile(decodedUser, targetStoreId);
 
   const { data, error } = await supabase
     .from('user_profiles')
-    .update({ phone })
+    .update({ phone: normalizedPhone })
     .eq('user_id', decodedUser.sub)
     .eq('store_id', targetStoreId)
     .select()
