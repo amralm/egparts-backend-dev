@@ -83,14 +83,14 @@ begin
   end if;
 
   select * into v_ticket
-  from public.phone_verification_tickets
-  where phone_e164 = p_phone_e164
-    and user_id is null
-    and consumed_at is null
-    and expires_at > v_now
-    and (p_ticket_hash is not null and ticket_hash = p_ticket_hash
-         or p_ticket_hash is null and store_id = p_store_id)
-  order by created_at desc
+  from public.phone_verification_tickets as t
+  where t.phone_e164 = p_phone_e164
+    and t.user_id is null
+    and t.consumed_at is null
+    and t.expires_at > v_now
+    and (p_ticket_hash is not null and t.ticket_hash = p_ticket_hash
+         or p_ticket_hash is null and t.store_id = p_store_id)
+  order by t.created_at desc
   limit 1
   for update;
 
@@ -99,8 +99,8 @@ begin
   end if;
 
   if exists (
-    select 1 from public.account_phone_verifications
-    where phone_e164 = p_phone_e164 and user_id <> p_user_id
+    select 1 from public.account_phone_verifications as av
+    where av.phone_e164 = p_phone_e164 and av.user_id <> p_user_id
   ) then
     raise exception 'phone already verified by another account' using errcode = '23505';
   end if;
