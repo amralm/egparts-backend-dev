@@ -503,6 +503,19 @@ router.post('/reset-password', sensitiveWriteRateLimiter, async (req, res) => {
       return res.status(404).json({ success: false, error: 'لم يتم العثور على حساب مرتبط بهذا الرقم' });
     }
 
+    try {
+      await phoneVerificationService.recordVerifiedPhone(profiles.user_id, normalizedPhone, 'whatsapp_otp');
+    } catch (verificationError) {
+      logger.error('Central phone verification failed during password reset:', verificationError);
+      return res.status(verificationError.statusCode || 500).json({
+        success: false,
+        code: verificationError.code || 'PHONE_VERIFICATION_UNAVAILABLE',
+        error: verificationError.statusCode === 409
+          ? verificationError.message
+          : 'تم التحقق من الكود لكن تعذر تثبيت توثيق الرقم. حاول مرة أخرى.'
+      });
+    }
+
     // 4. Update password using Supabase Admin API (service role)
     const { error: updateError } = await supabase.auth.admin.updateUserById(
       profiles.user_id,
