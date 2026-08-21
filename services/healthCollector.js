@@ -98,6 +98,7 @@ class MemoryCacheDriver {
 const cacheDriver = new MemoryCacheDriver();
 
 let smtpTransporterInstance = null;
+let lastSmtpDiagnostic = { signature: null, at: 0 };
 let lastCronRunTime = null;
 let collectorStats = {
   last_success_time: null,
@@ -223,8 +224,18 @@ async function collectHealth() {
           snapshot.smtp = 'unhealthy';
         }
       } catch (err) {
-        snapshot.smtp = 'unhealthy';
-        logger.error('HealthCollector: SMTP check failed', err);
+        // A health probe must not turn a configuration/network problem into a
+        // one-minute application error storm. Keep the diagnostic in the
+        // snapshot and rate-limit the sanitized warning; notification jobs
+        // still report their own delivery result.
+        const code = err?.code || err?.responseCode || 'SMTP_CHECK_FAILED';
+        const signature = `${code}:${err?.command || 'unknown'}`;
+        snapshot.smtp = code === 'EAUTH' || code === '535' ? 'misconfigured' : 'unhealthy';
+        snapshot.smtp_diagnostic = { code, command: err?.command || null };
+        if (lastSmtpDiagnostic.signature !== signature || Date.now() - lastSmtpDiagnostic.at > 15 * 60 * 1000) {
+          lastSmtpDiagnostic = { signature, at: Date.now() };
+          logger.warn('HealthCollector: SMTP probe failed', { code, command: err?.command || null });
+        }
       }
     } else {
       snapshot.smtp = 'not_configured';
