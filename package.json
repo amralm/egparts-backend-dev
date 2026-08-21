@@ -8,6 +8,7 @@
     "start": "node server.js",
     "dev": "node server.js",
     "audit:contracts": "node scripts/contract-audit.js",
+    "security:scan": "node scripts/secret-scan.js",
     "test:contracts": "node scripts/contract-smoke.js",
     "retention:cleanup": "node scripts/cleanup-payment-proofs.js"
   },
