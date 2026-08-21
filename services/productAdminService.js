@@ -20,7 +20,12 @@ async function listProducts(storeId, viewMode = 'active') {
     .eq('orders.store_id', storeId)
     .in('orders.status', ['pending', 'confirmed', 'processing']);
 
-  if (orderErr) throw orderErr;
+  // Active-order counts are supplemental UI metadata. A malformed relation,
+  // stale PostgREST schema cache, or temporary query failure must not hide all
+  // products from the admin list.
+  if (orderErr) {
+    console.warn('[admin-products] active order counts unavailable:', orderErr.message);
+  }
 
   const activeCounts = {};
   (orderItems || []).forEach((item) => {
