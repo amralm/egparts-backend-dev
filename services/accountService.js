@@ -26,6 +26,7 @@ async function getProfileStatus(storeId, userId) {
 async function updateProfile(storeId, userId, profile) {
   if (!storeId) throw new Error('Tenant context required');
   const targetStoreId = storeId;
+  const normalizedProfile = { ...profile };
   if (profile.phone) {
     const { data: current } = await supabase
       .from('user_profiles')
@@ -47,18 +48,23 @@ async function updateProfile(storeId, userId, profile) {
         }
       }
     }
+    // user_profiles stores the local Egyptian format used by legacy rows and
+    // the database trigger. Persist the canonical local value explicitly.
+    normalizedProfile.phone = requestedPhone.slice(1);
+  }
+  const payload = {
+    user_id: userId,
+    store_id: targetStoreId,
+    updated_at: new Date().toISOString()
+  };
+  for (const key of ['phone', 'name', 'city', 'address']) {
+    if (normalizedProfile[key] !== undefined) {
+      payload[key === 'name' ? 'full_name' : key] = normalizedProfile[key];
+    }
   }
   const { data, error } = await supabase
     .from('user_profiles')
-    .upsert({
-      user_id: userId,
-      store_id: targetStoreId,
-      phone: profile.phone,
-      full_name: profile.name,
-      city: profile.city,
-      address: profile.address,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id,store_id' })
+    .upsert(payload, { onConflict: 'user_id,store_id' })
     .select('*')
     .maybeSingle();
 
