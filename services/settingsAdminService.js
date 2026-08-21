@@ -44,7 +44,9 @@ async function getSettings(storeId) {
 }
 
 async function saveSettings(storeId, settings, businessType, guaranteeProductIds = []) {
-  const { id, store_id, created_at, updated_at, ...updatePayload } = settings || {};
+  // store_niche is a frontend form field, not a site_settings column.
+  // The canonical value is persisted separately as stores.business_type.
+  const { id, store_id, created_at, updated_at, store_niche, ...updatePayload } = settings || {};
   if (businessType && !SUPPORTED_BUSINESS_TYPES.has(businessType)) {
     const error = new Error('Unsupported store specialization.');
     error.statusCode = 400;
