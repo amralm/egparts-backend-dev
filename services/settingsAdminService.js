@@ -45,6 +45,12 @@ async function getSettings(storeId) {
 
 async function saveSettings(storeId, settings, businessType, guaranteeProductIds = []) {
   const { id, store_id, created_at, updated_at, ...updatePayload } = settings || {};
+  if (businessType && !SUPPORTED_BUSINESS_TYPES.has(businessType)) {
+    const error = new Error('Unsupported store specialization.');
+    error.statusCode = 400;
+    error.code = 'UNSUPPORTED_BUSINESS_TYPE';
+    throw error;
+  }
   if (updatePayload.proof_retention_days !== undefined && updatePayload.proof_retention_days !== null) {
     const retentionDays = Number(updatePayload.proof_retention_days);
     if (!Number.isInteger(retentionDays) || retentionDays < 0 || retentionDays > 3650) {
@@ -67,12 +73,6 @@ async function saveSettings(storeId, settings, businessType, guaranteeProductIds
   if (error) throw error;
 
   if (businessType) {
-    if (!SUPPORTED_BUSINESS_TYPES.has(businessType)) {
-      const error = new Error('Unsupported store specialization.');
-      error.statusCode = 400;
-      error.code = 'UNSUPPORTED_BUSINESS_TYPE';
-      throw error;
-    }
     const { error: storeErr } = await supabase
       .from('stores')
       .update({ business_type: businessType })

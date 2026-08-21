@@ -5,7 +5,10 @@
 -- ============================================================
 
 -- 1. Add business_type to stores
-ALTER TABLE public.stores ADD COLUMN IF NOT EXISTS business_type text DEFAULT 'general' CHECK (business_type IN ('general', 'automotive', 'fashion', 'electronics'));
+ALTER TABLE public.stores ADD COLUMN IF NOT EXISTS business_type text DEFAULT 'general' CHECK (business_type IN (
+  'general', 'automotive', 'fashion', 'electronics', 'grocery', 'health',
+  'bookstore', 'juice_bar', 'restaurant', 'bakery', 'pharmacy', 'services'
+));
 
 -- 2. Create AI Sessions Table
 CREATE TABLE IF NOT EXISTS public.ai_sessions (
