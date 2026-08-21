@@ -412,7 +412,7 @@ export default function Products() {
     if (viewMode === 'deleted') {
       query = query.eq('is_deleted', true);
     } else {
-      query = query.neq('is_deleted', true);
+      query = query.eq('is_deleted', false);
     }
 
     const { data, error } = await query;

@@ -63,7 +63,7 @@ export default function Home() {
         .from('products')
         .select('*')
         .eq('is_active', true)
-        .neq('is_deleted', true)
+        .eq('is_deleted', false)
         .eq('store_id', store.id)
         .gt('stock_quantity', 0)
         .order('created_at', { ascending: false })
@@ -108,7 +108,7 @@ export default function Home() {
               .select('*')
               .in('id', topIds)
               .eq('is_active', true)
-              .neq('is_deleted', true)
+              .eq('is_deleted', false)
               .gt('stock_quantity', 0);
 
             if (topProducts?.length > 0) {
@@ -125,7 +125,7 @@ export default function Home() {
           .from('products')
           .select('*')
           .eq('is_active', true)
-          .neq('is_deleted', true)
+          .eq('is_deleted', false)
           .eq('store_id', store.id)
           .gt('stock_quantity', 0)
           .order('created_at', { ascending: false })

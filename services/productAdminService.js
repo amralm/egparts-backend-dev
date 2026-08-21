@@ -9,7 +9,7 @@ async function listProducts(storeId, viewMode = 'active') {
 
   query = viewMode === 'deleted'
     ? query.eq('is_deleted', true)
-    : query.neq('is_deleted', true);
+    : query.eq('is_deleted', false);
 
   const { data, error } = await query;
   if (error) throw error;

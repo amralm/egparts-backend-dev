@@ -149,7 +149,7 @@ export default function Catalog() {
           query = supabase.from('products').select('*');
         }
 
-        query = query.eq('store_id', store.id).eq('is_active', true).neq('is_deleted', true);
+        query = query.eq('store_id', store.id).eq('is_active', true).eq('is_deleted', false);
 
         // Apply Server-Side Filters
         if (q) {

@@ -37,7 +37,7 @@ router.get('/sitemap.xml', async (req, res) => {
       .select('id, updated_at')
       .eq('store_id', req.store.id)
       .eq('is_active', true)
-      .neq('is_deleted', true);
+      .eq('is_deleted', false);
 
     if (!productsError && products) {
       products.forEach(product => {

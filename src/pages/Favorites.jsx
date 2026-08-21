@@ -39,7 +39,7 @@ export default function Favorites() {
       .in('id', wishlist)
       .eq('store_id', store.id)
       .eq('is_active', true)
-      .neq('is_deleted', true);
+      .eq('is_deleted', false);
       
     if (data) setFavoriteProducts(data);
 

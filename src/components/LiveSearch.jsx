@@ -38,7 +38,7 @@ export default function LiveSearch({ isMobile = false }) {
         .select('id, name, image, price')
         .eq('store_id', store.id)
         .eq('is_active', true)
-        .neq('is_deleted', true)
+        .eq('is_deleted', false)
         .ilike('name', `%${query}%`)
         .limit(5);
 

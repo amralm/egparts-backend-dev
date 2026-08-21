@@ -30,8 +30,8 @@ async function getSettings(storeId) {
 async function getHome(storeId) {
   const [banners, latest, trending, settings] = await Promise.all([
     supabase.from('banners').select('*').eq('is_active', true).eq('store_id', storeId).order('order_index', { ascending: true }),
-    supabase.from('products').select('*').eq('is_active', true).neq('is_deleted', true).eq('store_id', storeId).gt('stock_quantity', 0).order('created_at', { ascending: false }).limit(4),
-    supabase.from('products').select('*').eq('is_active', true).neq('is_deleted', true).eq('store_id', storeId).gt('stock_quantity', 0).order('stock_quantity', { ascending: true }).limit(4),
+    supabase.from('products').select('*').eq('is_active', true).eq('is_deleted', false).eq('store_id', storeId).gt('stock_quantity', 0).order('created_at', { ascending: false }).limit(4),
+    supabase.from('products').select('*').eq('is_active', true).eq('is_deleted', false).eq('store_id', storeId).gt('stock_quantity', 0).order('stock_quantity', { ascending: true }).limit(4),
     supabase.from('site_settings').select('*').eq('store_id', storeId).maybeSingle()
   ]);
 
@@ -53,7 +53,7 @@ async function searchProducts(storeId, query, limit = 5) {
     .select('id, name, image, price')
     .eq('store_id', storeId)
     .eq('is_active', true)
-    .neq('is_deleted', true)
+    .eq('is_deleted', false)
     .ilike('name', `%${query}%`)
     .limit(limit);
   if (error) throw error;
@@ -82,7 +82,7 @@ async function listCatalogProducts(storeId, filters = {}) {
     .select('*', needsCount ? { count: 'exact' } : undefined)
     .eq('store_id', storeId)
     .eq('is_active', true)
-    .neq('is_deleted', true);
+    .eq('is_deleted', false);
 
   if (filters.q) {
     // PostgREST's .or() syntax is an expression language. Never interpolate
@@ -118,7 +118,7 @@ async function getSocialProofProducts(storeId) {
     .select('id, name, image')
     .eq('store_id', storeId)
     .eq('is_active', true)
-    .neq('is_deleted', true)
+    .eq('is_deleted', false)
     .limit(100);
   if (error) throw error;
   return data || [];

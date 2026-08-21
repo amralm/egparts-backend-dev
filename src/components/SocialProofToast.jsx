@@ -71,7 +71,7 @@ export default function SocialProofToast() {
       setSettings(set || { social_proof_active: true, social_proof_demo: true });
 
       let allProducts = [];
-      const { data: activeProds } = await supabase.from('products').select('id, name, image').eq('store_id', store.id).eq('is_active', true).neq('is_deleted', true).limit(100);
+      const { data: activeProds } = await supabase.from('products').select('id, name, image').eq('store_id', store.id).eq('is_active', true).eq('is_deleted', false).limit(100);
       const activeProdMap = new Map(activeProds?.map(p => [p.id, p]) || []);
 
       if (set && set.social_proof_demo === false) {

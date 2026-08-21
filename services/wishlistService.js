@@ -21,7 +21,7 @@ async function listWishlistProducts(storeId, userId) {
     .in('id', productIds)
     .eq('store_id', storeId)
     .eq('is_active', true)
-    .neq('is_deleted', true);
+    .eq('is_deleted', false);
 
   if (error) throw error;
   return data || [];

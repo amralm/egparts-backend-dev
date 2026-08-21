@@ -315,7 +315,7 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, async (req, res)
       .in('id', productIds)
       .eq('store_id', req.store.id)
       .eq('is_active', true)
-      .neq('is_deleted', true);
+      .eq('is_deleted', false);
 
     if (productError) throw productError;
     const allowedIds = new Set((tenantProducts || []).map((product) => String(product.id)));
