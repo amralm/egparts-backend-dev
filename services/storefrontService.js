@@ -1,4 +1,5 @@
 const { supabase } = require('./supabase');
+const { sanitizeIlikeTerm } = require('../utils/postgrest');
 const { normalizeTenantSettings } = require('./tenantContentNormalizer');
 
 async function getSettings(storeId) {
@@ -87,13 +88,7 @@ async function listCatalogProducts(storeId, filters = {}) {
   if (filters.q) {
     // PostgREST's .or() syntax is an expression language. Never interpolate
     // raw query text into it; strip operators and cap the search term first.
-    const safeSearch = String(filters.q)
-      .slice(0, 80)
-      // Keep only text, numbers and simple separators. This prevents the
-      // PostgREST filter grammar from being supplied by the client.
-      .replace(/[^\p{L}\p{N}\s_-]/gu, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const safeSearch = sanitizeIlikeTerm(filters.q);
     if (safeSearch) query = query.or(`name.ilike.%${safeSearch}%,part_number.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%`);
   }
   if (filters.category && filters.category !== 'All') query = query.eq('category', filters.category);

@@ -31,7 +31,10 @@ class WhatsappService {
     this.isShutdown = false;
     this.lastSavePromise = Promise.resolve();
     this.accountId = options.accountId || null;
-    this.sessionId = options.sessionId || (this.accountId ? `whatsapp_account_${this.accountId}` : 'main_whatsapp_session');
+    // Every persisted session must belong to an explicit pool account. The
+    // former implicit singleton session could silently create/overwrite a
+    // shared identity, so legacy QR callers now fail closed.
+    this.sessionId = options.sessionId || (this.accountId ? `whatsapp_account_${this.accountId}` : null);
     this.storeId = null;
     this.isInitializing = false;
     this.pairingRequestPromise = null;
@@ -76,6 +79,9 @@ class WhatsappService {
   }
 
   async useSupabaseAuthState() {
+    if (!this.sessionId || !this.accountId) {
+      throw new Error('WHATSAPP_ACCOUNT_ID_REQUIRED: pooled WhatsApp sessions require an accountId');
+    }
     const storeId = await this.resolveStoreId();
     const writeData = async (data, key) => {
       try {

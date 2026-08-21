@@ -8,6 +8,7 @@ const { verifyPlatformAdmin, verifyPlatformPermission } = require('../middleware
 const logger = require('../utils/logger');
 const { z } = require('zod');
 const { validateBody } = require('../middleware/requestValidation');
+const { sanitizeIlikeTerm } = require('../utils/postgrest');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
 const whatsappPoolService = require('../services/whatsappPoolService');
 
@@ -1045,9 +1046,7 @@ router.get('/stores/options', verifyPlatformAdmin, async (req, res) => {
   try {
     const rawLimit = Number.parseInt(req.query.limit, 10);
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 5), 50) : 25;
-    const search = typeof req.query.search === 'string'
-      ? req.query.search.trim().slice(0, 80).replace(/[,*().]/g, ' ')
-      : '';
+    const search = sanitizeIlikeTerm(req.query.search);
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
     let query = supabase
       .from('stores')
@@ -1918,15 +1917,10 @@ router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
     if (store_id) query = query.eq('store_id', store_id);
     if (action) query = query.ilike('action', `%${String(action).slice(0, 80).replace(/[,*().%]/g, '')}%`);
     if (search) {
-      const safeSearch = String(search)
-        .slice(0, 80)
-        // PostgREST operators are syntax, not data. Strip them before using OR.
-        .replace(/[,*().]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+      const safeSearch = sanitizeIlikeTerm(search);
       if (safeSearch) {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(safeSearch);
-        const escaped = safeSearch.replace(/[%\\]/g, (value) => `\\${value}`);
+        const escaped = safeSearch;
         if (isUuid) {
           query = query.or(`ip_address.ilike.%${escaped}%,user_id.eq.${escaped},entity_id.ilike.%${escaped}%,action.ilike.%${escaped}%`);
         } else {
@@ -3092,9 +3086,7 @@ router.get('/login-logs', verifyPlatformAdmin, async (req, res) => {
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 20;
     const filter = req.query.filter || 'all';
     const store_id = req.query.store_id;
-    const search = typeof req.query.search === 'string'
-      ? req.query.search.trim().slice(0, 80).replace(/[,*().]/g, ' ')
-      : '';
+    const search = sanitizeIlikeTerm(req.query.search);
 
     let query = supabase
       .from('user_login_logs')
@@ -3162,7 +3154,7 @@ router.get('/blocked-ips', verifyPlatformAdmin, async (req, res) => {
     const offset = Number.isFinite(requestedOffset) ? Math.max(requestedOffset, 0) : 0;
     let query = supabase.from('blocked_ips').select('*', { count: 'exact' }).order('created_at', { ascending: false }).range(offset, offset + limit - 1);
     if (typeof req.query.search === 'string' && req.query.search.trim()) {
-      const search = req.query.search.trim().slice(0, 80).replace(/[,*().]/g, ' ');
+      const search = sanitizeIlikeTerm(req.query.search);
       query = query.ilike('ip_address', `%${search}%`);
     }
     const { data: ips, count, error } = await query;
