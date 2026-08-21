@@ -6,7 +6,10 @@ const addressSchema = z.object({
   city: z.string().trim().min(1).max(120),
   address: z.string().trim().min(2).max(500),
   is_default: z.boolean().optional().default(false),
-  location_url: z.string().url().max(2048).nullable().optional().default(null)
+  location_url: z.preprocess(
+    (value) => value === '' || value === undefined ? null : value,
+    z.string().url().max(2048).nullable()
+  ).optional().default(null)
 // Strip legacy client fields such as user_id; ownership comes from req.user.
 }).strip();
 
