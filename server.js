@@ -293,7 +293,11 @@ app.use(['/qr', '/qr/reset', '/qr/logout', '/api/auth/qr-login'], (req, res, nex
 // ✅ Raw body for Paymob webhook
 app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '256kb' }));
+// Parse legacy text/plain only so the contract guard can return a useful 415
+// instead of allowing an empty req.body to fail later inside a route.
+app.use(express.text({ type: 'text/plain', limit: '256kb' }));
 app.use(cookieParser());
+app.use(require('./middleware/jsonContract'));
 
 // ✅ Enforce UTF-8 charset on all JSON responses to prevent garbled Arabic text
 app.use((req, res, next) => {

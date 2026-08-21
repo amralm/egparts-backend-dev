@@ -6,6 +6,8 @@ const { optionalAuth, verifyUser, verifyPermission } = require('../middleware/au
 const { supabase } = require('../services/supabase');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
 const { assertPaymentMethodAvailable } = require('../services/paymentMethodPolicy');
+const { validateBody } = require('../middleware/requestValidation');
+const { createOrderSchema, whatsappOrderSchema, orderStatusSchema } = require('../schemas/orderSchemas');
 
 // Rate limiting for order creation (10 requests per minute per IP)
 const orderRateLimiter = rateLimit({
@@ -136,7 +138,7 @@ router.get('/admin/:id/customer-address', verifyPermission('orders.view'), async
   }
 });
 
-router.patch('/admin/:id/status', verifyPermission('orders.update_status'), async (req, res) => {
+router.patch('/admin/:id/status', verifyPermission('orders.update_status'), validateBody(orderStatusSchema), async (req, res) => {
   if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
 
   const { id } = req.params;
@@ -277,7 +279,7 @@ router.get('/recent-purchases', async (req, res) => {
   }
 });
 
-router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, async (req, res) => {
+router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(whatsappOrderSchema), async (req, res) => {
   if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
 
   const {
@@ -366,7 +368,7 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, async (req, res)
 });
 
 // Create a new order — strictly requires authenticated user (guests blocked)
-router.post('/', verifyUser, async (req, res) => {
+router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) => {
   let { items, phone, city, address, note, paymentMethod, couponCode, idempotencyKey, location_url } = req.body;
   const addressId = req.body?.address_id || req.body?.addressId || null;
   const userId = req.user.sub;

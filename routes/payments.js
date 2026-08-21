@@ -6,6 +6,8 @@ const rateLimit = require('express-rate-limit');
 const { verifyUser, verifyPermission, optionalAuth } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
 const { decryptCredentials, encryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
+const { validateBody } = require('../middleware/requestValidation');
+const { paymentSettingsSchema, paymentToggleSchema, intentSchema } = require('../schemas/paymentSchemas');
 
 const paymentRateLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -155,7 +157,7 @@ router.get('/methods/cod/settings', verifyUser, verifyPermission('payments.confi
   }
 });
 
-router.post('/methods/cod/toggle', verifyUser, verifyPermission('payments.configure'), async (req, res) => {
+router.post('/methods/cod/toggle', verifyUser, verifyPermission('payments.configure'), validateBody(paymentToggleSchema), async (req, res) => {
   const storeId = req.store?.id;
   if (!storeId) return res.status(400).json({ error: 'Tenant context required' });
   const { is_active } = req.body;
@@ -259,7 +261,7 @@ router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
 });
 
 // ===== POST Store Payment Settings (Admin Only) =====
-router.post('/settings', paymentSetupRateLimiter, verifyPermission('payments.configure'), async (req, res) => {
+router.post('/settings', paymentSetupRateLimiter, verifyPermission('payments.configure'), validateBody(paymentSettingsSchema), async (req, res) => {
   const { is_active, api_key, integration_id, iframe_id, hmac_secret } = req.body;
 
   try {
@@ -338,7 +340,7 @@ router.post('/settings', paymentSetupRateLimiter, verifyPermission('payments.con
 });
 
 // ===== STEP 1: Create Payment Intent =====
-router.post('/create', paymentRateLimiter, verifyUser, async (req, res) => {
+router.post('/create', paymentRateLimiter, verifyUser, validateBody(intentSchema), async (req, res) => {
   const orderId = req.body?.orderId || req.body?.order_id || req.body?.order;
 
   if (!orderId) {

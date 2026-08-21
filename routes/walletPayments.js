@@ -27,6 +27,8 @@ const {
 } = require('../services/proofRetentionJob');
 const rateLimit = require('express-rate-limit');
 const { decryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
+const { validateBody } = require('../middleware/requestValidation');
+const { walletSettingsSchema, intentSchema, proofDecisionSchema } = require('../schemas/paymentSchemas');
 
 function proofIsExpired(proof) {
   return Boolean(proof?.proof_expires_at && new Date(proof.proof_expires_at).getTime() <= Date.now());
@@ -224,12 +226,12 @@ async function saveWalletSettings(req, res) {
   }
 }
 
-router.post('/settings', walletRateLimiter, verifyPermission('payments.configure'), saveWalletSettings);
-router.put('/settings', walletRateLimiter, verifyPermission('payments.configure'), saveWalletSettings);
+router.post('/settings', walletRateLimiter, verifyPermission('payments.configure'), validateBody(walletSettingsSchema), saveWalletSettings);
+router.put('/settings', walletRateLimiter, verifyPermission('payments.configure'), validateBody(walletSettingsSchema), saveWalletSettings);
 
 // ===== POST Initiate Manual Wallet Payment =====
 // Creates the PaymentIntent via the Payment Module.
-router.post('/initiate', walletRateLimiter, verifyUser, async (req, res) => {
+router.post('/initiate', walletRateLimiter, verifyUser, validateBody(intentSchema), async (req, res) => {
   const { order_id } = req.body;
 
   if (!order_id) return res.status(400).json({ error: 'order_id is required' });
@@ -603,7 +605,7 @@ router.get('/order-proof/:orderId', verifyPermission('payments.view'), async (re
 // ===== POST Approve Wallet Payment (Admin Only) =====
 // Merchant confirms the payment after reviewing the receipt.
 // This is a TRANSACTION: Payment captured + Order confirmed + Timeline logged.
-router.post('/approve', verifyPermission('payments.approve'), async (req, res) => {
+router.post('/approve', verifyPermission('payments.approve'), validateBody(proofDecisionSchema.pick({ intent_id: true })), async (req, res) => {
   const { intent_id } = req.body;
 
   if (!intent_id) return res.status(400).json({ error: 'intent_id is required' });
@@ -668,7 +670,7 @@ router.post('/approve', verifyPermission('payments.approve'), async (req, res) =
 
 // ===== POST Reject Wallet Payment (Admin Only) =====
 // Merchant rejects a payment receipt (wrong amount, fake screenshot, etc.)
-router.post('/reject', verifyPermission('payments.approve'), async (req, res) => {
+router.post('/reject', verifyPermission('payments.approve'), validateBody(proofDecisionSchema), async (req, res) => {
   const { intent_id, reason } = req.body;
 
   if (!intent_id) return res.status(400).json({ error: 'intent_id is required' });

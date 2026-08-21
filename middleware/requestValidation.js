@@ -16,7 +16,9 @@ function validateBody(schema) {
       return res.status(400).json({
         success: false,
         code: 'VALIDATION_ERROR',
+        message: 'بيانات الطلب غير صالحة.',
         error: 'بيانات الطلب غير صالحة.',
+        requestId: req.correlationId || req.id || null,
         fields: result.error.flatten().fieldErrors
       });
     }

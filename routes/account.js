@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const { validateBody } = require('../middleware/requestValidation');
+const { addressSchema } = require('../schemas/accountSchemas');
 const logger = require('../utils/logger');
 const { verifyUser } = require('../middleware/auth');
 const accountService = require('../services/accountService');
@@ -59,7 +61,7 @@ router.get('/addresses', verifyUser, async (req, res) => {
   }
 });
 
-router.post('/addresses', verifyUser, async (req, res) => {
+router.post('/addresses', verifyUser, validateBody(addressSchema), async (req, res) => {
   try {
     if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
     const address = await accountService.saveAddress(req.user.sub, null, req.body || {}, req.store?.id);
@@ -70,7 +72,7 @@ router.post('/addresses', verifyUser, async (req, res) => {
   }
 });
 
-router.patch('/addresses/:id', verifyUser, async (req, res) => {
+router.patch('/addresses/:id', verifyUser, validateBody(addressSchema), async (req, res) => {
   try {
     if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
     const address = await accountService.saveAddress(req.user.sub, req.params.id, req.body || {}, req.store?.id);
