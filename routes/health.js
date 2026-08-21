@@ -5,6 +5,19 @@ const { verifyPlatformPermission } = require('../middleware/platformAdmin');
 const { supabase } = require('../services/supabase');
 const logger = require('../utils/logger');
 
+// Public liveness endpoint for Render/load balancers. Keep infrastructure
+// details out of this response; the authenticated platform endpoint exposes
+// the full health snapshot.
+router.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    status: 'ok',
+    service: 'eg-parts-backend',
+    timestamp: new Date().toISOString(),
+    requestId: req.correlationId || req.id || null
+  });
+});
+
 // GET /api/health/platform
 router.get('/platform', verifyPlatformPermission('platform.health.read'), async (req, res) => {
   try {
