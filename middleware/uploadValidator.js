@@ -12,13 +12,19 @@
  *   - CVE-2026-35590, CVE-2026-35591 (OOB read during TIFF/JPEG parsing)
  */
 const multer = require('multer');
-const { fileTypeFromBuffer } = require('file-type');
 const sharp = require('sharp');
 const logger = require('../utils/logger');
 
 // Limits
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 const MAX_FILES_PER_REQUEST = 5;
+let fileTypeFromBufferPromise;
+
+async function detectFileType(buffer) {
+  fileTypeFromBufferPromise ||= import('file-type').then((module) => module.fileTypeFromBuffer);
+  const fileTypeFromBuffer = await fileTypeFromBufferPromise;
+  return fileTypeFromBuffer(buffer);
+}
 
 const storage = multer.memoryStorage(); // Process in memory to run checks before saving
 
@@ -39,7 +45,7 @@ const validateUpload = async (req, res, next) => {
   for (const file of files) {
     try {
       // 1. Check Magic Bytes
-      const type = await fileTypeFromBuffer(file.buffer);
+      const type = await detectFileType(file.buffer);
       if (!type) {
         return res.status(400).json({ error: 'Unknown or invalid file type' });
       }
