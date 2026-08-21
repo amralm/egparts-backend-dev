@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { createOrderSchema, orderStatusSchema } = require('../schemas/orderSchemas');
 const { addressSchema } = require('../schemas/accountSchemas');
 const errorHandler = require('../middleware/errorHandler');
+const responseContract = require('../middleware/responseContract');
 
 function expectInvalid(schema, payload, label) {
   assert.equal(schema.safeParse(payload).success, false, `${label} should be rejected`);
@@ -40,6 +41,19 @@ assert.deepEqual(
   { success: capturedErrorResponse.success, code: capturedErrorResponse.code, message: capturedErrorResponse.message, requestId: capturedErrorResponse.requestId, data: capturedErrorResponse.data },
   { success: false, code: 'CONTRACT_TEST', message: 'Internal Server Error', requestId: 'req_contract_test', data: null },
   'error response contract'
+);
+
+let legacyPayload;
+const legacyRes = {
+  statusCode: 404,
+  json(payload) { legacyPayload = payload; return this; }
+};
+responseContract({ id: 'req_legacy_contract' }, legacyRes, () => {});
+legacyRes.json({ error: 'Not found' });
+assert.deepEqual(
+  { success: legacyPayload.success, code: legacyPayload.code, message: legacyPayload.message, requestId: legacyPayload.requestId, data: legacyPayload.data },
+  { success: false, code: 'HTTP_404', message: 'Not found', requestId: 'req_legacy_contract', data: null },
+  'legacy error response compatibility contract'
 );
 
 console.log('Contract smoke tests passed');
