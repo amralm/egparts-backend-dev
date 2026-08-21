@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const { createOrderSchema, orderStatusSchema } = require('../schemas/orderSchemas');
 const { addressSchema } = require('../schemas/accountSchemas');
+const errorHandler = require('../middleware/errorHandler');
 
 function expectInvalid(schema, payload, label) {
   assert.equal(schema.safeParse(payload).success, false, `${label} should be rejected`);
@@ -25,5 +26,20 @@ expectValid(createOrderSchema, {
 }, 'valid order');
 expectInvalid(orderStatusSchema, {}, 'empty status transition');
 expectValid(orderStatusSchema, { status: 'confirmed' }, 'valid status transition');
+
+let capturedErrorResponse;
+const errorRes = {
+  status(code) { this.statusCode = code; return this; },
+  json(payload) { capturedErrorResponse = payload; return this; }
+};
+errorHandler(Object.assign(new Error('contract test'), { code: 'CONTRACT_TEST' }), {
+  id: 'req_contract_test', method: 'GET', url: '/contract-test', body: {}, query: {}, headers: {}
+}, errorRes);
+assert.equal(errorRes.statusCode, 500, 'error handler status');
+assert.deepEqual(
+  { success: capturedErrorResponse.success, code: capturedErrorResponse.code, message: capturedErrorResponse.message, requestId: capturedErrorResponse.requestId, data: capturedErrorResponse.data },
+  { success: false, code: 'CONTRACT_TEST', message: 'Internal Server Error', requestId: 'req_contract_test', data: null },
+  'error response contract'
+);
 
 console.log('Contract smoke tests passed');
