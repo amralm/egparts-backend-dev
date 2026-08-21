@@ -3,12 +3,14 @@ const router = express.Router();
 const logger = require('../utils/logger');
 const { verifyUser } = require('../middleware/auth');
 const accountService = require('../services/accountService');
+const phoneVerificationService = require('../services/phoneVerificationService');
 
 router.get('/profile-status', verifyUser, async (req, res) => {
   if (!req.store?.id) return res.status(400).json({ success: false, error: 'Tenant context required' });
   try {
     const status = await accountService.getProfileStatus(req.store?.id, req.user.sub);
-    res.json({ success: true, ...status });
+    const phoneVerification = await phoneVerificationService.getStatus(req.user.sub, req.store.id);
+    res.json({ success: true, ...status, phone_verification: phoneVerification });
   } catch (err) {
     logger.error('[account] profile status failed:', err.message);
     res.status(500).json({ success: false, error: 'Unable to load profile status.' });
@@ -38,7 +40,11 @@ router.patch('/profile', verifyUser, async (req, res) => {
     res.json({ success: true, profile });
   } catch (err) {
     logger.error('[account] profile update failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to update profile.' });
+    res.status(err.statusCode || 500).json({
+      success: false,
+      code: err.code || 'PROFILE_UPDATE_FAILED',
+      error: err.statusCode === 403 ? err.message : 'Unable to update profile.'
+    });
   }
 });
 

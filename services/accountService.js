@@ -1,4 +1,5 @@
 const { supabase } = require('./supabase');
+const phoneVerificationService = require('./phoneVerificationService');
 
 async function getProfileStatus(storeId, userId) {
   const query = supabase
@@ -25,6 +26,28 @@ async function getProfileStatus(storeId, userId) {
 async function updateProfile(storeId, userId, profile) {
   if (!storeId) throw new Error('Tenant context required');
   const targetStoreId = storeId;
+  if (profile.phone) {
+    const { data: current } = await supabase
+      .from('user_profiles')
+      .select('phone')
+      .eq('user_id', userId)
+      .eq('store_id', targetStoreId)
+      .maybeSingle();
+    const currentPhone = current?.phone ? phoneVerificationService.normalizeEgyptianPhone(current.phone) : null;
+    const requestedPhone = phoneVerificationService.normalizeEgyptianPhone(profile.phone);
+    if (requestedPhone !== currentPhone) {
+      const isVerified = await phoneVerificationService.isVerifiedForUser(userId, requestedPhone);
+      if (!isVerified) {
+        const pending = await phoneVerificationService.claimPendingPhone(userId, requestedPhone, targetStoreId);
+        if (!pending) {
+          const error = new Error('يجب تأكيد الرقم عبر واتساب قبل حفظه');
+          error.statusCode = 403;
+          error.code = 'PHONE_VERIFICATION_REQUIRED';
+          throw error;
+        }
+      }
+    }
+  }
   const { data, error } = await supabase
     .from('user_profiles')
     .upsert({

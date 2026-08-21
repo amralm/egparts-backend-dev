@@ -7,9 +7,10 @@ const whatsappService = require('../services/whatsappPoolService');
 const { supabase } = require('../services/supabase');
 const logger = require('../utils/logger');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
-const { verifyUser } = require('../middleware/auth');
+const { verifyUser, optionalAuth } = require('../middleware/auth');
 const userProfileService = require('../services/userProfileService');
 const twoFactorService = require('../services/twoFactorService');
+const phoneVerificationService = require('../services/phoneVerificationService');
 
 async function recordOtpAudit(entry) {
   try {
@@ -51,6 +52,7 @@ const sendOTPSchema = z.object({
 const verifyOTPSchema = z.object({
   phone: z.string().min(10).max(16).regex(/^\+?[1-9]\d{1,14}$/),
   code: z.string().regex(/^\d{6}$/, 'كود التحقق يجب أن يكون 6 أرقام'),
+  purpose: z.string().max(40).optional(),
 });
 const resolvePhoneSchema = z.object({
   phone: z.string().min(10).max(15).regex(/^\+?[1-9]\d{1,14}$/),
@@ -227,6 +229,19 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req,
       return res.status(403).json({ success: false, code: 'STORE_CONTEXT_MISMATCH', error: 'Store context mismatch' });
     }
 
+    const normalizedPhone = phoneVerificationService.normalizeEgyptianPhone(req.body?.phone);
+    const alreadyVerified = await phoneVerificationService.isVerifiedForUser(req.user.sub, normalizedPhone);
+    if (!alreadyVerified) {
+      const pendingVerification = await phoneVerificationService.claimPendingPhone(req.user.sub, normalizedPhone, requestedStoreId);
+      if (!pendingVerification) {
+        return res.status(403).json({
+          success: false,
+          code: 'PHONE_VERIFICATION_REQUIRED',
+          error: 'يجب تأكيد الرقم عبر واتساب قبل حفظه'
+        });
+      }
+    }
+
     const profile = await userProfileService.updateProfilePhone(req.user, requestedStoreId, req.body?.phone);
     return res.json({ success: true, profile });
   } catch (err) {
@@ -234,7 +249,9 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req,
     // [وثيقة الحل]: معالجة الخطأ رقم 409 القادم من الخدمة والذي يعني أن رقم الهاتف مكرر
     return res.status(err.statusCode || 500).json({
       success: false,
-      error: err.statusCode === 409 ? err.message : (err.statusCode === 400 ? 'Phone is required' : 'Unable to update phone')
+      error: err.statusCode === 409 || err.statusCode === 403 || err.statusCode === 400
+        ? err.message
+        : 'Unable to update phone'
     });
   }
 });
@@ -352,8 +369,8 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
 });
 
 // Route: Verify OTP — IP rate limited + Phone rate limited to prevent distributed brute force
-router.post('/verify-otp', verifyRateLimiter, perPhoneVerifyLimiter, async (req, res) => {
-  const { phone, code } = verifyOTPSchema.parse(req.body);
+router.post('/verify-otp', optionalAuth, verifyRateLimiter, perPhoneVerifyLimiter, async (req, res) => {
+  const { phone, code, purpose } = verifyOTPSchema.parse(req.body);
   let normalizedPhone;
   try {
     normalizedPhone = normalizeEgyptianPhone(phone);
@@ -368,9 +385,83 @@ router.post('/verify-otp', verifyRateLimiter, perPhoneVerifyLimiter, async (req,
   const isValid = await otpService.verifyOTP(normalizedPhone, code, req.store);
 
   if (isValid) {
-    res.json({ success: true, message: 'تم التحقق بنجاح' });
+    try {
+      if (req.user?.sub) {
+        // The JWT identity is authoritative here. The browser's metadata is not.
+        const verification = await phoneVerificationService.recordVerifiedPhone(
+          req.user.sub,
+          normalizedPhone,
+          'whatsapp_otp'
+        );
+        return res.json({ success: true, message: 'تم التحقق بنجاح', verification });
+      }
+
+      // Signup happens after OTP verification. Persist a one-time proof in
+      // Supabase so the new auth user can claim it after signUp completes.
+      const ticket = await phoneVerificationService.issueTicket(
+        normalizedPhone,
+        req.store.id,
+        purpose || 'whatsapp_otp'
+      );
+      return res.json({
+        success: true,
+        message: 'تم التحقق بنجاح',
+        verification_token: ticket.token,
+        verification_expires_at: ticket.expiresAt
+      });
+    } catch (verificationError) {
+      logger.error('Central phone verification failed after valid OTP:', verificationError);
+      return res.status(verificationError.statusCode || 500).json({
+        success: false,
+        code: verificationError.code || 'PHONE_VERIFICATION_UNAVAILABLE',
+        error: verificationError.statusCode === 409
+          ? verificationError.message
+          : 'تم قبول الكود لكن تعذر تثبيت توثيق الرقم. حاول مرة أخرى.'
+      });
+    }
   } else {
     res.status(400).json({ success: false, error: 'كود التحقق غير صحيح أو انتهت صلاحيته' });
+  }
+});
+
+const phoneVerificationClaimSchema = z.object({
+  token: z.string().min(20).max(200),
+  phone: z.string().min(10).max(16)
+});
+
+// Claims the one-time proof created before Supabase Auth signUp returned a JWT.
+router.post('/phone-verification/claim', verifyUser, sensitiveWriteRateLimiter, async (req, res) => {
+  const parsed = phoneVerificationClaimSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ success: false, code: 'INVALID_PHONE_VERIFICATION_CLAIM', error: 'بيانات إثبات الهاتف غير صالحة' });
+  }
+  try {
+    const verification = await phoneVerificationService.claimTicket(
+      req.user.sub,
+      parsed.data.token,
+      parsed.data.phone
+    );
+    return res.json({ success: true, verification });
+  } catch (error) {
+    logger.warn('Phone verification ticket claim failed:', error.message);
+    return res.status(error.statusCode || 500).json({
+      success: false,
+      code: error.code || 'PHONE_VERIFICATION_CLAIM_FAILED',
+      error: error.statusCode === 409 || error.statusCode === 400 ? error.message : 'تعذر تثبيت توثيق الرقم'
+    });
+  }
+});
+
+router.get('/phone-verification', verifyUser, async (req, res) => {
+  try {
+    if (!req.store?.id) {
+      return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context required' });
+    }
+    const status = await phoneVerificationService.getStatus(req.user.sub, req.store.id);
+    return res.json({ success: true, verification: status });
+  } catch (error) {
+    logger.error('Phone verification status failed:', error.message);
+    return res.status(500).json({ success: false, code: 'PHONE_VERIFICATION_STATUS_FAILED', error: 'تعذر قراءة حالة توثيق الرقم' });
   }
 });
 
