@@ -101,7 +101,7 @@ router.get('/', async (req, res) => {
   try {
     const storeId = req.store.id;
     const resolved = await resolvePaymentMethods(storeId);
-    return res.json(resolved);
+    return res.json({ success: true, ...resolved });
 
     /* legacy implementation retained below only as unreachable migration context */
     const methods = [];

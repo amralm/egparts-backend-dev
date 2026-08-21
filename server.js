@@ -297,8 +297,8 @@ app.use(express.json({ limit: '256kb' }));
 // instead of allowing an empty req.body to fail later inside a route.
 app.use(express.text({ type: 'text/plain', limit: '256kb' }));
 app.use(cookieParser());
-app.use(require('./middleware/jsonContract'));
 app.use(require('./middleware/responseContract'));
+app.use(require('./middleware/jsonContract'));
 
 // ✅ Enforce UTF-8 charset on all JSON responses to prevent garbled Arabic text
 app.use((req, res, next) => {

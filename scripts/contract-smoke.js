@@ -6,6 +6,7 @@ const { addressSchema } = require('../schemas/accountSchemas');
 const errorHandler = require('../middleware/errorHandler');
 const responseContract = require('../middleware/responseContract');
 const apiNotFound = require('../middleware/apiNotFound');
+const jsonContract = require('../middleware/jsonContract');
 
 function expectInvalid(schema, payload, label) {
   assert.equal(schema.safeParse(payload).success, false, `${label} should be rejected`);
@@ -74,5 +75,28 @@ assert.deepEqual(notFoundPayload, {
   requestId: 'req_not_found',
   data: null
 });
+
+// The response wrapper must be installed before guards that can terminate
+// early, such as the text/plain JSON guard.
+let contentTypePayload;
+const contentTypeRes = {
+  statusCode: 200,
+  status(code) { this.statusCode = code; return this; },
+  json(payload) { contentTypePayload = payload; return this; }
+};
+responseContract({ id: 'req_content_type' }, contentTypeRes, () => {});
+jsonContract({
+  path: '/api/account/addresses',
+  method: 'POST',
+  headers: { 'content-type': 'text/plain' },
+  body: '{"title":"wrong content type"}'
+}, contentTypeRes, () => {
+  throw new Error('JSON content-type guard must terminate invalid payloads');
+});
+assert.deepEqual(
+  { success: contentTypePayload.success, code: contentTypePayload.code, message: contentTypePayload.message, requestId: contentTypePayload.requestId, data: contentTypePayload.data },
+  { success: false, code: 'UNSUPPORTED_CONTENT_TYPE', message: 'صيغة الطلب غير مدعومة.', requestId: 'req_content_type', data: null },
+  'early content-type error response contract'
+);
 
 console.log('Contract smoke tests passed');
