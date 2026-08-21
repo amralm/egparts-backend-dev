@@ -1,12 +1,16 @@
 const logger = require('../utils/logger');
 
-const SENSITIVE_FIELDS = ['password', 'new_password', 'code', 'token', 'authorization'];
+const SENSITIVE_FIELDS = new Set([
+  'password', 'new_password', 'code', 'token', 'authorization', 'cookie',
+  'set-cookie', 'x-api-key', 'apikey', 'access_token', 'refresh_token',
+  'service_role', 'secret', 'client_secret'
+]);
 
 function sanitizeBody(body) {
   if (!body || typeof body !== 'object') return body;
   const sanitized = Array.isArray(body) ? [...body] : { ...body };
   for (const key of Object.keys(sanitized)) {
-    if (SENSITIVE_FIELDS.includes(key)) {
+    if (SENSITIVE_FIELDS.has(String(key).toLowerCase())) {
       sanitized[key] = '[REDACTED]';
     } else if (typeof sanitized[key] === 'object' && sanitized[key] !== null) {
       sanitized[key] = sanitizeBody(sanitized[key]);
@@ -23,12 +27,19 @@ const errorHandler = (err, req, res, next) => {
     : (err.message || 'Internal Server Error');
 
   // ✅ Structured Error Response
+  const errorCode = err.code || 'INTERNAL_ERROR';
   const errorResponse = {
     success: false,
+    code: errorCode,
+    message,
+    requestId: req.id || req.correlationId || null,
+    data: null,
+    // Kept temporarily for older clients; new clients must use the
+    // top-level contract fields above.
     error: {
       message,
-      code: err.code || 'INTERNAL_ERROR',
-      requestId: req.id
+      code: errorCode,
+      requestId: req.id || req.correlationId || null
     }
   };
 
@@ -37,7 +48,7 @@ const errorHandler = (err, req, res, next) => {
     errorResponse.error.stack = err.stack;
     errorResponse.error.requestContext = {
       body: sanitizeBody(req.body),
-      query: req.query,
+      query: sanitizeBody(req.query),
       headers: sanitizeBody(req.headers)
     };
   }

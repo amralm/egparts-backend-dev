@@ -6,10 +6,11 @@ const tracked = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' })
   .filter(Boolean)
   .filter((file) => !file.includes('node_modules/') && !file.includes('dist/'));
 
+const serviceRoleMarker = 'InJvbGUiOiJ' + 'zZXJ2aWNlX3JvbGUi';
 const rules = [
   { name: 'GitHub personal access token', pattern: /gh[pousr]_[A-Za-z0-9_]{20,}/g },
   { name: 'private key', pattern: /-----BEGIN (?:RSA|OPENSSH|EC|PRIVATE) KEY-----/g },
-  { name: 'Supabase service-role JWT', pattern: /InJvbGUiOiJzZXJ2aWNlX3JvbGUi/g },
+  { name: 'Supabase service-role JWT', pattern: new RegExp(serviceRoleMarker, 'g') },
   { name: 'inline R2 secret', pattern: /R2_SECRET_ACCESS_KEY\s*=\s*(?!process\.env|\$\{|[/(])[^\s$][^\r\n]*/g },
   { name: 'inline Turnstile secret', pattern: /TURNSTILE_SECRET_KEY\s*=\s*(?!process\.env|\$\{|[/(]|['"]mock_)[^\s$][^\r\n]*/g },
 ];
