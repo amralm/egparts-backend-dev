@@ -90,10 +90,17 @@ class WhatsAppPoolService {
     const account = this.accounts.get(accountId);
     if (!account) throw new Error('WhatsApp account not found');
     await account.service.shutdown();
-    this.accounts.set(accountId, {
+    const replacement = {
       row: account.row,
       service: new WhatsappService({ accountId })
-    });
+    };
+    this.accounts.set(accountId, replacement);
+
+    // Reset is an operational action, not just an in-memory replacement.
+    // Start the replacement immediately so the API cannot report success
+    // while the account remains disconnected until the next process restart.
+    await replacement.service.initialize();
+    return replacement.service.getStatus();
   }
 
   selectAccount() {
