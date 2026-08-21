@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "postinstall": "node scripts/harden-runtime-dependencies.js",
     "start": "node server.js",
     "dev": "node server.js",
     "audit:contracts": "node scripts/contract-audit.js",

@@ -245,7 +245,16 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req,
     const profile = await userProfileService.updateProfilePhone(req.user, requestedStoreId, req.body?.phone);
     return res.json({ success: true, profile });
   } catch (err) {
-    logger.error('Profile phone update failed:', err.message);
+    logger.error('Profile phone update failed', {
+      error: {
+        name: err?.name,
+        message: err?.message,
+        code: err?.code,
+        statusCode: err?.statusCode,
+        details: err?.details,
+        hint: err?.hint
+      }
+    });
     // [وثيقة الحل]: معالجة الخطأ رقم 409 القادم من الخدمة والذي يعني أن رقم الهاتف مكرر
     return res.status(err.statusCode || 500).json({
       success: false,
