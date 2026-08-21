@@ -367,7 +367,8 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, async (req, res)
 
 // Create a new order — strictly requires authenticated user (guests blocked)
 router.post('/', verifyUser, async (req, res) => {
-  const { items, phone, city, address, note, paymentMethod, couponCode, idempotencyKey, location_url } = req.body;
+  let { items, phone, city, address, note, paymentMethod, couponCode, idempotencyKey, location_url } = req.body;
+  const addressId = req.body?.address_id || req.body?.addressId || null;
   const userId = req.user.sub;
 
   // 1. Validation
@@ -396,6 +397,25 @@ router.post('/', verifyUser, async (req, res) => {
   }
 
   try {
+    let savedAddress = null;
+    if (addressId) {
+      if (typeof addressId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(addressId)) {
+        return res.status(400).json({ success: false, code: 'INVALID_ADDRESS_ID', error: 'العنوان المحفوظ غير صالح' });
+      }
+      const { data, error: addressError } = await supabase
+        .from('user_addresses')
+        .select('id')
+        .eq('id', addressId)
+        .eq('user_id', userId)
+        .eq('store_id', req.store.id)
+        .maybeSingle();
+      if (addressError) throw addressError;
+      if (!data) {
+        return res.status(404).json({ success: false, code: 'SAVED_ADDRESS_NOT_FOUND', error: 'العنوان المحفوظ غير موجود أو لا يخص هذا المتجر' });
+      }
+      savedAddress = data;
+    }
+
     try {
       await assertPaymentMethodAvailable(req.store.id, paymentMethod);
     } catch (err) {
@@ -503,7 +523,7 @@ router.post('/', verifyUser, async (req, res) => {
         p_coupon_code: couponCode || null,
         p_idempotency_key: idempotencyScope,
         p_auth_source: req.user?.app_metadata?.provider || 'otp',
-        p_metadata: { user_agent: req.headers['user-agent'] },
+        p_metadata: { user_agent: req.headers['user-agent'], address_id: savedAddress?.id || null },
         p_store_id: req.store.id,
         p_location_url: location_url || null
     });
