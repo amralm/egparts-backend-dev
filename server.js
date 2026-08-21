@@ -956,6 +956,7 @@ app.get('/', (req, res) => {
 });
 
 // âœ… New Centralized Error Handler
+app.use(require('./middleware/apiNotFound'));
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;

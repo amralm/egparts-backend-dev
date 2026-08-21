@@ -5,6 +5,7 @@ const { createOrderSchema, orderStatusSchema } = require('../schemas/orderSchema
 const { addressSchema } = require('../schemas/accountSchemas');
 const errorHandler = require('../middleware/errorHandler');
 const responseContract = require('../middleware/responseContract');
+const apiNotFound = require('../middleware/apiNotFound');
 
 function expectInvalid(schema, payload, label) {
   assert.equal(schema.safeParse(payload).success, false, `${label} should be rejected`);
@@ -55,5 +56,23 @@ assert.deepEqual(
   { success: false, code: 'HTTP_404', message: 'Not found', requestId: 'req_legacy_contract', data: null },
   'legacy error response compatibility contract'
 );
+
+let notFoundPayload;
+let notFoundStatus;
+const notFoundRes = {
+  status(code) { notFoundStatus = code; return this; },
+  json(payload) { notFoundPayload = payload; return this; }
+};
+apiNotFound({ path: '/api/missing-endpoint', correlationId: 'req_not_found' }, notFoundRes, () => {
+  throw new Error('API 404 middleware must terminate API requests');
+});
+assert.equal(notFoundStatus, 404);
+assert.deepEqual(notFoundPayload, {
+  success: false,
+  code: 'ROUTE_NOT_FOUND',
+  message: 'المسار المطلوب غير موجود.',
+  requestId: 'req_not_found',
+  data: null
+});
 
 console.log('Contract smoke tests passed');
