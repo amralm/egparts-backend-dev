@@ -13,7 +13,7 @@ function expectValid(schema, payload, label) {
 }
 
 expectValid(addressSchema, {
-  title: 'المنزل', phone: '01234567890', city: 'أسيوط', address: 'شارع رئيسي 1', user_id: 'legacy-field'
+  title: 'المنزل', phone: '01234567890', city: 'أسيوط', address: 'شارع رئيسي 1', location_url: '', user_id: 'legacy-field'
 }, 'legacy address payload');
 expectInvalid(addressSchema, { title: 'x', phone: '1', city: '', address: '' }, 'invalid address');
 expectInvalid(createOrderSchema, { items: [], paymentMethod: 'cod' }, 'empty order');
