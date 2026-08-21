@@ -1,6 +1,11 @@
 const { supabase } = require('./supabase');
 const { normalizeThemeSettings } = require('./themeSettingsService');
 
+const SUPPORTED_BUSINESS_TYPES = new Set([
+  'general', 'automotive', 'fashion', 'electronics', 'grocery', 'health',
+  'bookstore', 'juice_bar', 'restaurant', 'bakery', 'pharmacy', 'services'
+]);
+
 async function findProducts(storeId, { ids, query, guaranteeOnly } = {}) {
   let q = supabase
     .from('products')
@@ -62,6 +67,12 @@ async function saveSettings(storeId, settings, businessType, guaranteeProductIds
   if (error) throw error;
 
   if (businessType) {
+    if (!SUPPORTED_BUSINESS_TYPES.has(businessType)) {
+      const error = new Error('Unsupported store specialization.');
+      error.statusCode = 400;
+      error.code = 'UNSUPPORTED_BUSINESS_TYPE';
+      throw error;
+    }
     const { error: storeErr } = await supabase
       .from('stores')
       .update({ business_type: businessType })
