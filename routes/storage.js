@@ -138,6 +138,13 @@ router.post('/upload', verifyUser, uploadLimiter, upload.single('file'), async (
 // Use POST /upload instead. This endpoint will be removed after 2027-01-01.
 // 1. Request Upload Pre-Signed URL
 router.post('/presigned-url', verifyUser, uploadLimiter, async (req, res) => {
+  // Hard stop: direct-to-R2 uploads bypass AssetPipeline/sharp and can store
+  // unoptimized images. Every new upload must pass through /upload.
+  return res.status(410).json({
+    error: 'This upload method is no longer supported. Use /api/storage/upload.',
+    code: 'UPLOAD_PIPELINE_REQUIRED',
+  });
+
   // Deprecation headers — inform clients to migrate
   res.setHeader('Deprecation', 'true');
   res.setHeader('Sunset', '2027-01-01');
