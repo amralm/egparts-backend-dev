@@ -1,6 +1,5 @@
--- Fix production failure when saving a verified phone.
--- In claim_phone_verification_ticket, the OUT/RETURNS TABLE variable
--- phone_e164 conflicted with table columns of the same name (PostgreSQL 42702).
+-- The first ambiguity fix exposed a second PL/pgSQL name collision at
+-- ON CONFLICT (user_id). Use the table's primary-key constraint explicitly.
 
 create or replace function public.claim_phone_verification_ticket(
   p_user_id uuid,
