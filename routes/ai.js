@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
 const { verifyUser, verifyPermission } = require('../middleware/auth');
@@ -14,7 +15,7 @@ const logger = require('../utils/logger');
 const COPILOT_FEATURES = ['copilot_messages_day', 'ai_requests_month'];
 async function reserveCopilot(req, res, next) {
   const storeId = req.store?.id;
-  if (!storeId) return res.status(400).json({ error: 'Store context required', code: 'STORE_CONTEXT_REQUIRED' });
+  if (!storeId) return apiError(res, 400, 'Store context required', 'STORE_CONTEXT_REQUIRED');
   const reservations = [];
   try {
     for (const feature of COPILOT_FEATURES) {
@@ -35,7 +36,7 @@ async function reserveCopilot(req, res, next) {
   } catch (error) {
     await Promise.all(reservations.map(r => subscriptionLimitService.rollbackFeatureUsage(r)));
     logger.error('[copilot] entitlement reservation failed:', error.message);
-    return res.status(503).json({ error: 'تعذر التحقق من صلاحية Copilot مؤقتًا', code: 'POLICY_SERVICE_UNAVAILABLE' });
+    return apiError(res, 503, 'تعذر التحقق من صلاحية Copilot مؤقتًا', 'POLICY_SERVICE_UNAVAILABLE');
   }
 }
 
@@ -43,7 +44,7 @@ async function reserveCopilot(req, res, next) {
 // disabled Copilot feature is reported as a normal entitlement state instead
 // of a misleading 404.
 router.get('/usage', verifyUser, async (req, res) => {
-  if (!req.store?.id) return res.status(400).json({ success: false, error: 'Store context required' });
+  if (!req.store?.id) return apiError(res, 400, 'Store context required', `HTTP_400`);
   try {
     const [daily, monthly] = await Promise.all([
       subscriptionLimitService.checkFeatureLimit(req.store.id, 'copilot_messages_day', 0),
@@ -59,7 +60,7 @@ router.get('/usage', verifyUser, async (req, res) => {
     });
   } catch (error) {
     logger.error('[copilot/usage] Failed to load usage:', error.message);
-    return res.status(500).json({ success: false, error: 'Failed to load Copilot usage' });
+    return apiError(res, 500, 'Failed to load Copilot usage', `HTTP_500`);
   }
 });
 
@@ -75,10 +76,10 @@ router.post('/consultant',
   const userId = req.user?.sub;
 
   if (!storeId) {
-    return res.status(400).json({ error: 'Store context required' });
+    return apiError(res, 400, 'Store context required', `HTTP_400`);
   }
   if (!message) {
-    return res.status(400).json({ error: 'Message payload required' });
+    return apiError(res, 400, 'Message payload required', `HTTP_400`);
   }
 
   // Clear tenant usage cache so UI reflects new limits (could be moved to event listener later)
@@ -140,7 +141,7 @@ router.post('/consultant',
     logger.error('Failed to run AI consultant query:', err.message);
     // Rollback limits on failure
     await Promise.all((req.copilotReservations || []).map(key => subscriptionLimitService.rollbackFeatureUsage(key)));
-    res.status(500).json({ error: 'Failed to communicate with AI partner' });
+    apiError(res, 500, 'Failed to communicate with AI partner', `HTTP_500`);
   }
 });
 
@@ -149,7 +150,7 @@ router.post('/consultant',
  */
 router.get('/tools', verifyUser, async (req, res) => {
   const storeId = req.store?.id;
-  if (!storeId) return res.status(400).json({ error: 'Store context required' });
+  if (!storeId) return apiError(res, 400, 'Store context required', `HTTP_400`);
 
   try {
     const { data: store, error } = await supabase
@@ -165,7 +166,7 @@ router.get('/tools', verifyUser, async (req, res) => {
     });
   } catch (err) {
     logger.error('Failed to load AI tool registry:', err.message);
-    res.status(500).json({ error: 'Failed to load AI tool registry' });
+    apiError(res, 500, 'Failed to load AI tool registry', `HTTP_500`);
   }
 });
 
@@ -177,7 +178,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
   const storeId = req.store?.id;
 
   if (!storeId || !actionType || !payload) {
-    return res.status(400).json({ error: 'Missing required parameters' });
+    return apiError(res, 400, 'Missing required parameters', `HTTP_400`);
   }
 
   try {
@@ -200,7 +201,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
       const limitCheck = await subscriptionLimitService.checkFeatureLimit(storeId, 'coupons', 0);
       if (!limitCheck.allowed) {
         await supabase.from('ai_action_queue').update({ status: 'failed' }).eq('id', actionRow.id);
-        return res.status(403).json({ error: 'خطة الاشتراك الحالية لا تسمح بإنشاء كوبونات خصم. يرجى ترقية الباقة.' });
+        return apiError(res, 403, 'خطة الاشتراك الحالية لا تسمح بإنشاء كوبونات خصم. يرجى ترقية الباقة.', `HTTP_403`);
       }
 
       const couponCode = payload.code || `PROMO_${Date.now()}`;
@@ -218,7 +219,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
 
       if (insertErr) {
         await supabase.from('ai_action_queue').update({ status: 'failed' }).eq('id', actionRow.id);
-        return res.status(400).json({ error: insertErr.message });
+        return apiError(res, 400, insertErr.message, `HTTP_400`);
       }
     } else if (actionType === 'create_description') {
       if (payload.productId && payload.description) {
@@ -243,7 +244,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
 
         if (updateErr) {
           await supabase.from('ai_action_queue').update({ status: 'failed' }).eq('id', actionRow.id);
-          return res.status(400).json({ error: updateErr.message });
+          return apiError(res, 400, updateErr.message, `HTTP_400`);
         }
       }
     } else if (actionType === 'update_settings') {
@@ -264,7 +265,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
 
         if (updateErr) {
           await supabase.from('ai_action_queue').update({ status: 'failed' }).eq('id', actionRow.id);
-          return res.status(400).json({ error: updateErr.message });
+          return apiError(res, 400, updateErr.message, `HTTP_400`);
         }
       }
     } else if (actionType === 'update_theme_colors') {
@@ -283,7 +284,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
 
       if (updateErr) {
         await supabase.from('ai_action_queue').update({ status: 'failed' }).eq('id', actionRow.id);
-        return res.status(400).json({ error: updateErr.message });
+        return apiError(res, 400, updateErr.message, `HTTP_400`);
       }
     } else if (actionType === 'update_stock') {
       if (payload.productId && typeof payload.new_stock === 'number') {
@@ -295,7 +296,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
         
         if (updateErr) {
           await supabase.from('ai_action_queue').update({ status: 'failed' }).eq('id', actionRow.id);
-          return res.status(400).json({ error: updateErr.message });
+          return apiError(res, 400, updateErr.message, `HTTP_400`);
         }
       }
     } else if (actionType === 'update_order_status') {
@@ -308,7 +309,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
 
         if (updateErr) {
           await supabase.from('ai_action_queue').update({ status: 'failed' }).eq('id', actionRow.id);
-          return res.status(400).json({ error: updateErr.message });
+          return apiError(res, 400, updateErr.message, `HTTP_400`);
         }
       }
     } else if (actionType === 'delete_product') {
@@ -321,7 +322,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
 
         if (deleteErr) {
           await supabase.from('ai_action_queue').update({ status: 'failed' }).eq('id', actionRow.id);
-          return res.status(400).json({ error: deleteErr.message });
+          return apiError(res, 400, deleteErr.message, `HTTP_400`);
         }
       }
     } else if (actionType === 'send_whatsapp_campaign') {
@@ -336,7 +337,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
 
         if (updateErr) {
           await supabase.from('ai_action_queue').update({ status: 'failed' }).eq('id', actionRow.id);
-          return res.status(400).json({ error: updateErr.message });
+          return apiError(res, 400, updateErr.message, `HTTP_400`);
         }
       }
     } else if (actionType === 'create_product') {
@@ -420,7 +421,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
         if (updateErr) throw updateErr;
       }
     } else {
-      return res.status(400).json({ error: `Unsupported action type: ${actionType}` });
+      return apiError(res, 400, `Unsupported action type: ${actionType}`, `HTTP_400`);
     }
 
     // Mark as completed
@@ -463,7 +464,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
 
   } catch (err) {
     logger.error('Failed to execute AI draft action:', err.message);
-    res.status(500).json({ error: 'Action execution failed' });
+    apiError(res, 500, 'Action execution failed', `HTTP_500`);
   }
 });
 
@@ -472,7 +473,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
  */
 router.get('/weekly-review', verifyUser, async (req, res) => {
   const storeId = req.store?.id;
-  if (!storeId) return res.status(400).json({ error: 'Store context required' });
+  if (!storeId) return apiError(res, 400, 'Store context required', `HTTP_400`);
 
   try {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -517,7 +518,7 @@ router.get('/weekly-review', verifyUser, async (req, res) => {
     res.json(reviewJSON);
   } catch (err) {
     logger.error('Failed to load weekly review:', err.message);
-    res.status(500).json({ error: 'Failed to load weekly review' });
+    apiError(res, 500, 'Failed to load weekly review', `HTTP_500`);
   }
 });
 

@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const { verifyPermission } = require('../middleware/auth');
 const couponService = require('../services/couponService');
@@ -9,7 +10,7 @@ const router = express.Router();
 function getStoreId(req, res) {
   const storeId = req.store?.id;
   if (!storeId) {
-    res.status(403).json({ error: 'Tenant context required' });
+    apiError(res, 403, 'Tenant context required', `HTTP_403`);
     return null;
   }
   return storeId;
@@ -63,7 +64,7 @@ router.post('/', verifyPermission('coupons.create'), async (req, res) => {
     reservationKey = req.headers['x-idempotency-key'] || `coupon_${Date.now()}`;
     const isAllowed = await subscriptionLimitService.reserveFeatureUsage(storeId, 'coupons', 1, reservationKey, 15);
     if (!isAllowed) {
-      return res.status(403).json({ success: false, code: 'FEATURE_LIMIT_EXCEEDED', error: 'تجاوزت الحد الأقصى للكوبونات المسموح بها في باقتك.' });
+      return apiError(res, 403, 'تجاوزت الحد الأقصى للكوبونات المسموح بها في باقتك.', 'FEATURE_LIMIT_EXCEEDED');
     }
     const coupon = await couponService.createCoupon(storeId, req.body || {});
     await subscriptionLimitService.commitFeatureUsage(reservationKey);

@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const { supabase } = require('../services/supabase');
 const logger = require('../utils/logger');
 
@@ -45,7 +46,7 @@ async function blockIPMiddleware(req, res, next) {
 
   const storeBlockedIPs = blockedIPsCache.get(storeId);
   if (clientIP && storeBlockedIPs && storeBlockedIPs.has(clientIP)) {
-    return res.status(403).json({ error: 'تم حظر عنوان IP الخاص بك في هذا المتجر' });
+    return apiError(res, 403, 'تم حظر عنوان IP الخاص بك في هذا المتجر', `HTTP_403`);
   }
 
   next();

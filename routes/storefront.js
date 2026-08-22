@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
@@ -5,7 +6,7 @@ const storefrontService = require('../services/storefrontService');
 
 function requireStore(req, res) {
   if (!req.store?.id) {
-    res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context is required.' });
+    apiError(res, 400, 'Tenant context is required.', 'TENANT_CONTEXT_REQUIRED');
     return null;
   }
   return req.store.id;
@@ -19,7 +20,7 @@ router.get('/settings', async (req, res) => {
     res.json({ success: true, settings });
   } catch (err) {
     logger.error('[storefront] settings failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load settings.' });
+    apiError(res, 500, 'Unable to load settings.', `HTTP_500`);
   }
 });
 
@@ -34,7 +35,7 @@ router.get('/themes', async (req, res) => {
     res.json({ success: true, items: data || [] });
   } catch (err) {
     logger.error('[storefront] themes failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load themes.' });
+    apiError(res, 500, 'Unable to load themes.', `HTTP_500`);
   }
 });
 
@@ -46,7 +47,7 @@ router.get('/home', async (req, res) => {
     res.json({ success: true, ...data });
   } catch (err) {
     logger.error('[storefront] home failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load home data.' });
+    apiError(res, 500, 'Unable to load home data.', `HTTP_500`);
   }
 });
 
@@ -58,7 +59,7 @@ router.get('/products/search', async (req, res) => {
     res.json({ success: true, products });
   } catch (err) {
     logger.error('[storefront] product search failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to search products.' });
+    apiError(res, 500, 'Unable to search products.', `HTTP_500`);
   }
 });
 
@@ -70,7 +71,7 @@ router.get('/catalog/meta', async (req, res) => {
     res.json({ success: true, ...meta });
   } catch (err) {
     logger.error('[storefront] catalog meta failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load catalog metadata.' });
+    apiError(res, 500, 'Unable to load catalog metadata.', `HTTP_500`);
   }
 });
 
@@ -82,7 +83,7 @@ router.get('/catalog/products', async (req, res) => {
     res.json({ success: true, ...data });
   } catch (err) {
     logger.error('[storefront] catalog products failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load catalog products.' });
+    apiError(res, 500, 'Unable to load catalog products.', `HTTP_500`);
   }
 });
 
@@ -94,7 +95,7 @@ router.get('/social-proof/products', async (req, res) => {
     res.json({ success: true, products });
   } catch (err) {
     logger.error('[storefront] social proof products failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load social proof products.' });
+    apiError(res, 500, 'Unable to load social proof products.', `HTTP_500`);
   }
 });
 
@@ -108,7 +109,7 @@ router.post('/cart/validate', async (req, res) => {
     res.json({ success: true, products });
   } catch (err) {
     logger.error('[storefront] cart validate failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to validate cart.' });
+    apiError(res, 500, 'Unable to validate cart.', `HTTP_500`);
   }
 });
 
@@ -124,7 +125,7 @@ router.get('/shipping-zones', async (req, res) => {
     res.json({ success: true, zones: data || [] });
   } catch (err) {
     logger.error('[storefront] shipping zones failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load shipping zones.' });
+    apiError(res, 500, 'Unable to load shipping zones.', `HTTP_500`);
   }
 });
 

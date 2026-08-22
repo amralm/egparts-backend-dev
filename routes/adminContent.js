@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
@@ -6,7 +7,7 @@ const contentAdminService = require('../services/contentAdminService');
 
 function requireStore(req, res) {
   if (!req.store?.id) {
-    res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context is required.' });
+    apiError(res, 400, 'Tenant context is required.', 'TENANT_CONTEXT_REQUIRED');
     return null;
   }
   return req.store.id;
@@ -21,7 +22,7 @@ router.get('/categories', verifyPermission('settings.view'), async (req, res) =>
     res.json({ success: true, categories });
   } catch (err) {
     logger.error('[admin-content] categories failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load categories.' });
+    apiError(res, 500, 'Unable to load categories.', `HTTP_500`);
   }
 });
 
@@ -34,7 +35,7 @@ router.get('/', verifyPermission('settings.view'), async (req, res) => {
     res.json({ success: true, content });
   } catch (err) {
     logger.error('[admin-content] get failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load content.' });
+    apiError(res, 500, 'Unable to load content.', `HTTP_500`);
   }
 });
 
@@ -47,7 +48,7 @@ router.put('/', verifyPermission('settings.update'), async (req, res) => {
     res.json({ success: true, content });
   } catch (err) {
     logger.error('[admin-content] update failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to save content.' });
+    apiError(res, 500, 'Unable to save content.', `HTTP_500`);
   }
 });
 

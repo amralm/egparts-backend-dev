@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 /**
  * Manual Wallet Payment Routes
  * Handles the full lifecycle of manual wallet payments (Vodafone Cash, Etisalat Cash, etc.)
@@ -58,7 +59,7 @@ const walletRateLimiter = rateLimit({
 // Returns wallet numbers so the customer knows where to transfer.
 // SECURITY: Returns wallet number only (not credentials or config details).
 router.get('/info', async (req, res) => {
-  if (!req.store?.id) return res.status(404).json({ error: 'Store not found' });
+  if (!req.store?.id) return apiError(res, 404, 'Store not found', `HTTP_404`);
 
   try {
     const wallets = [];
@@ -107,7 +108,7 @@ router.get('/info', async (req, res) => {
     }
 
     if (wallets.length === 0) {
-      return res.status(404).json({ error: 'Manual wallet not available' });
+      return apiError(res, 404, 'Manual wallet not available', `HTTP_404`);
     }
 
     let amount = null;
@@ -146,13 +147,13 @@ router.get('/info', async (req, res) => {
     });
   } catch (err) {
     console.error('[wallet/info] Error:', err.message);
-    return res.status(500).json({ error: 'Failed to load wallet info' });
+    return apiError(res, 500, 'Failed to load wallet info', `HTTP_500`);
   }
 });
 
 // ===== GET Wallet Settings (Admin Only) =====
 router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
-  if (!req.store?.id) return res.status(404).json({ error: 'Store not found' });
+  if (!req.store?.id) return apiError(res, 404, 'Store not found', `HTTP_404`);
 
   try {
     const { data: gateway } = await supabase
@@ -177,7 +178,7 @@ router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
     return res.json({ success: true, wallets, is_active });
   } catch (err) {
     console.error('[wallet/settings] Error:', err.message);
-    return res.status(500).json({ error: 'Failed to fetch wallet settings' });
+    return apiError(res, 500, 'Failed to fetch wallet settings', `HTTP_500`);
   }
 });
 
@@ -185,7 +186,7 @@ router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
 // PUT is the canonical REST verb for updates; POST is kept for backward compat.
 async function saveWalletSettings(req, res) {
   const { wallets, is_active } = req.body;
-  if (!req.store?.id) return res.status(404).json({ error: 'Store not found' });
+  if (!req.store?.id) return apiError(res, 404, 'Store not found', `HTTP_404`);
 
   try {
     const { encryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
@@ -222,7 +223,7 @@ async function saveWalletSettings(req, res) {
     return res.json({ success: true, message: 'تم حفظ إعدادات المحافظ الإلكترونية بنجاح' });
   } catch (err) {
     console.error('[wallet/settings] Error:', err.message);
-    return res.status(500).json({ error: 'Failed to save wallet settings' });
+    return apiError(res, 500, 'Failed to save wallet settings', `HTTP_500`);
   }
 }
 
@@ -234,8 +235,8 @@ router.put('/settings', walletRateLimiter, verifyPermission('payments.configure'
 router.post('/initiate', walletRateLimiter, verifyUser, validateBody(intentSchema), async (req, res) => {
   const { order_id } = req.body;
 
-  if (!order_id) return res.status(400).json({ error: 'order_id is required' });
-  if (!req.store?.id) return res.status(404).json({ error: 'Store not found' });
+  if (!order_id) return apiError(res, 400, 'order_id is required', `HTTP_400`);
+  if (!req.store?.id) return apiError(res, 404, 'Store not found', `HTTP_404`);
 
   try {
     // Verify order belongs to this store and user
@@ -247,8 +248,8 @@ router.post('/initiate', walletRateLimiter, verifyUser, validateBody(intentSchem
       .eq('user_id', req.user.sub)
       .single();
 
-    if (orderError || !order) return res.status(404).json({ error: 'Order not found' });
-    if (order.payment_status === 'paid') return res.status(400).json({ error: 'Order already paid' });
+    if (orderError || !order) return apiError(res, 404, 'Order not found', `HTTP_404`);
+    if (order.payment_status === 'paid') return apiError(res, 400, 'Order already paid', `HTTP_400`);
 
     const paymentService = getPaymentService();
     const result = await paymentService.createIntent(
@@ -267,7 +268,7 @@ router.post('/initiate', walletRateLimiter, verifyUser, validateBody(intentSchem
     });
   } catch (err) {
     console.error('[wallet/initiate] Error:', err.message);
-    return res.status(500).json({ error: 'Failed to initiate wallet payment' });
+    return apiError(res, 500, 'Failed to initiate wallet payment', `HTTP_500`);
   }
 });
 
@@ -280,14 +281,14 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
   let retentionRegistered = false;
 
   if (!intent_id || !req.file) {
-    return res.status(400).json({ error: 'intent_id and receipt image are required' });
+    return apiError(res, 400, 'intent_id and receipt image are required', `HTTP_400`);
   }
 
   if (!wallet_id) {
-    return res.status(400).json({ error: 'wallet_id is required' });
+    return apiError(res, 400, 'wallet_id is required', `HTTP_400`);
   }
   if (!req.store?.id) {
-    return res.status(404).json({ error: 'Store not found' });
+    return apiError(res, 404, 'Store not found', `HTTP_404`);
   }
 
   try {
@@ -299,11 +300,11 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       .eq('store_id', req.store.id)
       .single();
 
-    if (!intent) return res.status(404).json({ error: 'Payment intent not found' });
-    if (intent.status === 'captured') return res.status(400).json({ error: 'Already confirmed' });
-    if (intent.status === 'waiting_verification') return res.status(409).json({ error: 'Proof already submitted', code: 'PROOF_ALREADY_SUBMITTED' });
+    if (!intent) return apiError(res, 404, 'Payment intent not found', `HTTP_404`);
+    if (intent.status === 'captured') return apiError(res, 400, 'Already confirmed', `HTTP_400`);
+    if (intent.status === 'waiting_verification') return apiError(res, 409, 'Proof already submitted', 'PROOF_ALREADY_SUBMITTED');
     const { data: intentOrder } = await supabase.from('orders').select('user_id, payment_method, created_at').eq('id', intent.order_id).eq('store_id', req.store.id).maybeSingle();
-    if (!intentOrder || intentOrder.user_id !== req.user.sub || intentOrder.payment_method !== 'manual_wallet') return res.status(403).json({ error: 'Payment intent does not belong to this customer' });
+    if (!intentOrder || intentOrder.user_id !== req.user.sub || intentOrder.payment_method !== 'manual_wallet') return apiError(res, 403, 'Payment intent does not belong to this customer', `HTTP_403`);
 
     // 2. Fetch the actual wallet details to store a snapshot
     let selectedWallet = null;
@@ -336,7 +337,7 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       }
     }
 
-    if (!selectedWallet) return res.status(400).json({ error: 'Invalid wallet selected' });
+    if (!selectedWallet) return apiError(res, 400, 'Invalid wallet selected', `HTTP_400`);
 
     // 3. Upload through AssetPipeline
     const uploadResult = await assetPipeline.process({
@@ -476,14 +477,14 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       }
     }
     console.error('[wallet/submit-proof] Error:', err.message);
-    return res.status(500).json({ error: 'Failed to upload receipt' });
+    return apiError(res, 500, 'Failed to upload receipt', `HTTP_500`);
   }
 });
 
 // ===== GET Pending Proofs (Admin Only) =====
 // Merchant sees all pending wallet payments awaiting review.
 router.get('/pending-proofs', verifyPermission('payments.view'), async (req, res) => {
-  if (!req.store?.id) return res.status(404).json({ error: 'Store not found' });
+  if (!req.store?.id) return apiError(res, 404, 'Store not found', `HTTP_404`);
 
   try {
     const { data: intents, error } = await supabase
@@ -530,7 +531,7 @@ router.get('/pending-proofs', verifyPermission('payments.view'), async (req, res
     return res.json({ pending: result });
   } catch (err) {
     console.error('[wallet/pending-proofs] Error:', err.message);
-    return res.status(500).json({ error: 'Failed to fetch pending proofs' });
+    return apiError(res, 500, 'Failed to fetch pending proofs', `HTTP_500`);
   }
 });
 
@@ -538,7 +539,7 @@ router.get('/pending-proofs', verifyPermission('payments.view'), async (req, res
 // Resolves the active payment intent and fetches its presigned URL.
 // Business Logic: Intent Priority -> captured/succeeded > waiting_verification > processing > failed.
 router.get('/order-proof/:orderId', verifyPermission('payments.view'), async (req, res) => {
-  if (!req.store?.id) return res.status(404).json({ error: 'Store not found' });
+  if (!req.store?.id) return apiError(res, 404, 'Store not found', `HTTP_404`);
   const { orderId } = req.params;
 
   try {
@@ -598,7 +599,7 @@ router.get('/order-proof/:orderId', verifyPermission('payments.view'), async (re
 
   } catch (err) {
     console.error('[wallet/order-proof] Error:', err.message);
-    return res.status(500).json({ error: 'Failed to fetch order proof' });
+    return apiError(res, 500, 'Failed to fetch order proof', `HTTP_500`);
   }
 });
 
@@ -608,8 +609,8 @@ router.get('/order-proof/:orderId', verifyPermission('payments.view'), async (re
 router.post('/approve', verifyPermission('payments.approve'), validateBody(proofDecisionSchema.pick({ intent_id: true })), async (req, res) => {
   const { intent_id } = req.body;
 
-  if (!intent_id) return res.status(400).json({ error: 'intent_id is required' });
-  if (!req.store?.id) return res.status(404).json({ error: 'Store not found' });
+  if (!intent_id) return apiError(res, 400, 'intent_id is required', `HTTP_400`);
+  if (!req.store?.id) return apiError(res, 404, 'Store not found', `HTTP_404`);
 
   try {
     // 1. Fetch intent and verify ownership
@@ -621,10 +622,10 @@ router.post('/approve', verifyPermission('payments.approve'), validateBody(proof
       .eq('provider', 'manual_wallet')
       .single();
 
-    if (intentErr || !intent) return res.status(404).json({ error: 'Payment intent not found' });
-    if (intent.status === 'captured') return res.status(400).json({ error: 'Already approved' });
+    if (intentErr || !intent) return apiError(res, 404, 'Payment intent not found', `HTTP_404`);
+    if (intent.status === 'captured') return apiError(res, 400, 'Already approved', `HTTP_400`);
     if (intent.status !== 'waiting_verification') {
-      return res.status(400).json({ error: `Cannot approve payment in status: ${intent.status}` });
+      return apiError(res, 400, `Cannot approve payment in status: ${intent.status}`, 'INVALID_PAYMENT_STATUS');
     }
 
     // One locked database transaction owns intent, order, timeline and outbox.
@@ -664,7 +665,7 @@ router.post('/approve', verifyPermission('payments.approve'), validateBody(proof
     return res.json({ success: true, message: 'تم تأكيد الدفع وتحديث حالة الطلب بنجاح.' });
   } catch (err) {
     console.error('[wallet/approve] Error:', err.message);
-    return res.status(500).json({ error: 'Failed to approve payment' });
+    return apiError(res, 500, 'Failed to approve payment', `HTTP_500`);
   }
 });
 
@@ -673,8 +674,8 @@ router.post('/approve', verifyPermission('payments.approve'), validateBody(proof
 router.post('/reject', verifyPermission('payments.approve'), validateBody(proofDecisionSchema), async (req, res) => {
   const { intent_id, reason } = req.body;
 
-  if (!intent_id) return res.status(400).json({ error: 'intent_id is required' });
-  if (!req.store?.id) return res.status(404).json({ error: 'Store not found' });
+  if (!intent_id) return apiError(res, 400, 'intent_id is required', `HTTP_400`);
+  if (!req.store?.id) return apiError(res, 404, 'Store not found', `HTTP_404`);
 
   try {
     const { data: intent, error: intentErr } = await supabase
@@ -685,9 +686,9 @@ router.post('/reject', verifyPermission('payments.approve'), validateBody(proofD
       .eq('provider', 'manual_wallet')
       .single();
 
-    if (intentErr || !intent) return res.status(404).json({ error: 'Payment intent not found' });
+    if (intentErr || !intent) return apiError(res, 404, 'Payment intent not found', `HTTP_404`);
     if (intent.status !== 'waiting_verification') {
-      return res.status(400).json({ error: `Cannot reject payment in status: ${intent.status}` });
+      return apiError(res, 400, `Cannot reject payment in status: ${intent.status}`, 'INVALID_PAYMENT_STATUS');
     }
 
     const now = new Date().toISOString();
@@ -754,7 +755,7 @@ router.post('/reject', verifyPermission('payments.approve'), validateBody(proofD
     return res.json({ success: true, message: 'تم رفض إيصال الدفع.' });
   } catch (err) {
     console.error('[wallet/reject] Error:', err.message);
-    return res.status(500).json({ error: 'Failed to reject payment' });
+    return apiError(res, 500, 'Failed to reject payment', `HTTP_500`);
   }
 });
 

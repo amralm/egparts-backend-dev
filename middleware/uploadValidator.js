@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 /**
  * uploadValidator.js — Middleware for deep file upload validation.
  *
@@ -47,7 +48,7 @@ const validateUpload = async (req, res, next) => {
       // 1. Check Magic Bytes
       const type = await detectFileType(file.buffer);
       if (!type) {
-        return res.status(400).json({ error: 'Unknown or invalid file type' });
+        return apiError(res, 400, 'Unknown or invalid file type', `HTTP_400`);
       }
 
       // 2. Prevent Archive Bombs (ZIP Bombs)
@@ -74,7 +75,7 @@ const validateUpload = async (req, res, next) => {
         file.size     = reEncodedBuffer.length;
       } else if (type.mime.startsWith('image/')) {
         // Unsupported image subtype (e.g. image/tiff, image/bmp) — reject
-        return res.status(415).json({ error: 'Unsupported image format. Allowed: JPEG, PNG, WebP, GIF, AVIF' });
+        return apiError(res, 415, 'Unsupported image format. Allowed: JPEG, PNG, WebP, GIF, AVIF', `HTTP_415`);
       }
 
       // 4. Antivirus Hook (Stub)
@@ -82,7 +83,7 @@ const validateUpload = async (req, res, next) => {
 
     } catch (err) {
       logger.error('Upload validation failed:', err.message);
-      return res.status(400).json({ error: 'File validation failed: ' + err.message });
+      return apiError(res, 400, 'File validation failed: ' + err.message, 'FILE_VALIDATION_FAILED');
     }
   }
 

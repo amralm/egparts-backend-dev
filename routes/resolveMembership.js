@@ -34,7 +34,7 @@ router.post('/resolve-membership', async (req, res) => {
     
   } catch (error) {
     console.error('Resolve Membership Error:', error);
-    res.status(error.statusCode || 500).json({ error: error.message || 'Internal Server Error' });
+    apiError(res, error.statusCode || 500, error.message || 'Internal Server Error', error.code || 'MEMBERSHIP_RESOLUTION_FAILED');
   }
 });
 

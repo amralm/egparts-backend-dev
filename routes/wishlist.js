@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
@@ -6,7 +7,7 @@ const wishlistService = require('../services/wishlistService');
 
 function requireStore(req, res) {
   if (!req.store?.id) {
-    res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context is required.' });
+    apiError(res, 400, 'Tenant context is required.', 'TENANT_CONTEXT_REQUIRED');
     return null;
   }
   return req.store.id;
@@ -21,7 +22,7 @@ router.get('/', verifyUser, async (req, res) => {
     res.json({ success: true, product_ids: productIds });
   } catch (err) {
     logger.error('[wishlist] list failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load wishlist.' });
+    apiError(res, 500, 'Unable to load wishlist.', `HTTP_500`);
   }
 });
 
@@ -34,7 +35,7 @@ router.get('/products', verifyUser, async (req, res) => {
     res.json({ success: true, products });
   } catch (err) {
     logger.error('[wishlist] product list failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load favorite products.' });
+    apiError(res, 500, 'Unable to load favorite products.', `HTTP_500`);
   }
 });
 
@@ -47,7 +48,7 @@ router.post('/:productId', verifyUser, async (req, res) => {
     res.json({ success: true, product_id: productId });
   } catch (err) {
     logger.error('[wishlist] add failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to update wishlist.' });
+    apiError(res, 500, 'Unable to update wishlist.', `HTTP_500`);
   }
 });
 
@@ -60,7 +61,7 @@ router.delete('/:productId', verifyUser, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     logger.error('[wishlist] remove failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to update wishlist.' });
+    apiError(res, 500, 'Unable to update wishlist.', `HTTP_500`);
   }
 });
 

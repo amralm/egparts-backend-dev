@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
@@ -7,7 +8,7 @@ const subscriptionLimitService = require('../services/subscriptionLimitService')
 
 function requireStore(req, res) {
   if (!req.store?.id) {
-    res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context is required.' });
+    apiError(res, 400, 'Tenant context is required.', 'TENANT_CONTEXT_REQUIRED');
     return null;
   }
   return req.store.id;
@@ -21,7 +22,7 @@ router.get('/', verifyPermission('products.view'), async (req, res) => {
     res.json({ success: true, products });
   } catch (err) {
     logger.error('[admin-products] list failed:', err.message, err.details, err.hint);
-    res.status(500).json({ success: false, error: 'Unable to load products.' });
+    apiError(res, 500, 'Unable to load products.', `HTTP_500`);
   }
 });
 
@@ -33,7 +34,7 @@ router.post('/', verifyPermission('products.create'), async (req, res) => {
     reservationKey = req.headers['x-idempotency-key'] || `prod_${Date.now()}`;
     const isAllowed = await subscriptionLimitService.reserveFeatureUsage(storeId, 'products', 1, reservationKey, 15);
     if (!isAllowed) {
-      return res.status(403).json({ success: false, code: 'FEATURE_LIMIT_EXCEEDED', error: 'تجاوزت الحد الأقصى للمنتجات المسموح بها في باقتك. يرجى ترقية الباقة لإضافة المزيد.' });
+      return apiError(res, 403, 'تجاوزت الحد الأقصى للمنتجات المسموح بها في باقتك. يرجى ترقية الباقة لإضافة المزيد.', 'FEATURE_LIMIT_EXCEEDED');
     }
     const product = await productAdminService.saveProduct(storeId, req.body || {});
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
@@ -43,7 +44,7 @@ router.post('/', verifyPermission('products.create'), async (req, res) => {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
     }
     logger.error('[admin-products] create failed:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    apiError(res, 500, 'Unable to create product.', 'PRODUCT_CREATE_FAILED');
   }
 });
 
@@ -55,7 +56,7 @@ router.put('/:id', verifyPermission('products.update'), async (req, res) => {
     res.json({ success: true, product });
   } catch (err) {
     logger.error('[admin-products] update failed:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    apiError(res, 500, 'Unable to update product.', 'PRODUCT_UPDATE_FAILED');
   }
 });
 
@@ -67,7 +68,7 @@ router.post('/:id/soft-delete', verifyPermission('products.delete'), async (req,
     res.json({ success: true, result: 'soft_deleted' });
   } catch (err) {
     logger.error('[admin-products] soft delete failed:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    apiError(res, 500, 'Unable to archive product.', 'PRODUCT_ARCHIVE_FAILED');
   }
 });
 
@@ -79,7 +80,7 @@ router.delete('/:id', verifyPermission('products.delete'), async (req, res) => {
     res.json({ success: true, result: 'hard_deleted', mediaKeys: result.mediaKeys || [] });
   } catch (err) {
     logger.error('[admin-products] hard delete failed:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    apiError(res, 500, 'Unable to restore product.', 'PRODUCT_RESTORE_FAILED');
   }
 });
 
@@ -91,7 +92,7 @@ router.post('/:id/restore', verifyPermission('products.update'), async (req, res
     res.json({ success: true, product });
   } catch (err) {
     logger.error('[admin-products] restore failed:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    apiError(res, 500, 'Unable to delete product.', 'PRODUCT_DELETE_FAILED');
   }
 });
 

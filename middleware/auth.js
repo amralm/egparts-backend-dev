@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const { supabase } = require('../services/supabase');
 const tokenVerifier = require('../utils/tokenVerifier');
 const logger = require('../utils/logger');
@@ -140,7 +141,7 @@ async function resolvePlatformPermissions(userId) {
 const verifyUser = (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized: No token provided' });
+    return apiError(res, 401, 'Unauthorized: No token provided', `HTTP_401`);
   }
 
   try {
@@ -148,7 +149,7 @@ const verifyUser = (req, res, next) => {
     next();
   } catch (error) {
     logger.error('JWT verification error:', error.message);
-    return res.status(401).json({ error: 'Unauthorized: Invalid or expired token' });
+    return apiError(res, 401, 'Unauthorized: Invalid or expired token', `HTTP_401`);
   }
 };
 
@@ -200,10 +201,10 @@ const verifyAdmin = (req, res, next) => {
       if (saStoreErr) throw saStoreErr;
 
       if (superAdmin || storeAdmin) return next();
-      return res.status(403).json({ error: 'Forbidden: Admin access required' });
+      return apiError(res, 403, 'Forbidden: Admin access required', `HTTP_403`);
     } catch (err) {
       logger.error('verifyAdmin lookup failed:', err.message);
-      if (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError' || err.message.includes('token')) { return res.status(401).json({ error: 'Unauthorized: Invalid or expired token' }); } return res.status(500).json({ error: 'Internal server error' });
+      if (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError' || err.message.includes('token')) { return apiError(res, 401, 'Unauthorized: Invalid or expired token', `HTTP_401`); } return apiError(res, 500, 'Internal server error', `HTTP_500`);
     }
   });
 };
@@ -223,7 +224,7 @@ const verifyPermission = (permissionName) => {
   return async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: No token provided' });
+      return apiError(res, 401, 'Unauthorized: No token provided', `HTTP_401`);
     }
 
     try {
@@ -237,11 +238,11 @@ const verifyPermission = (permissionName) => {
         const platformPermissions = await resolvePlatformPermissions(userId);
 
         if (platformPermissions === null) {
-          return res.status(403).json({ error: 'Forbidden: Platform access required' });
+          return apiError(res, 403, 'Forbidden: Platform access required', `HTTP_403`);
         }
 
         if (!platformPermissions.includes(permissionName)) {
-          return res.status(403).json({ error: `Forbidden: Missing permission '${permissionName}'` });
+          return apiError(res, 403, `Forbidden: Missing permission '${permissionName}'`, `HTTP_403`);
         }
 
         return next();
@@ -250,19 +251,19 @@ const verifyPermission = (permissionName) => {
       // Store-level permission check
       const storeId = req.store?.id;
       if (!storeId) {
-        return res.status(403).json({ error: 'Forbidden: Tenant context required' });
+        return apiError(res, 403, 'Forbidden: Tenant context required', `HTTP_403`);
       }
 
       const storePermissions = await resolveStorePermissions(userId, storeId);
 
       if (!storePermissions.includes(permissionName)) {
-        return res.status(403).json({ error: `Forbidden: Missing permission '${permissionName}'` });
+        return apiError(res, 403, `Forbidden: Missing permission '${permissionName}'`, `HTTP_403`);
       }
 
       return next();
     } catch (err) {
       logger.error(`verifyPermission('${permissionName}') failed:`, err.message);
-      if (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError' || err.message.includes('token')) { return res.status(401).json({ error: 'Unauthorized: Invalid or expired token' }); } return res.status(500).json({ error: 'Internal server error' });
+      if (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError' || err.message.includes('token')) { return apiError(res, 401, 'Unauthorized: Invalid or expired token', `HTTP_401`); } return apiError(res, 500, 'Internal server error', `HTTP_500`);
     }
   };
 };

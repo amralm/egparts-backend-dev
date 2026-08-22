@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const { verifyPermission } = require('../middleware/auth');
 const bannerAdminService = require('../services/bannerAdminService');
@@ -9,7 +10,7 @@ const router = express.Router();
 function getStoreId(req, res) {
   const storeId = req.store?.id;
   if (!storeId) {
-    res.status(403).json({ error: 'Tenant context required' });
+    apiError(res, 403, 'Tenant context required', `HTTP_403`);
     return null;
   }
   return storeId;
@@ -44,7 +45,7 @@ router.post('/', verifyPermission('banners.manage'), async (req, res) => {
     // `banners` was a legacy key; production plans expose `banner_images`.
     const isAllowed = await subscriptionLimitService.reserveFeatureUsage(storeId, 'banner_images', 1, reservationKey, 15);
     if (!isAllowed) {
-      return res.status(403).json({ success: false, code: 'FEATURE_LIMIT_EXCEEDED', error: 'تجاوزت الحد الأقصى للبنرات الإعلانية المسموح بها في باقتك.' });
+      return apiError(res, 403, 'تجاوزت الحد الأقصى للبنرات الإعلانية المسموح بها في باقتك.', 'FEATURE_LIMIT_EXCEEDED');
     }
     const banner = await bannerAdminService.createBanner(storeId, req.body || {});
     await subscriptionLimitService.commitFeatureUsage(reservationKey);

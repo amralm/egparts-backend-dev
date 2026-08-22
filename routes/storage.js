@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router  = express.Router();
 const multer  = require('multer');
@@ -92,7 +93,7 @@ async function canAccessStorageScope(req, storeId, isPlatform) {
 router.post('/upload', verifyUser, uploadLimiter, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No file provided. Send multipart/form-data with field "file".' });
+      return apiError(res, 400, 'No file provided. Send multipart/form-data with field "file".', `HTTP_400`);
     }
 
     const isPlatform = req.context?.type === 'platform';
@@ -100,16 +101,16 @@ router.post('/upload', verifyUser, uploadLimiter, upload.single('file'), async (
     const storeId = req.store?.id || (isPlatform ? platformStoreId : null);
 
     if (!storeId) {
-      return res.status(400).json({ error: 'Store context not resolved.' });
+      return apiError(res, 400, 'Store context not resolved.', `HTTP_400`);
     }
 
     if (!(await canAccessStorageScope(req, req.store?.id, isPlatform))) {
-      return res.status(403).json({ error: 'Forbidden: storage scope access denied.' });
+      return apiError(res, 403, 'Forbidden: storage scope access denied.', `HTTP_403`);
     }
 
     const policyName = req.body.policy;
     if (!policyName) {
-      return res.status(400).json({ error: '"policy" field is required (e.g. product, banner, receipt).' });
+      return apiError(res, 400, '"policy" field is required (e.g. product, banner, receipt).', `HTTP_400`);
     }
 
     const result = await assetPipeline.process({
@@ -130,7 +131,7 @@ router.post('/upload', verifyUser, uploadLimiter, upload.single('file'), async (
     const status = err.statusCode || 500;
     const safe   = status < 500 ? err.message : 'Upload failed. Please try again.';
     logger.error('[Storage] /upload error', { error: err.message, correlationId: req.correlationId });
-    return res.status(status).json({ error: safe, code: err.code });
+    return apiError(res, status, safe, err.code || 'STORAGE_REQUEST_FAILED');
   }
 });
 
@@ -159,18 +160,18 @@ router.post('/presigned-url', verifyUser, uploadLimiter, async (req, res) => {
     const { category, customName, contentType, originalName, size } = req.body;
     
     if (!category || !contentType) {
-      return res.status(400).json({ error: 'category and contentType are required' });
+      return apiError(res, 400, 'category and contentType are required', `HTTP_400`);
     }
 
     const config = CATEGORY_CONFIGS[category];
     if (!config) {
-      return res.status(400).json({ error: 'Invalid upload category' });
+      return apiError(res, 400, 'Invalid upload category', `HTTP_400`);
     }
 
     // Server-side extension check (Prevent MIME injection)
     const ext = MIME_EXTENSIONS[contentType];
     if (!ext) {
-      return res.status(400).json({ error: 'Unacceptable file MIME type' });
+      return apiError(res, 400, 'Unacceptable file MIME type', `HTTP_400`);
     }
 
     const isPlatform = req.context?.type === 'platform';
@@ -179,11 +180,11 @@ router.post('/presigned-url', verifyUser, uploadLimiter, async (req, res) => {
     const userId = req.user?.sub;
 
     if (!storeId && !isPlatform) {
-      return res.status(400).json({ error: 'Store context not resolved' });
+      return apiError(res, 400, 'Store context not resolved', `HTTP_400`);
     }
 
     if (!(await canAccessStorageScope(req, req.store?.id, isPlatform))) {
-      return res.status(403).json({ error: 'Forbidden: storage scope access denied' });
+      return apiError(res, 403, 'Forbidden: storage scope access denied', `HTTP_403`);
     }
 
     const uploadFeatureKey = category === 'products' || category === 'banners' || category === 'logos' || category === 'categories'
@@ -202,7 +203,7 @@ router.post('/presigned-url', verifyUser, uploadLimiter, async (req, res) => {
     const idempotencyKey = `upload_${fileId}`;
     const reserved = await subscriptionLimitService.reserveFeatureUsage(storeId, uploadFeatureKey, 1, idempotencyKey, 15);
     if (!reserved) {
-      return res.status(403).json({ error: 'Feature limit exceeded for uploads' });
+      return apiError(res, 403, 'Feature limit exceeded for uploads', `HTTP_403`);
     }
     
     // Key: platform/... (Platform Assets) or stores/{storeId}/... (Tenant Assets)
@@ -252,7 +253,7 @@ router.post('/presigned-url', verifyUser, uploadLimiter, async (req, res) => {
     res.json({ uploadUrl, key: publicUrl, reservationKey: idempotencyKey });
   } catch (error) {
     console.error('Error generating pre-signed URL:', error);
-    res.status(500).json({ error: 'Failed to generate upload URL' });
+    apiError(res, 500, 'Failed to generate upload URL', `HTTP_500`);
   }
 });
 
@@ -261,7 +262,7 @@ router.post('/delete-file', deleteFileLimiter, verifyUser, async (req, res) => {
   try {
     const { key } = req.body;
     if (!key) {
-      return res.status(400).json({ error: 'Key is required' });
+      return apiError(res, 400, 'Key is required', `HTTP_400`);
     }
 
     let actualKey = key;
@@ -278,7 +279,7 @@ router.post('/delete-file', deleteFileLimiter, verifyUser, async (req, res) => {
     const storeId = req.store?.id;
 
     if (!(await canAccessStorageScope(req, storeId, isPlatform))) {
-      return res.status(403).json({ error: 'Forbidden: storage scope access denied' });
+      return apiError(res, 403, 'Forbidden: storage scope access denied', `HTTP_403`);
     }
 
     // Verify key ownership based on context
@@ -287,7 +288,7 @@ router.post('/delete-file', deleteFileLimiter, verifyUser, async (req, res) => {
       : (storeId && actualKey.startsWith(`stores/${storeId}/`));
 
     if (!isOwner) {
-      return res.status(403).json({ error: 'Forbidden: You do not own this resource' });
+      return apiError(res, 403, 'Forbidden: You do not own this resource', `HTTP_403`);
     }
 
     logger.info(`[Storage] Deleting file: ${actualKey}`, {
@@ -329,7 +330,7 @@ router.post('/delete-file', deleteFileLimiter, verifyUser, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting object from R2:', error);
-    res.status(500).json({ error: 'Failed to delete file' });
+    apiError(res, 500, 'Failed to delete file', `HTTP_500`);
   }
 });
 
@@ -352,7 +353,7 @@ router.post('/report-metrics', verifyUser, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     logger.error('Error recording R2 upload metrics/commits:', error.message);
-    res.status(500).json({ error: 'Failed to record metrics' });
+    apiError(res, 500, 'Failed to record metrics', `HTTP_500`);
   }
 });
 

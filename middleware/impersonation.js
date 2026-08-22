@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const { supabase } = require('../services/supabase');
 
 module.exports = async function impersonationMiddleware(req, res, next) {
@@ -16,17 +17,17 @@ module.exports = async function impersonationMiddleware(req, res, next) {
       .single();
 
     if (error || !session) {
-      return res.status(401).json({ error: 'Invalid or expired impersonation session.' });
+      return apiError(res, 401, 'Invalid or expired impersonation session.', `HTTP_401`);
     }
 
     if (!session.is_active) {
-      return res.status(401).json({ error: 'Impersonation session has expired or ended.' });
+      return apiError(res, 401, 'Impersonation session has expired or ended.', `HTTP_401`);
     }
 
     // Optional security: Ensure the person making the request matches the session's admin_id
     // This requires req.user to be set prior by Auth middleware
     if (!req.user?.sub || req.user.sub !== session.admin_id) {
-       return res.status(403).json({ error: 'Session belongs to a different admin.' });
+       return apiError(res, 403, 'Session belongs to a different admin.', `HTTP_403`);
     }
 
     // Override the store context
@@ -38,7 +39,7 @@ module.exports = async function impersonationMiddleware(req, res, next) {
       .single();
 
     if (storeError || !store) {
-      return res.status(404).json({ error: 'Impersonated store not found.' });
+      return apiError(res, 404, 'Impersonated store not found.', `HTTP_404`);
     }
 
     // Overwrite standard context
@@ -49,6 +50,6 @@ module.exports = async function impersonationMiddleware(req, res, next) {
     next();
   } catch (err) {
     console.error('[ImpersonationMiddleware] Error:', err);
-    res.status(500).json({ error: 'Internal server error processing impersonation.' });
+    apiError(res, 500, 'Internal server error processing impersonation.', `HTTP_500`);
   }
 };

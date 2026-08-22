@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
@@ -17,7 +18,7 @@ const orderRateLimiter = rateLimit({
 });
 
 router.get('/my', verifyUser, async (req, res) => {
-  if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', `HTTP_400`);
 
   try {
     const { data, error } = await supabase
@@ -31,12 +32,12 @@ router.get('/my', verifyUser, async (req, res) => {
     res.json({ success: true, orders: data || [] });
   } catch (error) {
     console.error('Customer orders list error:', error.message);
-    res.status(500).json({ error: 'Failed to load orders' });
+    apiError(res, 500, 'Failed to load orders', `HTTP_500`);
   }
 });
 
 router.get('/:id/tracking', verifyUser, async (req, res) => {
-  if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', `HTTP_400`);
 
   try {
     const { data: order, error: orderError } = await supabase
@@ -48,7 +49,7 @@ router.get('/:id/tracking', verifyUser, async (req, res) => {
       .maybeSingle();
 
     if (orderError) throw orderError;
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (!order) return apiError(res, 404, 'Order not found', `HTTP_404`);
 
     const { data: tracking, error: trackingError } = await supabase
       .from('order_tracking')
@@ -60,12 +61,12 @@ router.get('/:id/tracking', verifyUser, async (req, res) => {
     res.json({ success: true, order, tracking: tracking || [] });
   } catch (error) {
     console.error('Customer order tracking error:', error.message);
-    res.status(500).json({ error: 'Failed to load order tracking' });
+    apiError(res, 500, 'Failed to load order tracking', `HTTP_500`);
   }
 });
 
 router.get('/admin/list', verifyPermission('orders.view'), async (req, res) => {
-  if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', `HTTP_400`);
 
   try {
     const { productId } = req.query;
@@ -97,12 +98,12 @@ router.get('/admin/list', verifyPermission('orders.view'), async (req, res) => {
     res.json({ success: true, orders, filter_product: filterProduct });
   } catch (error) {
     console.error('Admin orders list error:', error.message);
-    res.status(500).json({ error: 'Failed to load orders' });
+    apiError(res, 500, 'Failed to load orders', `HTTP_500`);
   }
 });
 
 router.get('/admin/:id/customer-address', verifyPermission('orders.view'), async (req, res) => {
-  if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', `HTTP_400`);
   try {
     const { data: order } = await supabase
       .from('orders')
@@ -134,20 +135,20 @@ router.get('/admin/:id/customer-address', verifyPermission('orders.view'), async
     res.json({ success: true, address: data && data[0] ? data[0] : null });
   } catch (error) {
     console.error('Admin order customer address error:', error.message);
-    res.status(500).json({ error: 'Failed to load customer address' });
+    apiError(res, 500, 'Failed to load customer address', `HTTP_500`);
   }
 });
 
 router.patch('/admin/:id/status', verifyPermission('orders.update_status'), validateBody(orderStatusSchema), async (req, res) => {
-  if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', `HTTP_400`);
 
   const { id } = req.params;
   const { status, payment_status } = req.body || {};
-  if (!status && !payment_status) return res.status(400).json({ error: 'No status update provided' });
+  if (!status && !payment_status) return apiError(res, 400, 'No status update provided', `HTTP_400`);
   const allowedStatuses = new Set(['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled']);
   const allowedPaymentStatuses = new Set(['unpaid', 'pending', 'paid', 'failed', 'cancelled', 'canceled', 'expired']);
-  if (status && !allowedStatuses.has(status)) return res.status(400).json({ error: 'Invalid order status' });
-  if (payment_status && !allowedPaymentStatuses.has(payment_status)) return res.status(400).json({ error: 'Invalid payment status' });
+  if (status && !allowedStatuses.has(status)) return apiError(res, 400, 'Invalid order status', `HTTP_400`);
+  if (payment_status && !allowedPaymentStatuses.has(payment_status)) return apiError(res, 400, 'Invalid payment status', `HTTP_400`);
 
   try {
     const { data: oldOrder, error: oldErr } = await supabase
@@ -158,7 +159,7 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), vali
       .maybeSingle();
 
     if (oldErr) throw oldErr;
-    if (!oldOrder) return res.status(404).json({ error: 'Order not found' });
+    if (!oldOrder) return apiError(res, 404, 'Order not found', `HTTP_404`);
     if (status === oldOrder.status && (!payment_status || payment_status === oldOrder.payment_status)) {
       return res.json({ success: true, order: oldOrder, unchanged: true });
     }
@@ -173,18 +174,18 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), vali
       cancelled: new Set(),
     };
     if (status && status !== oldOrder.status && !transitions[oldOrder.status]?.has(status)) {
-      return res.status(409).json({ error: 'Invalid order status transition', code: 'INVALID_ORDER_TRANSITION' });
+      return apiError(res, 409, 'Invalid order status transition', 'INVALID_ORDER_TRANSITION');
     }
     if (status === 'delivered' && !['cod', 'cash_on_delivery'].includes(oldOrder.payment_method) && oldOrder.payment_status !== 'paid') {
-      return res.status(409).json({ error: 'Cannot deliver an unpaid non-COD order', code: 'PAYMENT_REQUIRED' });
+      return apiError(res, 409, 'Cannot deliver an unpaid non-COD order', 'PAYMENT_REQUIRED');
     }
     if (payment_status && payment_status !== oldOrder.payment_status) {
       const isCod = ['cod', 'cash_on_delivery'].includes(oldOrder.payment_method);
       if (!isCod || !['unpaid', 'paid'].includes(payment_status)) {
-        return res.status(409).json({ error: 'Payment status is controlled by the payment workflow', code: 'PAYMENT_WORKFLOW_REQUIRED' });
+        return apiError(res, 409, 'Payment status is controlled by the payment workflow', 'PAYMENT_WORKFLOW_REQUIRED');
       }
       if (payment_status === 'paid' && !['confirmed', 'processing', 'shipped', 'delivered'].includes(oldOrder.status)) {
-        return res.status(409).json({ error: 'COD can be marked paid only after confirmation', code: 'INVALID_PAYMENT_TRANSITION' });
+        return apiError(res, 409, 'COD can be marked paid only after confirmation', 'INVALID_PAYMENT_TRANSITION');
       }
     }
     const updatePayload = {};
@@ -223,7 +224,7 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), vali
     res.json({ success: true, order });
   } catch (error) {
     console.error('Admin order status update error:', error.message);
-    res.status(500).json({ error: 'Failed to update order status' });
+    apiError(res, 500, 'Failed to update order status', `HTTP_500`);
   }
 });
 
@@ -275,12 +276,12 @@ router.get('/recent-purchases', async (req, res) => {
     res.json({ success: true, purchases });
   } catch (error) {
     console.error('Error fetching recent purchases:', error.message);
-    res.status(500).json({ error: 'Failed to fetch recent purchases' });
+    apiError(res, 500, 'Failed to fetch recent purchases', `HTTP_500`);
   }
 });
 
 router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(whatsappOrderSchema), async (req, res) => {
-  if (!req.store?.id) return res.status(400).json({ error: 'Tenant context required' });
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', `HTTP_400`);
 
   const {
     items,
@@ -295,18 +296,18 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
   } = req.body || {};
 
   if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Cart is empty' });
+    return apiError(res, 400, 'Cart is empty', `HTTP_400`);
   }
   
   const reservationKey = `whatsapp-${req.store.id}-${Date.now()}-${Math.random()}`;
   try {
     await assertPaymentMethodAvailable(req.store.id, paymentMethod);
   } catch (err) {
-    return res.status(err.status || 409).json({ success: false, error: 'وسيلة الدفع غير متاحة', code: err.code || 'PAYMENT_METHOD_UNAVAILABLE', reason: err.message });
+    return apiError(res, err.status || 409, 'وسيلة الدفع غير متاحة', err.code || 'PAYMENT_METHOD_UNAVAILABLE', { reason: err.message });
   }
   const isAllowed = await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'orders', 1, reservationKey);
   if (!isAllowed) {
-    return res.status(403).json({ error: 'عذراً، المتجر استنفد الحد الأقصى من الطلبات المسموحة في باقته الحالية' });
+    return apiError(res, 403, 'عذراً، المتجر استنفد الحد الأقصى من الطلبات المسموحة في باقته الحالية', `HTTP_403`);
   }
 
   try {
@@ -323,13 +324,13 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
     const allowedIds = new Set((tenantProducts || []).map((product) => String(product.id)));
     if (productIds.length !== allowedIds.size || productIds.some((id) => !allowedIds.has(String(id)))) {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-      return res.status(400).json({ error: 'Invalid cart items' });
+      return apiError(res, 400, 'Invalid cart items', `HTTP_400`);
     }
 
     const normalizedItems = items.map(item => ({ id: item.id, qty: Number(item.qty ?? item.quantity ?? 0) }));
     if (normalizedItems.some(item => !item.id || !Number.isInteger(item.qty) || item.qty < 1)) {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-      return res.status(400).json({ error: 'Invalid cart quantities' });
+      return apiError(res, 400, 'Invalid cart quantities', `HTTP_400`);
     }
     const stableIdempotencyKey = String(idempotencyKey || `whatsapp-checkout-${req.store.id}-${req.user?.sub || 'guest'}-${crypto.randomUUID()}`).slice(0, 255);
     let { data, error } = await supabase.rpc('create_order_atomic', {
@@ -355,7 +356,7 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
     const result = Array.isArray(data) ? data[0] : data;
     if (result && result.success === false) {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-      return res.status(400).json({ success: false, error: result.error || 'Checkout failed' });
+      return apiError(res, 400, result.error || 'Checkout failed', 'CHECKOUT_FAILED');
     }
 
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
@@ -363,7 +364,7 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
   } catch (error) {
     await subscriptionLimitService.rollbackFeatureUsage(reservationKey).catch(() => {});
     console.error('WhatsApp checkout error:', error.message);
-    res.status(500).json({ error: 'Checkout failed' });
+    apiError(res, 500, 'Checkout failed', `HTTP_500`);
   }
 });
 
@@ -376,33 +377,33 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
   // 1. Validation
   const allowedMethods = ['cod', 'card', 'manual_wallet'];
   if (!allowedMethods.includes(paymentMethod)) {
-    return res.status(400).json({ error: 'وسيلة دفع غير مدعومة' });
+    return apiError(res, 400, 'وسيلة دفع غير مدعومة', `HTTP_400`);
   }
 
   if (!idempotencyKey) {
-    return res.status(400).json({ error: 'Idempotency Key is required' });
+    return apiError(res, 400, 'Idempotency Key is required', `HTTP_400`);
   }
 
   // Items must be a non-empty array with valid shape.
   if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'السلة فارغة' });
+    return apiError(res, 400, 'السلة فارغة', `HTTP_400`);
   }
   for (const item of items) {
     if (!item || (typeof item.id !== 'string' && typeof item.id !== 'number') || typeof item.qty !== 'number' || item.qty < 1) {
-      return res.status(400).json({ error: 'صنف في السلة غير صالح' });
+      return apiError(res, 400, 'صنف في السلة غير صالح', `HTTP_400`);
     }
   }
 
   // Validate required delivery fields.
   if (!phone || !city || !address) {
-    return res.status(400).json({ error: 'بيانات التوصيل ناقصة' });
+    return apiError(res, 400, 'بيانات التوصيل ناقصة', `HTTP_400`);
   }
 
   try {
     let savedAddress = null;
     if (addressId) {
       if (typeof addressId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(addressId)) {
-        return res.status(400).json({ success: false, code: 'INVALID_ADDRESS_ID', error: 'العنوان المحفوظ غير صالح' });
+        return apiError(res, 400, 'العنوان المحفوظ غير صالح', 'INVALID_ADDRESS_ID');
       }
       const { data, error: addressError } = await supabase
         .from('user_addresses')
@@ -413,7 +414,7 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
         .maybeSingle();
       if (addressError) throw addressError;
       if (!data) {
-        return res.status(404).json({ success: false, code: 'SAVED_ADDRESS_NOT_FOUND', error: 'العنوان المحفوظ غير موجود أو لا يخص هذا المتجر' });
+        return apiError(res, 404, 'العنوان المحفوظ غير موجود أو لا يخص هذا المتجر', 'SAVED_ADDRESS_NOT_FOUND');
       }
       savedAddress = data;
     }
@@ -421,7 +422,7 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
     try {
       await assertPaymentMethodAvailable(req.store.id, paymentMethod);
     } catch (err) {
-      return res.status(err.status || 409).json({ error: 'وسيلة الدفع غير متاحة', code: err.code || 'PAYMENT_METHOD_UNAVAILABLE', reason: err.message });
+      return apiError(res, err.status || 409, 'وسيلة الدفع غير متاحة', err.code || 'PAYMENT_METHOD_UNAVAILABLE', { reason: err.message });
     }
     // Idempotency: scoped to user and key
     const idempotencyScope = `${userId}-${idempotencyKey}`;
@@ -441,7 +442,7 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
     const reservationKey = `order-${req.store.id}-${idempotencyScope}`;
     const isAllowed = await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'orders', 1, reservationKey);
     if (!isAllowed) {
-      return res.status(403).json({ error: 'عذراً، المتجر استنفد الحد الأقصى من الطلبات المسموحة في باقته الحالية' });
+      return apiError(res, 403, 'عذراً، المتجر استنفد الحد الأقصى من الطلبات المسموحة في باقته الحالية', `HTTP_403`);
     }
 
     // 3. Server-Side Calculations
@@ -464,11 +465,11 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
       const dbProduct = products.find(p => p.id === item.id);
       if (!dbProduct) {
         await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-        return res.status(404).json({ error: `المنتج غير موجود أو غير متاح في هذا المتجر` });
+      return apiError(res, 404, 'المنتج غير موجود أو غير متاح في هذا المتجر', 'PRODUCT_NOT_FOUND');
       }
       if ((dbProduct.stock_quantity || 0) < item.qty) {
         await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-        return res.status(400).json({ error: `عذراً، الكمية المتاحة من "${dbProduct.name}" غير كافية لإتمام طلبك` });
+      return apiError(res, 400, `عذراً، الكمية المتاحة من "${dbProduct.name}" غير كافية لإتمام طلبك`, 'INSUFFICIENT_STOCK');
       }
 
       calculatedSubtotal += dbProduct.price * item.qty;
@@ -534,7 +535,7 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
       console.error('RPC Error:', error.message);
       const isStockError = error.message.includes('stock') || error.message.includes('الكمية');
-      return res.status(isStockError ? 400 : 500).json({ error: error.message });
+      return apiError(res, isStockError ? 400 : 500, error.message, isStockError ? 'INSUFFICIENT_STOCK' : 'ORDER_CREATE_FAILED');
     }
 
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
@@ -546,7 +547,7 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
     const idempotencyScope = userId ? `${userId}-${idempotencyKey}` : idempotencyKey;
     await subscriptionLimitService.rollbackFeatureUsage(`order-${req.store.id}-${idempotencyScope}`).catch(() => {});
     console.error('Order processing error:', error.message);
-    res.status(500).json({ error: 'Order processing failed' });
+    apiError(res, 500, 'Order processing failed', `HTTP_500`);
   }
 });
 

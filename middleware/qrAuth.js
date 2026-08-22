@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 
@@ -264,7 +265,7 @@ const verifyAdminOrLocal = (req, res, next) => {
   }
   if (checkAuth(req)) return next();
   if (req.method === 'GET' && req.accepts('html')) return res.status(200).send(LOGIN_PAGE_HTML(TURNSTILE_SITE_KEY));
-  return res.status(401).json({ error: 'Authentication required' });
+  return apiError(res, 401, 'Authentication required', `HTTP_401`);
 };
 
 module.exports = { verifyAdminOrLocal, checkAuth, safeCompare, QR_USER, QR_PASS };

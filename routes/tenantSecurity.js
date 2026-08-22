@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const { verifyPermission } = require('../middleware/auth');
 const tenantSecurityService = require('../services/tenantSecurityService');
@@ -8,7 +9,7 @@ const router = express.Router();
 function getStoreId(req, res) {
   const storeId = req.store?.id;
   if (!storeId) {
-    res.status(403).json({ error: 'Tenant context required' });
+    apiError(res, 403, 'Tenant context required', `HTTP_403`);
     return null;
   }
   return storeId;

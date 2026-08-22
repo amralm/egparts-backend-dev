@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
@@ -17,7 +18,7 @@ router.get('/reverse', geocodeLimiter, async (req, res) => {
   const latitude = Number(lat);
   const longitude = Number(lng);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-    return res.status(400).json({ success: false, error: 'Valid latitude and longitude are required' });
+    return apiError(res, 400, 'Valid latitude and longitude are required', `HTTP_400`);
   }
   
   const cacheKey = `${Math.round(latitude * 1000) / 1000},${Math.round(longitude * 1000) / 1000}`;
@@ -41,7 +42,7 @@ router.get('/reverse', geocodeLimiter, async (req, res) => {
     geocodeCache.set(cacheKey, { ts: Date.now(), data: result });
     res.json({ success: true, ...result });
   } catch (err) {
-    res.status(502).json({ success: false, error: 'Geocoding provider unavailable.' });
+    apiError(res, 502, 'Geocoding provider unavailable.', `HTTP_502`);
   }
 });
 

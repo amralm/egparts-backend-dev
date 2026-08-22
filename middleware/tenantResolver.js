@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const { supabase } = require('../services/supabase');
 
 // Load reserved subdomains from env or fallback list
@@ -77,7 +78,7 @@ module.exports = async function tenantResolver(req, res, next) {
     // this strict also prevents user input from being interpreted as a
     // PostgREST filter expression.
     if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(subdomain)) {
-      return res.status(400).json({ success: false, code: 'INVALID_TENANT_IDENTIFIER', error: 'معرف المتجر غير صالح' });
+      return apiError(res, 400, 'معرف المتجر غير صالح', 'INVALID_TENANT_IDENTIFIER');
     }
     
     const isReserved = 
@@ -111,7 +112,7 @@ module.exports = async function tenantResolver(req, res, next) {
       }
 
       if (error || !data) {
-        return res.status(404).json({ success: false, error: 'المتجر غير موجود' });
+        return apiError(res, 404, 'المتجر غير موجود', `HTTP_404`);
       }
       
       store = data;
@@ -138,6 +139,6 @@ module.exports = async function tenantResolver(req, res, next) {
     next();
   } catch (err) {
     console.error('Tenant resolver error:', err);
-    return res.status(500).json({ success: false, error: 'خطأ داخلي في الخادم أثناء تحديد هوية المتجر' });
+    return apiError(res, 500, 'خطأ داخلي في الخادم أثناء تحديد هوية المتجر', `HTTP_500`);
   }
 };

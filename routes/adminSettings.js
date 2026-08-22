@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
@@ -6,7 +7,7 @@ const settingsAdminService = require('../services/settingsAdminService');
 
 function requireStore(req, res) {
   if (!req.store?.id) {
-    res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context is required.' });
+    apiError(res, 400, 'Tenant context is required.', 'TENANT_CONTEXT_REQUIRED');
     return null;
   }
   return req.store.id;
@@ -25,7 +26,7 @@ router.get('/products', verifyPermission('settings.view'), async (req, res) => {
     res.json({ success: true, products });
   } catch (err) {
     logger.error('[admin-settings] products failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load products.' });
+    apiError(res, 500, 'Unable to load products.', `HTTP_500`);
   }
 });
 
@@ -37,7 +38,7 @@ router.get('/', verifyPermission('settings.view'), async (req, res) => {
     res.json({ success: true, ...payload });
   } catch (err) {
     logger.error('[admin-settings] get failed:', err.message);
-    res.status(500).json({ success: false, error: 'Unable to load settings.' });
+    apiError(res, 500, 'Unable to load settings.', `HTTP_500`);
   }
 });
 
@@ -60,7 +61,7 @@ router.put('/', verifyPermission('settings.update'), async (req, res) => {
     res.json({ success: true, settings });
   } catch (err) {
     logger.error('[admin-settings] save failed:', err.message);
-    res.status(err.statusCode || 500).json({ success: false, error: 'Unable to save settings.' });
+    apiError(res, err.statusCode || 500, 'Unable to save settings.', 'SETTINGS_SAVE_FAILED');
   }
 });
 
@@ -78,7 +79,7 @@ router.patch('/theme', verifyPermission('settings.update'), async (req, res) => 
     res.json({ success: true, settings });
   } catch (err) {
     logger.error('[admin-settings] apply theme failed:', err.message);
-    res.status(err.statusCode || 500).json({ success: false, error: 'Unable to apply theme.' });
+    apiError(res, err.statusCode || 500, 'Unable to apply theme.', 'THEME_APPLY_FAILED');
   }
 });
 

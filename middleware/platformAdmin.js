@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const { supabase } = require('../services/supabase');
 const tokenVerifier = require('../utils/tokenVerifier');
 const logger = require('../utils/logger');
@@ -8,7 +9,7 @@ async function loadPlatformUser(req, res) {
 
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Unauthorized: No token provided' });
+    apiError(res, 401, 'Unauthorized: No token provided', `HTTP_401`);
     return null;
   }
 
@@ -24,13 +25,13 @@ async function loadPlatformUser(req, res) {
 
     if (error) {
       logger.error('loadPlatformUser DB error:', error.message);
-      res.status(500).json({ error: 'Internal Server Error' });
+      apiError(res, 500, 'Internal Server Error', `HTTP_500`);
       return null;
     }
 
     if (!superAdmin) {
       logger.warn(`Unauthorized platform access attempt by user: ${decoded.sub}`);
-      res.status(403).json({ error: 'Forbidden: Platform Admin access only' });
+      apiError(res, 403, 'Forbidden: Platform Admin access only', `HTTP_403`);
       return null;
     }
 
@@ -45,19 +46,19 @@ async function loadPlatformUser(req, res) {
     ]);
     if (ipResult.error || banResult.error) {
       logger.error('Platform security policy lookup failed:', ipResult.error?.message || banResult.error?.message);
-      res.status(503).json({ error: 'Security policy is temporarily unavailable' });
+      apiError(res, 503, 'Security policy is temporarily unavailable', `HTTP_503`);
       return null;
     }
     const activeUserBan = (banResult.data || []).some((ban) => !ban.banned_until || new Date(ban.banned_until).getTime() > Date.now());
     if ((ipResult.data || []).length || activeUserBan) {
-      res.status(403).json({ error: 'Platform access is blocked by security policy' });
+      apiError(res, 403, 'Platform access is blocked by security policy', `HTTP_403`);
       return null;
     }
 
     return decoded;
   } catch (err) {
     logger.error('verifyPlatformAdmin token error:', err.message);
-    res.status(401).json({ error: 'Unauthorized: Invalid token' });
+    apiError(res, 401, 'Unauthorized: Invalid token', `HTTP_401`);
     return null;
   }
 }
@@ -89,7 +90,7 @@ const verifyPlatformPermission = (requiredPermission) => async (req, res, next) 
 
   if (error) {
     logger.error('verifyPlatformPermission lookup failed:', error.message);
-    return res.status(500).json({ error: 'Internal Server Error: Unable to verify permissions' });
+    return apiError(res, 500, 'Internal Server Error: Unable to verify permissions', `HTTP_500`);
   }
 
   const role = roles && roles[0];
@@ -101,7 +102,7 @@ const verifyPlatformPermission = (requiredPermission) => async (req, res, next) 
 
   if (!hasPermission) {
     logger.warn(`Super Admin missing platform permission ${requiredPermission}, access denied.`);
-    return res.status(403).json({ error: 'Forbidden: Insufficient permissions' });
+    return apiError(res, 403, 'Forbidden: Insufficient permissions', `HTTP_403`);
   }
 
   next();

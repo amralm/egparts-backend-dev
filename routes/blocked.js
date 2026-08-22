@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const router = require('express').Router();
@@ -28,7 +29,7 @@ async function refreshBlockedCacheForStore(storeId) {
 // GET /api/blocked/check — blocks IP + logs guest visits
 router.get('/check', async (req, res) => {
   if (!req.store || !req.store.id) {
-    return res.status(400).json({ error: 'تعذر التعرف على هوية المتجر' });
+    return apiError(res, 400, 'تعذر التعرف على هوية المتجر', `HTTP_400`);
   }
 
   const storeId = req.store.id;

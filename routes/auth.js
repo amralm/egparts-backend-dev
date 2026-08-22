@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
 const { z } = require('zod');
@@ -155,7 +156,7 @@ const sensitiveWriteRateLimiter = rateLimit({ validate: { trustProxy: false }, v
 router.post('/resolve-phone', phoneLoginLimiter, async (req, res) => {
   const parsed = resolvePhoneSchema.safeParse(req.body);
   if (!parsed.success || !req.store?.id) {
-    return res.status(400).json({ success: false, error: 'بيانات تسجيل الدخول غير صالحة' });
+    return apiError(res, 400, 'بيانات تسجيل الدخول غير صالحة', `HTTP_400`);
   }
   let phone = parsed.data.phone;
   if (phone.startsWith('+2')) phone = phone.slice(2);
@@ -167,11 +168,11 @@ router.post('/resolve-phone', phoneLoginLimiter, async (req, res) => {
       p_password: parsed.data.password,
       p_store_id: req.store.id
     });
-    if (error || !data) return res.status(401).json({ success: false, error: 'بيانات الدخول غير صحيحة' });
+    if (error || !data) return apiError(res, 401, 'بيانات الدخول غير صحيحة', `HTTP_401`);
     return res.json({ success: true, email: data });
   } catch (err) {
     logger.warn('Phone login resolution failed:', err.message);
-    return res.status(401).json({ success: false, error: 'بيانات الدخول غير صحيحة' });
+    return apiError(res, 401, 'بيانات الدخول غير صحيحة', `HTTP_401`);
   }
 });
 
@@ -188,7 +189,7 @@ const exchangeRateLimiter = rateLimit({ validate: { trustProxy: false },
 // Route: Request OTP — IP limit + per-phone limit
 router.post('/profile/sync', verifyUser, sensitiveWriteRateLimiter, async (req, res) => {
   try {
-    if (!req.store?.id) return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context required' });
+    if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_CONTEXT_REQUIRED');
     const profile = await userProfileService.syncUserProfile(req.user, req.store.id);
     return res.json({ success: true, profile });
   } catch (err) {
@@ -202,7 +203,7 @@ router.post('/profile/sync', verifyUser, sensitiveWriteRateLimiter, async (req, 
 
 router.post('/profile/mark-email-verified', verifyUser, sensitiveWriteRateLimiter, async (req, res) => {
   try {
-    if (!req.store?.id) return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context required' });
+    if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_CONTEXT_REQUIRED');
     const profile = await userProfileService.markEmailVerified(req.user, req.store.id);
     return res.json({ success: true, profile });
   } catch (err) {
@@ -223,10 +224,10 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req,
     );
 
     if (!req.store?.id && !isPlatformProfile) {
-      return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context required' });
+      return apiError(res, 400, 'Tenant context required', 'TENANT_CONTEXT_REQUIRED');
     }
     if (req.store?.id && requestedStoreId !== req.store.id) {
-      return res.status(403).json({ success: false, code: 'STORE_CONTEXT_MISMATCH', error: 'Store context mismatch' });
+      return apiError(res, 403, 'Store context mismatch', 'STORE_CONTEXT_MISMATCH');
     }
 
     const normalizedPhone = phoneVerificationService.normalizeEgyptianPhone(req.body?.phone);
@@ -234,11 +235,7 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req,
     if (!alreadyVerified) {
       const pendingVerification = await phoneVerificationService.claimPendingPhone(req.user.sub, normalizedPhone, requestedStoreId);
       if (!pendingVerification) {
-        return res.status(403).json({
-          success: false,
-          code: 'PHONE_VERIFICATION_REQUIRED',
-          error: 'يجب تأكيد الرقم عبر واتساب قبل حفظه'
-        });
+        return apiError(res, 403, 'يجب تأكيد الرقم عبر واتساب قبل حفظه', 'PHONE_VERIFICATION_REQUIRED');
       }
     }
 
@@ -271,17 +268,17 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
   try {
     normalizedPhone = normalizeEgyptianPhone(phone);
   } catch (error) {
-    return res.status(400).json({ success: false, error: error.message });
+    return apiError(res, 400, error.message, error.code || 'OTP_SEND_FAILED');
   }
 
   if (!req.store?.id) {
-    return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'OTP is only available inside a tenant store.' });
+    return apiError(res, 400, 'OTP is only available inside a tenant store.', 'TENANT_CONTEXT_REQUIRED');
   }
 
   // Turnstile Verification
   if (!global.DEV_MODE_ENABLED) {
     if (!turnstileToken) {
-      return res.status(400).json({ success: false, error: 'التحقق الأمني مطلوب (Turnstile Token Missing)' });
+      return apiError(res, 400, 'التحقق الأمني مطلوب (Turnstile Token Missing)', `HTTP_400`);
     }
 
     try {
@@ -289,7 +286,7 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
 
       if (!secretKey) {
         logger.error('TURNSTILE_SECRET_KEY is not configured on the server.');
-        return res.status(500).json({ success: false, error: 'خدمة التحقق الأمني غير مهيأة' });
+        return apiError(res, 500, 'خدمة التحقق الأمني غير مهيأة', `HTTP_500`);
       }
       
       const cfRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
@@ -306,14 +303,11 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
       
       if (!cfData.success) {
         logger.warn('Turnstile verification failed', cfData);
-        return res.status(403).json({ 
-          success: false, 
-          error: 'فشل التحقق الأمني، تأكد من أنك لست روبوت'
-        });
+        return apiError(res, 403, 'فشل التحقق الأمني، تأكد من أنك لست روبوت', `HTTP_403`);
       }
     } catch (err) {
       logger.error('Turnstile verification error:', err);
-      return res.status(500).json({ success: false, error: 'خطأ داخلي أثناء التحقق الأمني' });
+      return apiError(res, 500, 'خطأ داخلي أثناء التحقق الأمني', `HTTP_500`);
     }
   }
 
@@ -331,7 +325,7 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
     .maybeSingle();
   if (existing && purpose !== 'forgot') {
     if (!user_id || existing.user_id !== user_id) {
-      return res.status(409).json({ success: false, error: 'هذا الرقم مسجل بحساب آخر من قبل. برجاء تسجيل الدخول أو استخدام رقم آخر.' });
+      return apiError(res, 409, 'هذا الرقم مسجل بحساب آخر من قبل. برجاء تسجيل الدخول أو استخدام رقم آخر.', `HTTP_409`);
     }
   }
 
@@ -340,11 +334,11 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
     reservationKey = `otp_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     const reserved = await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'otp_messages_month', 1, reservationKey, 5);
     if (!reserved) {
-      return res.status(403).json({ success: false, code: 'FEATURE_LIMIT_EXCEEDED', error: 'Monthly OTP quota reached for this store.' });
+      return apiError(res, 403, 'Monthly OTP quota reached for this store.', 'FEATURE_LIMIT_EXCEEDED');
     }
   } catch (limitErr) {
     logger.error('OTP limit check failed:', limitErr.message);
-    return res.status(500).json({ success: false, error: 'Internal Server Error: Unable to verify quota limits.' });
+    return apiError(res, 500, 'Internal Server Error: Unable to verify quota limits.', `HTTP_500`);
   }
 
   try {
@@ -384,11 +378,11 @@ router.post('/verify-otp', optionalAuth, verifyRateLimiter, perPhoneVerifyLimite
   try {
     normalizedPhone = normalizeEgyptianPhone(phone);
   } catch (error) {
-    return res.status(400).json({ success: false, error: error.message });
+    return apiError(res, 400, error.message, error.code || 'OTP_VERIFY_FAILED');
   }
 
   if (!req.store?.id) {
-    return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'OTP is only available inside a tenant store.' });
+    return apiError(res, 400, 'OTP is only available inside a tenant store.', 'TENANT_CONTEXT_REQUIRED');
   }
 
   const isValid = await otpService.verifyOTP(normalizedPhone, code, req.store);
@@ -429,7 +423,7 @@ router.post('/verify-otp', optionalAuth, verifyRateLimiter, perPhoneVerifyLimite
       });
     }
   } else {
-    res.status(400).json({ success: false, error: 'كود التحقق غير صحيح أو انتهت صلاحيته' });
+    apiError(res, 400, 'كود التحقق غير صحيح أو انتهت صلاحيته', `HTTP_400`);
   }
 });
 
@@ -442,7 +436,7 @@ const phoneVerificationClaimSchema = z.object({
 router.post('/phone-verification/claim', verifyUser, sensitiveWriteRateLimiter, async (req, res) => {
   const parsed = phoneVerificationClaimSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ success: false, code: 'INVALID_PHONE_VERIFICATION_CLAIM', error: 'بيانات إثبات الهاتف غير صالحة' });
+    return apiError(res, 400, 'بيانات إثبات الهاتف غير صالحة', 'INVALID_PHONE_VERIFICATION_CLAIM');
   }
   try {
     const verification = await phoneVerificationService.claimTicket(
@@ -464,13 +458,13 @@ router.post('/phone-verification/claim', verifyUser, sensitiveWriteRateLimiter, 
 router.get('/phone-verification', verifyUser, async (req, res) => {
   try {
     if (!req.store?.id) {
-      return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'Tenant context required' });
+      return apiError(res, 400, 'Tenant context required', 'TENANT_CONTEXT_REQUIRED');
     }
     const status = await phoneVerificationService.getStatus(req.user.sub, req.store.id);
     return res.json({ success: true, verification: status });
   } catch (error) {
     logger.error('Phone verification status failed:', error.message);
-    return res.status(500).json({ success: false, code: 'PHONE_VERIFICATION_STATUS_FAILED', error: 'تعذر قراءة حالة توثيق الرقم' });
+    return apiError(res, 500, 'تعذر قراءة حالة توثيق الرقم', 'PHONE_VERIFICATION_STATUS_FAILED');
   }
 });
 
@@ -489,12 +483,12 @@ router.post('/reset-password', sensitiveWriteRateLimiter, async (req, res) => {
 
     // 1. Verify OTP
     if (!req.store?.id) {
-      return res.status(400).json({ success: false, code: 'TENANT_CONTEXT_REQUIRED', error: 'OTP is only available inside a tenant store.' });
+      return apiError(res, 400, 'OTP is only available inside a tenant store.', 'TENANT_CONTEXT_REQUIRED');
     }
 
     const isValid = await otpService.verifyOTP(normalizedPhone, code, req.store);
     if (!isValid) {
-      return res.status(400).json({ success: false, error: 'كود التحقق غير صحيح أو انتهت صلاحيته' });
+      return apiError(res, 400, 'كود التحقق غير صحيح أو انتهت صلاحيته', `HTTP_400`);
     }
 
     // 2. Extract local phone number (remove country code "2")
@@ -509,7 +503,7 @@ router.post('/reset-password', sensitiveWriteRateLimiter, async (req, res) => {
       .single();
 
     if (profileError || !profiles) {
-      return res.status(404).json({ success: false, error: 'لم يتم العثور على حساب مرتبط بهذا الرقم' });
+      return apiError(res, 404, 'لم يتم العثور على حساب مرتبط بهذا الرقم', `HTTP_404`);
     }
 
     try {
@@ -533,16 +527,16 @@ router.post('/reset-password', sensitiveWriteRateLimiter, async (req, res) => {
 
     if (updateError) {
       logger.error('Password reset error:', updateError);
-      return res.status(500).json({ success: false, error: 'فشل في تحديث كلمة المرور' });
+      return apiError(res, 500, 'فشل في تحديث كلمة المرور', `HTTP_500`);
     }
 
     res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح' });
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return res.status(400).json({ success: false, error: err.errors[0].message });
+      return apiError(res, 400, err.errors[0].message, 'PASSWORD_RESET_INVALID');
     }
     logger.error('Reset password error:', err);
-    res.status(500).json({ success: false, error: 'حدث خطأ غير متوقع' });
+    apiError(res, 500, 'حدث خطأ غير متوقع', `HTTP_500`);
   }
 });
 
@@ -586,7 +580,7 @@ function getRelaxedIp(ip) {
 // GET /api/auth/oauth/login
 router.get('/oauth/login', async (req, res) => {
   const { provider, store, redirect_to, origin_host } = req.query;
-  if (!provider) return res.status(400).json({ error: 'OAuth provider is required' });
+  if (!provider) return apiError(res, 400, 'OAuth provider is required', `HTTP_400`);
 
   try {
     const safeRedirect = typeof redirect_to === 'string' && redirect_to.startsWith('/') && !redirect_to.startsWith('//')
@@ -600,7 +594,7 @@ router.get('/oauth/login', async (req, res) => {
       .maybeSingle();
 
     if (storeError || !targetStore) {
-      return res.status(404).json({ error: 'Store not found for OAuth login' });
+      return apiError(res, 404, 'Store not found for OAuth login', `HTTP_404`);
     }
 
     const platformDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase();
@@ -642,7 +636,7 @@ router.get('/oauth/login', async (req, res) => {
     res.json({ url: redirectUrl });
   } catch (err) {
     logger.error('OAuth login initialization failed', { message: err.message });
-    res.status(500).json({ error: 'Failed to initialize OAuth login' });
+    apiError(res, 500, 'Failed to initialize OAuth login', `HTTP_500`);
   }
 });
 
@@ -823,10 +817,10 @@ router.get('/oauth/callback', async (req, res) => {
 // POST /api/auth/oauth/implicit-callback
 router.post('/oauth/implicit-callback', async (req, res) => {
   const { broker_token, access_token, refresh_token } = req.body;
-  if (!access_token) return res.status(400).json({ error: 'access_token required' });
+  if (!access_token) return apiError(res, 400, 'access_token required', `HTTP_400`);
 
   const stateData = verifyState(broker_token);
-  if (!stateData) return res.status(400).json({ error: 'طلب غير صالح أو تم التلاعب به.' });
+  if (!stateData) return apiError(res, 400, 'طلب غير صالح أو تم التلاعب به.', `HTTP_400`);
 
   try {
     // Perform cleanup of expired exchanges inline
@@ -863,7 +857,7 @@ router.post('/oauth/implicit-callback', async (req, res) => {
       .maybeSingle();
 
     if (profile?.is_banned) {
-      return res.status(403).json({ error: 'هذا الحساب محظور في هذا المتجر.' });
+      return apiError(res, 403, 'هذا الحساب محظور في هذا المتجر.', `HTTP_403`);
     }
 
     // Encrypt session (access + refresh tokens)
@@ -914,7 +908,7 @@ router.post('/oauth/implicit-callback', async (req, res) => {
     res.json({ redirectUrl });
   } catch (err) {
     logger.error('Implicit OAuth callback process failed:', err);
-    res.status(500).json({ error: 'حدث خطأ أثناء مصادقة الهوية.' });
+    apiError(res, 500, 'حدث خطأ أثناء مصادقة الهوية.', `HTTP_500`);
   }
 });
 
@@ -925,7 +919,7 @@ router.post('/oauth/exchange', exchangeRateLimiter, async (req, res) => {
 
   // Validate token format strictly (must be 64 hex chars)
   if (!token || typeof token !== 'string' || !/^[0-9a-f]{64}$/i.test(token)) {
-    return res.status(400).json({ error: 'رمز التبادل غير صالح' });
+    return apiError(res, 400, 'رمز التبادل غير صالح', `HTTP_400`);
   }
 
   try {
@@ -937,7 +931,7 @@ router.post('/oauth/exchange', exchangeRateLimiter, async (req, res) => {
 
     if (error || !exchange) {
       logger.warn('OAuth exchange: token not found or DB error', { token: token.substring(0, 8) + '...', error: error?.message });
-      return res.status(400).json({ error: 'الرمز غير صالح أو منتهي الصلاحية' });
+      return apiError(res, 400, 'الرمز غير صالح أو منتهي الصلاحية', `HTTP_400`);
     }
 
     // === CRITICAL: Consume token FIRST (even before validation) to prevent replay attacks ===
@@ -950,7 +944,7 @@ router.post('/oauth/exchange', exchangeRateLimiter, async (req, res) => {
     // Check expiry AFTER consuming (prevents timing attacks on expiry check)
     if (new Date(exchange.expires_at) < new Date()) {
       logger.warn('OAuth exchange: expired token attempted', { token: token.substring(0, 8) + '...' });
-      return res.status(400).json({ error: 'الرمز منتهي الصلاحية — يرجى تسجيل الدخول مجدداً' });
+      return apiError(res, 400, 'الرمز منتهي الصلاحية — يرجى تسجيل الدخول مجدداً', `HTTP_400`);
     }
 
     // === SECURITY: Enforce IP + browser fingerprint binding (BLOCKING, not just a warning) ===
@@ -972,7 +966,7 @@ router.post('/oauth/exchange', exchangeRateLimiter, async (req, res) => {
         token: token.substring(0, 8) + '...'
       });
       // Token already consumed above — attacker cannot retry
-      return res.status(403).json({ error: 'فشل التحقق من سياق المتصفح. يرجى تسجيل الدخول مجدداً.' });
+      return apiError(res, 403, 'فشل التحقق من سياق المتصفح. يرجى تسجيل الدخول مجدداً.', `HTTP_403`);
     }
 
     // Decrypt session details
@@ -982,19 +976,19 @@ router.post('/oauth/exchange', exchangeRateLimiter, async (req, res) => {
       sessionData = JSON.parse(decryptedJson);
     } catch (decryptErr) {
       logger.error('OAuth exchange: decryption failed', { message: decryptErr.message });
-      return res.status(500).json({ error: 'فشل فك تشفير الجلسة' });
+      return apiError(res, 500, 'فشل فك تشفير الجلسة', `HTTP_500`);
     }
 
     if (!sessionData?.access_token) {
       logger.error('OAuth exchange: decrypted session missing access_token');
-      return res.status(500).json({ error: 'بيانات الجلسة غير مكتملة' });
+      return apiError(res, 500, 'بيانات الجلسة غير مكتملة', `HTTP_500`);
     }
 
     logger.info('OAuth exchange: successful session handoff', { token: token.substring(0, 8) + '...' });
     res.json({ success: true, session: sessionData });
   } catch (err) {
     logger.error('Session exchange exception occurred', { message: err.message });
-    res.status(500).json({ error: 'حدث خطأ غير متوقع أثناء معالجة الرمز' });
+    apiError(res, 500, 'حدث خطأ غير متوقع أثناء معالجة الرمز', `HTTP_500`);
   }
 });
 
@@ -1002,7 +996,7 @@ router.post('/oauth/exchange', exchangeRateLimiter, async (req, res) => {
 router.get('/invitation/verify', async (req, res) => {
   const { token } = req.query;
   if (!token) {
-    return res.status(400).json({ error: 'رمز الدعوة مطلوب' });
+    return apiError(res, 400, 'رمز الدعوة مطلوب', `HTTP_400`);
   }
 
   try {
@@ -1013,12 +1007,12 @@ router.get('/invitation/verify', async (req, res) => {
       .maybeSingle();
 
     if (error || !invitation) {
-      return res.status(404).json({ error: 'الدعوة غير موجودة أو انتهت صلاحيتها' });
+      return apiError(res, 404, 'الدعوة غير موجودة أو انتهت صلاحيتها', `HTTP_404`);
     }
 
     const isClosed = !['pending', 'sent', 'opened'].includes(invitation.status);
     if (isClosed) {
-      return res.status(400).json({ error: 'تم قبول أو إلغاء هذه الدعوة بالفعل' });
+      return apiError(res, 400, 'تم قبول أو إلغاء هذه الدعوة بالفعل', `HTTP_400`);
     }
 
     const isExpired = new Date(invitation.expires_at) < new Date();
@@ -1027,7 +1021,7 @@ router.get('/invitation/verify', async (req, res) => {
         .from('tenant_invitations')
         .update({ status: 'expired' })
         .eq('id', invitation.id);
-      return res.status(400).json({ error: 'انتهت صلاحية هذه الدعوة' });
+      return apiError(res, 400, 'انتهت صلاحية هذه الدعوة', `HTTP_400`);
     }
 
     // Set status to opened if it was pending or sent
@@ -1046,7 +1040,7 @@ router.get('/invitation/verify', async (req, res) => {
     });
   } catch (err) {
     logger.error('Invitation verify error:', err.message);
-    res.status(500).json({ error: 'خطأ داخلي أثناء التحقق من الدعوة' });
+    apiError(res, 500, 'خطأ داخلي أثناء التحقق من الدعوة', `HTTP_500`);
   }
 });
 
@@ -1054,7 +1048,7 @@ router.get('/invitation/verify', async (req, res) => {
 router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) => {
   const { token, password, name, email } = req.body;
   if (!token || !password || !name) {
-    return res.status(400).json({ error: 'الاسم وكلمة المرور مطلوبان' });
+    return apiError(res, 400, 'الاسم وكلمة المرور مطلوبان', `HTTP_400`);
   }
 
   try {
@@ -1066,16 +1060,16 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
       .maybeSingle();
 
     if (error || !invitation) {
-      return res.status(404).json({ error: 'الدعوة غير موجودة أو غير صالحة' });
+      return apiError(res, 404, 'الدعوة غير موجودة أو غير صالحة', `HTTP_404`);
     }
 
     if (!['pending', 'sent', 'opened'].includes(invitation.status)) {
-      return res.status(400).json({ error: 'تم تفعيل الدعوة أو إلغاؤها مسبقاً' });
+      return apiError(res, 400, 'تم تفعيل الدعوة أو إلغاؤها مسبقاً', `HTTP_400`);
     }
 
     if (new Date(invitation.expires_at) < new Date()) {
       await supabase.from('tenant_invitations').update({ status: 'expired' }).eq('id', invitation.id);
-      return res.status(400).json({ error: 'انتهت صلاحية الدعوة' });
+      return apiError(res, 400, 'انتهت صلاحية الدعوة', `HTTP_400`);
     }
 
     // Use the email stored in the invitation as the authoritative source.
@@ -1088,7 +1082,7 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
     let authUserId = null;
 
     if (!userEmail) {
-      return res.status(400).json({ error: 'البريد الإلكتروني مطلوب لإنشاء الحساب' });
+      return apiError(res, 400, 'البريد الإلكتروني مطلوب لإنشاء الحساب', `HTTP_400`);
     }
 
     let existingUser = null;
@@ -1324,7 +1318,7 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
     });
   } catch (err) {
     logger.error('Invitation accept error:', err);
-    res.status(500).json({ error: 'حدث خطأ أثناء تفعيل وتجهيز المتجر.' });
+    apiError(res, 500, 'حدث خطأ أثناء تفعيل وتجهيز المتجر.', `HTTP_500`);
   }
 });
 
@@ -1332,7 +1326,7 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
 router.post('/validate-admin', async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized: No token provided' });
+    return apiError(res, 401, 'Unauthorized: No token provided', `HTTP_401`);
   }
 
   const { store_id } = req.body;
@@ -1358,7 +1352,7 @@ router.post('/validate-admin', async (req, res) => {
     });
   } catch (err) {
     logger.error('Admin validation endpoint error:', err.message);
-    res.status(401).json({ error: 'Unauthorized: Invalid token' });
+    apiError(res, 401, 'Unauthorized: Invalid token', `HTTP_401`);
   }
 });
 
@@ -1369,19 +1363,19 @@ router.post('/validate-admin', async (req, res) => {
 // GET /api/auth/2fa/status — get 2FA status for current user in this store
 router.get('/2fa/status', verifyUser, async (req, res) => {
   try {
-    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
     const status = await twoFactorService.get2FAStatus(req.user.sub, req.store.id);
     res.json({ success: true, ...status });
   } catch (err) {
     logger.error('2FA status error:', err.message);
-    res.status(500).json({ error: 'فشل تحميل إعدادات الأمان' });
+    apiError(res, 500, 'فشل تحميل إعدادات الأمان', `HTTP_500`);
   }
 });
 
 // GET /api/auth/2fa/totp/setup — generate TOTP secret + QR code
 router.get('/2fa/totp/setup', verifyUser, async (req, res) => {
   try {
-    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
     const { data: profile } = await supabase.from('user_profiles')
       .select('email, full_name').eq('user_id', req.user.sub).eq('store_id', req.store.id).maybeSingle();
     const { data: store } = await supabase.from('stores')
@@ -1394,75 +1388,75 @@ router.get('/2fa/totp/setup', verifyUser, async (req, res) => {
     res.json({ success: true, ...result });
   } catch (err) {
     logger.error('TOTP setup error:', err.message);
-    res.status(500).json({ error: 'فشل إعداد Google Authenticator' });
+    apiError(res, 500, 'فشل إعداد Google Authenticator', `HTTP_500`);
   }
 });
 
 // POST /api/auth/2fa/totp/verify-setup — confirm TOTP is working before enabling
 router.post('/2fa/totp/verify-setup', verifyUser, async (req, res) => {
   try {
-    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
     const { token } = req.body;
-    if (!token) return res.status(400).json({ error: 'كود التحقق مطلوب' });
+    if (!token) return apiError(res, 400, 'كود التحقق مطلوب', `HTTP_400`);
     const result = await twoFactorService.verifyTOTPSetup(req.user.sub, req.store.id, token);
-    if (!result.success) return res.status(400).json({ success: false, error: 'الكود غير صحيح، تأكد من التوقيت على هاتفك' });
+    if (!result.success) return apiError(res, 400, 'الكود غير صحيح، تأكد من التوقيت على هاتفك', `HTTP_400`);
     res.json({ success: true, backup_codes: result.backup_codes });
   } catch (err) {
     logger.error('TOTP verify-setup error:', err.message);
-    res.status(500).json({ error: err.message || 'فشل التحقق من الإعداد' });
+    apiError(res, 500, err.message || 'فشل التحقق من الإعداد', 'TOTP_SETUP_VERIFICATION_FAILED');
   }
 });
 
 // POST /api/auth/2fa/enable — enable WhatsApp 2FA (no TOTP needed)
 router.post('/2fa/enable', verifyUser, async (req, res) => {
   try {
-    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
     const result = await twoFactorService.enableWhatsApp2FA(req.user.sub, req.store.id);
     res.json({ success: true, backup_codes: result.backup_codes });
   } catch (err) {
     logger.error('Enable 2FA error:', err.message);
-    res.status(500).json({ error: 'فشل تفعيل التحقق بخطوتين' });
+    apiError(res, 500, 'فشل تفعيل التحقق بخطوتين', `HTTP_500`);
   }
 });
 
 // POST /api/auth/2fa/disable — disable 2FA
 router.post('/2fa/disable', verifyUser, async (req, res) => {
   try {
-    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
     await twoFactorService.disable2FA(req.user.sub, req.store.id);
     res.json({ success: true });
   } catch (err) {
     logger.error('Disable 2FA error:', err.message);
-    res.status(500).json({ error: 'فشل إلغاء التحقق بخطوتين' });
+    apiError(res, 500, 'فشل إلغاء التحقق بخطوتين', `HTTP_500`);
   }
 });
 
 // POST /api/auth/2fa/challenge — send WhatsApp OTP challenge (called right after login if 2FA enabled)
 router.post('/2fa/challenge', async (req, res) => {
   try {
-    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
     const { user_id } = req.body;
-    if (!user_id) return res.status(400).json({ error: 'user_id مطلوب' });
+    if (!user_id) return apiError(res, 400, 'user_id مطلوب', `HTTP_400`);
     const result = await twoFactorService.sendChallenge(user_id, req.store.id, req.store);
     res.json({ success: true, ...result });
   } catch (err) {
     logger.error('2FA challenge error:', err.message);
-    res.status(500).json({ error: err.message || 'فشل إرسال كود التحقق' });
+    apiError(res, 500, err.message || 'فشل إرسال كود التحقق', 'TOTP_CHALLENGE_FAILED');
   }
 });
 
 // POST /api/auth/2fa/verify — verify challenge + confirm login is complete
 router.post('/2fa/verify', async (req, res) => {
   try {
-    if (!req.store?.id) return res.status(400).json({ error: 'store context required' });
+    if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
     const { user_id, token } = req.body;
-    if (!user_id || !token) return res.status(400).json({ error: 'user_id والكود مطلوبان' });
+    if (!user_id || !token) return apiError(res, 400, 'user_id والكود مطلوبان', `HTTP_400`);
     const result = await twoFactorService.verifyChallenge(user_id, req.store.id, token, req.store);
-    if (!result.success) return res.status(400).json({ success: false, error: 'الكود غير صحيح أو انتهت صلاحيته' });
+    if (!result.success) return apiError(res, 400, 'الكود غير صحيح أو انتهت صلاحيته', `HTTP_400`);
     res.json({ success: true, used_backup_code: result.used_backup_code || false });
   } catch (err) {
     logger.error('2FA verify error:', err.message);
-    res.status(500).json({ error: err.message || 'فشل التحقق' });
+    apiError(res, 500, err.message || 'فشل التحقق', 'TOTP_VERIFICATION_FAILED');
   }
 });
 

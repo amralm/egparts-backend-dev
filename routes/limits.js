@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
 const { verifyUser } = require('../middleware/auth');
@@ -8,7 +9,7 @@ const logger = require('../utils/logger');
 router.get('/features', verifyUser, async (req, res) => {
   try {
     if (!req.store?.id) {
-      return res.status(400).json({ error: 'Tenant context required' });
+      return apiError(res, 400, 'Tenant context required', `HTTP_400`);
     }
 
     const states = await getFeatureStates(req.store.id);
@@ -16,7 +17,7 @@ router.get('/features', verifyUser, async (req, res) => {
     res.json({ ...states, usage });
   } catch (err) {
     logger.error('Failed to load feature limits:', err.message);
-    res.status(500).json({ error: 'Failed to load feature limits' });
+    apiError(res, 500, 'Failed to load feature limits', `HTTP_500`);
   }
 });
 
@@ -30,14 +31,14 @@ router.post('/reset-monthly', verifyUser, async (req, res) => {
       .maybeSingle();
 
     if (!superAdmin) {
-      return res.status(403).json({ error: 'Platform admin access required' });
+      return apiError(res, 403, 'Platform admin access required', `HTTP_403`);
     }
 
     const ok = await resetMonthlyUsage();
     res.json({ success: ok });
   } catch (err) {
     logger.error('Failed to reset monthly limits:', err.message);
-    res.status(500).json({ error: 'Failed to reset monthly limits' });
+    apiError(res, 500, 'Failed to reset monthly limits', `HTTP_500`);
   }
 });
 
@@ -50,7 +51,7 @@ router.get('/platform-dashboard', verifyUser, async (req, res) => {
       .maybeSingle();
 
     if (!superAdmin) {
-      return res.status(403).json({ error: 'Platform admin access required' });
+      return apiError(res, 403, 'Platform admin access required', `HTTP_403`);
     }
 
     const [{ data: stores }, { data: usageRows }] = await Promise.all([
@@ -95,7 +96,7 @@ router.get('/platform-dashboard', verifyUser, async (req, res) => {
     });
   } catch (err) {
     logger.error('Failed to load platform dashboard:', err.message);
-    res.status(500).json({ error: 'Failed to load platform dashboard' });
+    apiError(res, 500, 'Failed to load platform dashboard', `HTTP_500`);
   }
 });
 

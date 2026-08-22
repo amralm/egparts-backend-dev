@@ -12,6 +12,11 @@ const files = [
     .map((file) => path.join('services', file))
 ];
 
+const middlewareFiles = fs.readdirSync(path.join(root, 'middleware'))
+  .filter((file) => file.endsWith('.js'))
+  .map((file) => path.join('middleware', file));
+files.push(...middlewareFiles);
+
 const source = files.map((file) => fs.readFileSync(path.join(root, file), 'utf8')).join('\n');
 const forbiddenContracts = [
   ['process_secure_checkout_v2', 'removed checkout RPC'],
@@ -26,6 +31,11 @@ const forbiddenContracts = [
 const failures = forbiddenContracts
   .filter(([needle]) => source.includes(needle))
   .map(([, description]) => description);
+
+const legacyErrorResponses = source.match(/res\.(?:status\([^)]*\)\.)?json\(\{[^\r\n]*\berror\s*:/g) || [];
+if (legacyErrorResponses.length) {
+  failures.push(`legacy error response objects (${legacyErrorResponses.length})`);
+}
 
 if (failures.length) {
   console.error('Contract audit failed:\n- ' + failures.join('\n- '));

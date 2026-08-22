@@ -1,3 +1,4 @@
+const { apiError } = require('./utils/apiError');
 require('dotenv').config();
 
 // ─── Global Crash Guards ──────────────────────────────────────────────────────
@@ -378,7 +379,7 @@ ${safeStack || 'No stack trace available'}
     res.status(200).json({ success: true });
   } catch (err) {
     logger.error('Failed to log client error:', err.message);
-    res.status(500).json({ error: 'Failed to record log' });
+    apiError(res, 500, 'Failed to record log', `HTTP_500`);
   }
 });
 
@@ -395,7 +396,7 @@ app.use('/api/', tenantResolver);
 
 app.get('/api/store-context', (req, res) => {
   if (!req.store?.id) {
-    return res.status(404).json({ success: false, code: 'STORE_NOT_FOUND', error: 'Store context not found' });
+    return apiError(res, 404, 'Store context not found', 'STORE_NOT_FOUND');
   }
 
   const store = req.store;
@@ -416,7 +417,7 @@ app.get('/api/store-context', (req, res) => {
 
 app.get('/api/store-usage', async (req, res) => {
   if (!req.store?.id) {
-    return res.status(404).json({ success: false, code: 'STORE_NOT_FOUND', error: 'Store context not found' });
+    return apiError(res, 404, 'Store context not found', 'STORE_NOT_FOUND');
   }
 
   try {
@@ -609,7 +610,7 @@ app.get('/api/store-usage', async (req, res) => {
     });
   } catch (err) {
     logger.error('Failed to load store usage:', err.message);
-    res.status(500).json({ success: false, error: 'Failed to load store usage' });
+    apiError(res, 500, 'Failed to load store usage', `HTTP_500`);
   }
 });
 
@@ -663,14 +664,14 @@ app.post('/api/auth/qr-login', async (req, res) => {
   const { safeCompare, QR_USER, QR_PASS } = require('./middleware/qrAuth');
   
   if (!username || !password) {
-    return res.status(400).json({ success: false, error: 'الرجاء إدخال اسم المستخدم وكلمة المرور' });
+    return apiError(res, 400, 'الرجاء إدخال اسم المستخدم وكلمة المرور', `HTTP_400`);
   }
 
   // Verify Turnstile — REQUIRED when TURNSTILE_SECRET_KEY is configured
   const secretKey = (process.env.TURNSTILE_SECRET_KEY || '').trim();
   if (secretKey && !global.DEV_MODE_ENABLED) {
     if (!turnstileToken) {
-      return res.status(403).json({ success: false, error: 'يجب إتمام بوابة التحقق الأمني (Turnstile) أولاً' });
+      return apiError(res, 403, 'يجب إتمام بوابة التحقق الأمني (Turnstile) أولاً', `HTTP_403`);
     }
     try {
       const tsRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
@@ -680,11 +681,11 @@ app.post('/api/auth/qr-login', async (req, res) => {
       });
       const tsData = await tsRes.json();
       if (!tsData.success) {
-        return res.status(403).json({ success: false, error: 'فشل التحقق الأمني (Turnstile) — حاول مرة أخرى' });
+        return apiError(res, 403, 'فشل التحقق الأمني (Turnstile) — حاول مرة أخرى', `HTTP_403`);
       }
     } catch (err) {
       logger.error('Turnstile API error:', err.message);
-      return res.status(500).json({ success: false, error: 'تعذر الاتصال بخدمة التحقق — حاول مرة أخرى' });
+      return apiError(res, 500, 'تعذر الاتصال بخدمة التحقق — حاول مرة أخرى', `HTTP_500`);
     }
   }
 
@@ -701,7 +702,7 @@ app.post('/api/auth/qr-login', async (req, res) => {
     return res.json({ success: true });
   }
 
-  return res.status(401).json({ success: false, error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
+  return apiError(res, 401, 'اسم المستخدم أو كلمة المرور غير صحيحة', `HTTP_401`);
 });
 
 app.post('/qr/logout', (req, res) => {
@@ -906,7 +907,7 @@ app.get('/qr', verifyAdminOrLocal, async (req, res) => {
 // Route to clear session and restart — ADMIN ONLY
 app.post('/qr/reset', verifyAdminOrLocal, async (req, res) => {
   if (process.env.ENABLE_LEGACY_WHATSAPP_QR !== 'true') {
-    return res.status(410).json({ error: 'LEGACY_WHATSAPP_QR_DISABLED' });
+    return apiError(res, 410, 'LEGACY_WHATSAPP_QR_DISABLED', `HTTP_410`);
   }
   try {
     await whatsappService.shutdown();
@@ -930,7 +931,7 @@ app.post('/qr/reset', verifyAdminOrLocal, async (req, res) => {
 // Diagnostic endpoint
 app.get('/qr/debug', verifyAdminOrLocal, async (req, res) => {
   if (process.env.ENABLE_LEGACY_WHATSAPP_QR !== 'true') {
-    return res.status(410).json({ error: 'LEGACY_WHATSAPP_QR_DISABLED' });
+    return apiError(res, 410, 'LEGACY_WHATSAPP_QR_DISABLED', `HTTP_410`);
   }
   const { supabase } = require('./services/supabase');
   const { data: s } = await supabase.from('whatsapp_sessions').select('id').like('id', `${whatsappService.sessionId}:%`).limit(20);

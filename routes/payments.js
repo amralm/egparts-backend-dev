@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
@@ -40,12 +41,12 @@ async function verifyPaymobHMAC(req, res, next) {
     try {
       req.body = JSON.parse(req.body.toString('utf-8'));
     } catch (e) {
-      return res.status(400).json({ error: 'Invalid webhook JSON payload' });
+      return apiError(res, 400, 'Invalid webhook JSON payload', `HTTP_400`);
     }
   }
 
   if (!req.body || !req.body.obj || !req.body.hmac) {
-    return res.status(400).json({ error: 'Invalid webhook payload' });
+    return apiError(res, 400, 'Invalid webhook payload', `HTTP_400`);
   }
 
   const receivedHmac = req.body.hmac;
@@ -100,7 +101,7 @@ async function verifyPaymobHMAC(req, res, next) {
   // ✅ Fix: check length equality before timingSafeEqual to prevent runtime throw
   if (computedHmac.length !== receivedHmac.length) {
     console.error('HMAC length mismatch. Possible forged request.');
-    return res.status(401).json({ error: 'Invalid HMAC signature' });
+    return apiError(res, 401, 'Invalid HMAC signature', `HTTP_401`);
   }
 
   // ✅ Timing-safe comparison (prevents timing attacks)
@@ -111,7 +112,7 @@ async function verifyPaymobHMAC(req, res, next) {
 
   if (!isValid) {
     console.error('HMAC mismatch! Potential forged webhook.');
-    return res.status(401).json({ error: 'Invalid HMAC signature' });
+    return apiError(res, 401, 'Invalid HMAC signature', `HTTP_401`);
   }
 
   next();
@@ -120,7 +121,7 @@ async function verifyPaymobHMAC(req, res, next) {
 // ===== GET Active Payment Gateways (Public) =====
 router.get('/active', async (req, res) => {
   if (!req.store?.id) {
-    return res.status(404).json({ error: 'Store not found' });
+    return apiError(res, 404, 'Store not found', `HTTP_404`);
   }
 
   try {
@@ -134,14 +135,14 @@ router.get('/active', async (req, res) => {
     return res.json({ active_providers: activeProviders });
   } catch (err) {
     console.error('Fetch active gateways error:', err.message);
-    return res.status(500).json({ error: 'Failed to fetch active gateways' });
+    return apiError(res, 500, 'Failed to fetch active gateways', `HTTP_500`);
   }
 });
 
 // ===== Cash on Delivery (COD) Endpoints =====
 router.get('/methods/cod/settings', verifyUser, verifyPermission('payments.configure'), async (req, res) => {
   const storeId = req.store?.id;
-  if (!storeId) return res.status(400).json({ error: 'Tenant context required' });
+  if (!storeId) return apiError(res, 400, 'Tenant context required', `HTTP_400`);
   try {
     const { data, error } = await supabase
       .from('store_payment_gateways')
@@ -153,13 +154,13 @@ router.get('/methods/cod/settings', verifyUser, verifyPermission('payments.confi
     if (error) throw error;
     res.json({ success: true, settings: data || { is_active: true } });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    apiError(res, 500, 'Server error', `HTTP_500`);
   }
 });
 
 router.post('/methods/cod/toggle', verifyUser, verifyPermission('payments.configure'), validateBody(paymentToggleSchema), async (req, res) => {
   const storeId = req.store?.id;
-  if (!storeId) return res.status(400).json({ error: 'Tenant context required' });
+  if (!storeId) return apiError(res, 400, 'Tenant context required', `HTTP_400`);
   const { is_active } = req.body;
   try {
     const { error } = await supabase
@@ -175,7 +176,7 @@ router.post('/methods/cod/toggle', verifyUser, verifyPermission('payments.config
     if (error) throw error;
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    apiError(res, 500, 'Server error', `HTTP_500`);
   }
 });
 
@@ -193,7 +194,7 @@ router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
       .maybeSingle();
 
     if (!subscription) {
-      return res.status(403).json({ error: 'عذراً، يجب أن يكون لديك اشتراك نشط لتفعيل بوابات الدفع.' });
+      return apiError(res, 403, 'عذراً، يجب أن يكون لديك اشتراك نشط لتفعيل بوابات الدفع.', `HTTP_403`);
     }
 
     // 2. Check if payment_gateways feature is enabled for this plan
@@ -256,7 +257,7 @@ router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
     return res.json({ allowed: true, config });
   } catch (err) {
     console.error('Fetch payment settings error:', err.message);
-    return res.status(500).json({ error: 'Failed to fetch payment settings' });
+    return apiError(res, 500, 'Failed to fetch payment settings', `HTTP_500`);
   }
 });
 
@@ -276,7 +277,7 @@ router.post('/settings', paymentSetupRateLimiter, verifyPermission('payments.con
       .maybeSingle();
 
     if (!subscription) {
-      return res.status(403).json({ error: 'عذراً، يجب أن يكون لديك اشتراك نشط لتفعيل بوابات الدفع.' });
+      return apiError(res, 403, 'عذراً، يجب أن يكون لديك اشتراك نشط لتفعيل بوابات الدفع.', `HTTP_403`);
     }
 
     // 2. Check if feature is enabled
@@ -288,7 +289,7 @@ router.post('/settings', paymentSetupRateLimiter, verifyPermission('payments.con
       .maybeSingle();
 
     if (!featureCheck) {
-      return res.status(403).json({ error: 'بوابات الدفع الإلكتروني غير متوفرة في باقتك الحالية.' });
+      return apiError(res, 403, 'بوابات الدفع الإلكتروني غير متوفرة في باقتك الحالية.', `HTTP_403`);
     }
 
     // 3. Get existing config to preserve original credentials if masked ones are sent back
@@ -335,7 +336,7 @@ router.post('/settings', paymentSetupRateLimiter, verifyPermission('payments.con
     return res.json({ success: true, message: 'تم حفظ إعدادات بوابة الدفع بنجاح.' });
   } catch (err) {
     console.error('Save payment settings error:', err.message);
-    return res.status(500).json({ error: 'Failed to save payment settings' });
+    return apiError(res, 500, 'Failed to save payment settings', `HTTP_500`);
   }
 });
 
@@ -344,7 +345,7 @@ router.post('/create', paymentRateLimiter, verifyUser, validateBody(intentSchema
   const orderId = req.body?.orderId || req.body?.order_id || req.body?.order;
 
   if (!orderId) {
-    return res.status(400).json({ error: 'Order ID is required' });
+    return apiError(res, 400, 'Order ID is required', `HTTP_400`);
   }
 
   try {
@@ -355,8 +356,8 @@ router.post('/create', paymentRateLimiter, verifyUser, validateBody(intentSchema
       .eq('store_id', req.store.id)
       .single();
 
-    if (orderError || !order) return res.status(404).json({ error: 'Order not found' });
-    if (order.payment_status === 'paid') return res.status(400).json({ error: 'Order already paid', isPaid: true });
+    if (orderError || !order) return apiError(res, 404, 'Order not found', `HTTP_404`);
+    if (order.payment_status === 'paid') return apiError(res, 400, 'Order already paid', 'ORDER_ALREADY_PAID', { isPaid: true });
 
     // Fetch store-specific payment gateway settings from table and decrypt in-memory
     const { data: gateway } = await supabase
@@ -377,7 +378,7 @@ router.post('/create', paymentRateLimiter, verifyUser, validateBody(intentSchema
     const iframeId = credentials.iframe_id || process.env.PAYMOB_IFRAME_ID;
 
     if (!apiKey || !integrationId || !iframeId) {
-      return res.status(400).json({ error: 'بوابة الدفع الإلكتروني غير مهيأة لهذا المتجر حالياً. يرجى اختيار وسيلة دفع أخرى.' });
+      return apiError(res, 400, 'بوابة الدفع الإلكتروني غير مهيأة لهذا المتجر حالياً. يرجى اختيار وسيلة دفع أخرى.', `HTTP_400`);
     }
 
     const amountCents = Math.round(order.total * 100);
@@ -416,7 +417,7 @@ router.post('/create', paymentRateLimiter, verifyUser, validateBody(intentSchema
 
   } catch (error) {
     console.error('Paymob Error:', error.response?.data || error.message);
-    return res.status(500).json({ error: 'Failed to initiate payment' });
+    return apiError(res, 500, 'Failed to initiate payment', `HTTP_500`);
   }
 });
 
@@ -545,7 +546,7 @@ router.get('/verify-redirect', async (req, res) => {
       const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
       return res.redirect(302, `https://${primaryDomain}/payment/fail?error=missing_parameters`);
     }
-    return res.status(400).json({ error: 'Missing parameters' });
+    return apiError(res, 400, 'Missing parameters', `HTTP_400`);
   }
 
   try {
@@ -560,7 +561,7 @@ router.get('/verify-redirect', async (req, res) => {
         const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
         return res.redirect(302, `https://${primaryDomain}/payment/fail?error=order_not_found`);
       }
-      return res.status(404).json({ error: 'Order not found' });
+      return apiError(res, 404, 'Order not found', `HTTP_404`);
     }
 
     const storeUrl = getStoreUrl(order.stores);
@@ -627,7 +628,7 @@ router.get('/verify-redirect', async (req, res) => {
       if (isBrowserNavigation) {
         return res.redirect(302, `${storeUrl}/payment/fail?orderId=${order.id}&error=invalid_signature`);
       }
-      return res.status(401).json({ error: 'Invalid HMAC signature' });
+      return apiError(res, 401, 'Invalid HMAC signature', `HTTP_401`);
     }
 
     // HMAC is valid, check success
@@ -669,7 +670,7 @@ router.get('/verify-redirect', async (req, res) => {
       const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
       return res.redirect(302, `https://${primaryDomain}/payment/fail?error=server_error`);
     }
-    return res.status(500).json({ error: 'Internal server error' });
+    return apiError(res, 500, 'Internal server error', `HTTP_500`);
   }
 });
 

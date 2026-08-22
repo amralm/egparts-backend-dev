@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const { supabase } = require('../services/supabase');
 const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
@@ -81,7 +82,7 @@ async function banCheckMiddleware(req, res, next) {
   if (userId && storeBannedUsers && storeBannedUsers[userId]) {
     const userScopes = storeBannedUsers[userId];
     if (isScopeBlocked(userScopes, req)) {
-      return res.status(403).json({ error: 'تم حظر حسابك من هذا الإجراء. تواصل مع الدعم الفني.' });
+      return apiError(res, 403, 'تم حظر حسابك من هذا الإجراء. تواصل مع الدعم الفني.', `HTTP_403`);
     }
   }
 
