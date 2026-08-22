@@ -5,6 +5,7 @@ const ContextBuilder = require('../services/auth/ContextBuilder');
 const MembershipResolver = require('../services/auth/MembershipResolver');
 const EntitlementsEngine = require('../services/auth/EntitlementsEngine');
 const SessionAssembler = require('../services/auth/SessionAssembler');
+const { sendSuccess } = require('../utils/apiResponse');
 
 /**
  * POST /api/auth/resolve-membership
@@ -30,7 +31,7 @@ router.post('/resolve-membership', async (req, res) => {
     // 5. Assemble Session Context
     const sessionContext = SessionAssembler.assemble(identity, membership, store, entitlements);
     
-    res.json(sessionContext);
+    sendSuccess(res, sessionContext);
     
   } catch (error) {
     console.error('Resolve Membership Error:', error);

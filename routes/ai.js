@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const { verifyUser, verifyPermission } = require('../middleware/auth');
@@ -50,14 +51,11 @@ router.get('/usage', verifyUser, async (req, res) => {
       subscriptionLimitService.checkFeatureLimit(req.store.id, 'copilot_messages_day', 0),
       subscriptionLimitService.checkFeatureLimit(req.store.id, 'ai_requests_month', 0),
     ]);
-    return res.json({
-      success: true,
-      usage: {
+    return sendSuccess(res, { usage: {
         enabled: daily.allowed === true && monthly.allowed === true,
         daily: { used: daily.usage || 0, limit: daily.limit, remaining: daily.remaining, unlimited: daily.is_unlimited === true },
         monthly: { used: monthly.usage || 0, limit: monthly.limit, remaining: monthly.remaining, unlimited: monthly.is_unlimited === true },
-      },
-    });
+      }, });
   } catch (error) {
     logger.error('[copilot/usage] Failed to load usage:', error.message);
     return apiError(res, 500, 'Failed to load Copilot usage', `HTTP_500`);
@@ -91,7 +89,7 @@ router.post('/consultant',
   if (cached) {
     // If cached, we didn't actually hit the AI. We should refund both policies.
     await Promise.all((req.copilotReservations || []).map(key => subscriptionLimitService.rollbackFeatureUsage(key)));
-    return res.json(cached);
+    return sendSuccess(res, cached);
   }
 
   try {
@@ -135,7 +133,7 @@ router.post('/consultant',
     await cacheProvider.set(cacheKey, aiResponse, 600);
     await Promise.all((req.copilotReservations || []).map(key => subscriptionLimitService.commitFeatureUsage(key)));
 
-    res.json(aiResponse);
+    sendSuccess(res, aiResponse);
 
   } catch (err) {
     logger.error('Failed to run AI consultant query:', err.message);
@@ -161,7 +159,7 @@ router.get('/tools', verifyUser, async (req, res) => {
 
     if (error) throw error;
 
-    res.json({
+    sendSuccess(res, {
       tools: toolRegistry.getAvailableTools(store?.business_type || 'general')
     });
   } catch (err) {
@@ -461,7 +459,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
       }
     }
 
-    res.json({ success: true, actionId: actionRow.id });
+    sendSuccess(res, { actionId: actionRow.id });
 
   } catch (err) {
     logger.error('Failed to execute AI draft action:', err.message);
@@ -516,7 +514,7 @@ router.get('/weekly-review', verifyUser, async (req, res) => {
       growthTip: currentWeekOrders > 0 ? "أداء ممتاز! فكّر في إطلاق عروض جديدة لمواصلة النمو." : "قم بتفعيل كوبون خصم لزيادة المبيعات وعروض عطلة نهاية الأسبوع!"
     };
 
-    res.json(reviewJSON);
+    sendSuccess(res, reviewJSON);
   } catch (err) {
     logger.error('Failed to load weekly review:', err.message);
     apiError(res, 500, 'Failed to load weekly review', `HTTP_500`);

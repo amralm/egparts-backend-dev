@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const { verifyPermission } = require('../middleware/auth');
 const reviewAdminService = require('../services/reviewAdminService');
@@ -26,7 +27,7 @@ router.get('/', verifyPermission('reviews.view'), async (req, res) => {
 
   try {
     const reviews = await reviewAdminService.listReviews(storeId, req.query.status || 'all');
-    res.json({ success: true, reviews });
+    sendSuccess(res, { reviews });
   } catch (err) {
     logger.error('[admin-reviews] list failed:', err.message);
     sendError(res, err);
@@ -39,7 +40,7 @@ router.patch('/:id/status', verifyPermission('reviews.manage'), async (req, res)
 
   try {
     const review = await reviewAdminService.updateReviewStatus(storeId, req.params.id, req.body?.status);
-    res.json({ success: true, review });
+    sendSuccess(res, { review });
   } catch (err) {
     logger.error('[admin-reviews] status update failed:', err.message);
     sendError(res, err);
@@ -52,7 +53,7 @@ router.delete('/:id', verifyPermission('reviews.manage'), async (req, res) => {
 
   try {
     await reviewAdminService.deleteReview(storeId, req.params.id);
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('[admin-reviews] delete failed:', err.message);
     sendError(res, err);

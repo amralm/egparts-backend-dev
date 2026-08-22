@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
@@ -17,7 +18,7 @@ router.get('/settings', async (req, res) => {
   if (!storeId) return;
   try {
     const settings = await storefrontService.getSettings(storeId);
-    res.json({ success: true, settings });
+    sendSuccess(res, { settings });
   } catch (err) {
     logger.error('[storefront] settings failed:', err.message);
     apiError(res, 500, 'Unable to load settings.', `HTTP_500`);
@@ -32,7 +33,7 @@ router.get('/themes', async (req, res) => {
       .eq('is_published', true)
       .order('sort_order', { ascending: true });
     if (error) throw error;
-    res.json({ success: true, items: data || [] });
+    sendSuccess(res, { items: data || [] });
   } catch (err) {
     logger.error('[storefront] themes failed:', err.message);
     apiError(res, 500, 'Unable to load themes.', `HTTP_500`);
@@ -44,7 +45,7 @@ router.get('/home', async (req, res) => {
   if (!storeId) return;
   try {
     const data = await storefrontService.getHome(storeId);
-    res.json({ success: true, ...data });
+    sendSuccess(res, { ...data });
   } catch (err) {
     logger.error('[storefront] home failed:', err.message);
     apiError(res, 500, 'Unable to load home data.', `HTTP_500`);
@@ -56,7 +57,7 @@ router.get('/products/search', async (req, res) => {
   if (!storeId) return;
   try {
     const products = await storefrontService.searchProducts(storeId, req.query.q || '', Number(req.query.limit) || 5);
-    res.json({ success: true, products });
+    sendSuccess(res, { products });
   } catch (err) {
     logger.error('[storefront] product search failed:', err.message);
     apiError(res, 500, 'Unable to search products.', `HTTP_500`);
@@ -68,7 +69,7 @@ router.get('/catalog/meta', async (req, res) => {
   if (!storeId) return;
   try {
     const meta = await storefrontService.getCatalogMeta(storeId);
-    res.json({ success: true, ...meta });
+    sendSuccess(res, { ...meta });
   } catch (err) {
     logger.error('[storefront] catalog meta failed:', err.message);
     apiError(res, 500, 'Unable to load catalog metadata.', `HTTP_500`);
@@ -80,7 +81,7 @@ router.get('/catalog/products', async (req, res) => {
   if (!storeId) return;
   try {
     const data = await storefrontService.listCatalogProducts(storeId, req.query || {});
-    res.json({ success: true, ...data });
+    sendSuccess(res, { ...data });
   } catch (err) {
     logger.error('[storefront] catalog products failed:', err.message);
     apiError(res, 500, 'Unable to load catalog products.', `HTTP_500`);
@@ -92,7 +93,7 @@ router.get('/social-proof/products', async (req, res) => {
   if (!storeId) return;
   try {
     const products = await storefrontService.getSocialProofProducts(storeId);
-    res.json({ success: true, products });
+    sendSuccess(res, { products });
   } catch (err) {
     logger.error('[storefront] social proof products failed:', err.message);
     apiError(res, 500, 'Unable to load social proof products.', `HTTP_500`);
@@ -106,7 +107,7 @@ router.post('/cart/validate', async (req, res) => {
     const items = req.body?.items || [];
     const ids = req.body?.ids || items.map(i => i?.id || i).filter(Boolean);
     const products = await storefrontService.validateCart(storeId, ids);
-    res.json({ success: true, products });
+    sendSuccess(res, { products });
   } catch (err) {
     logger.error('[storefront] cart validate failed:', err.message);
     apiError(res, 500, 'Unable to validate cart.', `HTTP_500`);
@@ -122,7 +123,7 @@ router.get('/shipping-zones', async (req, res) => {
       .select('id, city_name, shipping_fee')
       .eq('store_id', storeId)
       .order('city_name', { ascending: true });
-    res.json({ success: true, zones: data || [] });
+    sendSuccess(res, { zones: data || [] });
   } catch (err) {
     logger.error('[storefront] shipping zones failed:', err.message);
     apiError(res, 500, 'Unable to load shipping zones.', `HTTP_500`);

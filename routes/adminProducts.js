@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
@@ -21,7 +22,7 @@ router.get('/', verifyPermission('products.view'), async (req, res) => {
   if (!storeId) return;
   try {
     const products = await productAdminService.listProducts(storeId, req.query.view || 'active');
-    res.json({ success: true, products });
+    sendSuccess(res, { products });
   } catch (err) {
     logger.error('[admin-products] list failed:', err.message, err.details, err.hint);
     apiError(res, 500, 'Unable to load products.', `HTTP_500`);
@@ -40,7 +41,7 @@ router.post('/', verifyPermission('products.create'), validateBody(productSchema
     }
     const product = await productAdminService.saveProduct(storeId, req.body || {});
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
-    res.status(201).json({ success: true, product });
+    sendSuccess(res, { product }, { status: 201 });
   } catch (err) {
     if (typeof reservationKey !== 'undefined') {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
@@ -55,7 +56,7 @@ router.put('/:id', verifyPermission('products.update'), validateBody(productSche
   if (!storeId) return;
   try {
     const product = await productAdminService.saveProduct(storeId, req.body || {}, req.params.id);
-    res.json({ success: true, product });
+    sendSuccess(res, { product });
   } catch (err) {
     logger.error('[admin-products] update failed:', err.message);
     apiError(res, 500, 'Unable to update product.', 'PRODUCT_UPDATE_FAILED');
@@ -67,7 +68,7 @@ router.post('/:id/soft-delete', verifyPermission('products.delete'), async (req,
   if (!storeId) return;
   try {
     await productAdminService.softDeleteProduct(storeId, req.params.id);
-    res.json({ success: true, result: 'soft_deleted' });
+    sendSuccess(res, { result: 'soft_deleted' });
   } catch (err) {
     logger.error('[admin-products] soft delete failed:', err.message);
     apiError(res, 500, 'Unable to archive product.', 'PRODUCT_ARCHIVE_FAILED');
@@ -79,7 +80,7 @@ router.delete('/:id', verifyPermission('products.delete'), async (req, res) => {
   if (!storeId) return;
   try {
     const result = await productAdminService.hardDeleteProduct(storeId, req.params.id);
-    res.json({ success: true, result: 'hard_deleted', mediaKeys: result.mediaKeys || [] });
+    sendSuccess(res, { result: 'hard_deleted', mediaKeys: result.mediaKeys || [] });
   } catch (err) {
     logger.error('[admin-products] hard delete failed:', err.message);
     apiError(res, 500, 'Unable to restore product.', 'PRODUCT_RESTORE_FAILED');
@@ -91,7 +92,7 @@ router.post('/:id/restore', verifyPermission('products.update'), async (req, res
   if (!storeId) return;
   try {
     const product = await productAdminService.restoreProduct(storeId, req.params.id);
-    res.json({ success: true, product });
+    sendSuccess(res, { product });
   } catch (err) {
     logger.error('[admin-products] restore failed:', err.message);
     apiError(res, 500, 'Unable to delete product.', 'PRODUCT_DELETE_FAILED');

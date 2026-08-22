@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const { verifyPermission } = require('../middleware/auth');
 const bannerAdminService = require('../services/bannerAdminService');
@@ -28,7 +29,7 @@ router.get('/', verifyPermission('banners.view'), async (req, res) => {
   if (!storeId) return;
   try {
     const banners = await bannerAdminService.listBanners(storeId);
-    res.json({ success: true, banners });
+    sendSuccess(res, { banners });
   } catch (err) {
     logger.error('[admin-banners] list failed:', err.message);
     sendError(res, err);
@@ -49,7 +50,7 @@ router.post('/', verifyPermission('banners.manage'), validateBody(bannerSchema),
     }
     const banner = await bannerAdminService.createBanner(storeId, req.body || {});
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
-    res.status(201).json({ success: true, banner });
+    sendSuccess(res, { banner }, { status: 201 });
   } catch (err) {
     if (typeof reservationKey !== 'undefined') {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
@@ -64,7 +65,7 @@ router.put('/:id', verifyPermission('banners.manage'), validateBody(bannerSchema
   if (!storeId) return;
   try {
     const banner = await bannerAdminService.updateBanner(storeId, req.params.id, req.body || {});
-    res.json({ success: true, banner });
+    sendSuccess(res, { banner });
   } catch (err) {
     logger.error('[admin-banners] update failed:', err.message);
     sendError(res, err);
@@ -76,7 +77,7 @@ router.patch('/:id/status', verifyPermission('banners.manage'), validateBody(ban
   if (!storeId) return;
   try {
     const banner = await bannerAdminService.setBannerStatus(storeId, req.params.id, req.body?.is_active);
-    res.json({ success: true, banner });
+    sendSuccess(res, { banner });
   } catch (err) {
     logger.error('[admin-banners] status failed:', err.message);
     sendError(res, err);
@@ -88,7 +89,7 @@ router.delete('/:id', verifyPermission('banners.manage'), async (req, res) => {
   if (!storeId) return;
   try {
     const result = await bannerAdminService.deleteBanner(storeId, req.params.id);
-    res.json({ success: true, ...result });
+    sendSuccess(res, { ...result });
   } catch (err) {
     logger.error('[admin-banners] delete failed:', err.message);
     sendError(res, err);

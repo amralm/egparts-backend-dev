@@ -7,6 +7,8 @@ const errorHandler = require('../middleware/errorHandler');
 const responseContract = require('../middleware/responseContract');
 const apiNotFound = require('../middleware/apiNotFound');
 const jsonContract = require('../middleware/jsonContract');
+const { sendSuccess } = require('../utils/apiResponse');
+const { apiError } = require('../utils/apiError');
 
 function expectInvalid(schema, payload, label) {
   assert.equal(schema.safeParse(payload).success, false, `${label} should be rejected`);
@@ -101,5 +103,84 @@ assert.deepEqual(
   { success: false, code: 'UNSUPPORTED_CONTENT_TYPE', message: 'صيغة الطلب غير مدعومة.', requestId: 'req_content_type', data: null },
   'early content-type error response contract'
 );
+
+// sendSuccess: canonical envelope + legacy top-level spread + message promotion.
+let successPayload;
+let successStatus;
+const successRes = {
+  status(code) { successStatus = code; return this; },
+  json(payload) { successPayload = payload; return this; }
+};
+successRes.req = { id: 'req_success_test' };
+sendSuccess(successRes, { methods: [{ id: 'cod' }], message: 'تم جلب وسائل الدفع' });
+assert.equal(successStatus, 200, 'sendSuccess default status');
+assert.deepEqual(successPayload, {
+  success: true,
+  code: 'OK',
+  message: 'تم جلب وسائل الدفع',
+  requestId: 'req_success_test',
+  data: { methods: [{ id: 'cod' }], message: 'تم جلب وسائل الدفع' },
+  methods: [{ id: 'cod' }]
+}, 'success envelope with legacy spread and promoted business message');
+
+let emptySuccessPayload;
+const emptySuccessRes = {
+  status(code) { this.statusCode = code; return this; },
+  json(payload) { emptySuccessPayload = payload; return this; }
+};
+emptySuccessRes.req = { correlationId: 'req_empty_ok' };
+sendSuccess(emptySuccessRes, {}, { code: 'WISHLIST_CLEARED', status: 201 });
+assert.equal(emptySuccessRes.statusCode, 201, 'sendSuccess custom status');
+assert.equal(emptySuccessPayload.code, 'WISHLIST_CLEARED', 'sendSuccess custom code');
+assert.deepEqual(emptySuccessPayload.data, {}, 'empty payload normalizes to {}');
+assert.equal(emptySuccessPayload.requestId, 'req_empty_ok', 'requestId from correlationId fallback');
+
+// apiError with explicit UI-required scalar data keeps legacy top-level mirror.
+let couponErrorPayload;
+const couponErrorRes = {
+  status(code) { this.statusCode = code; return this; },
+  json(payload) { couponErrorPayload = payload; return this; }
+};
+couponErrorRes.req = { id: 'req_coupon_err' };
+apiError(couponErrorRes, 400, 'تعذر تطبيق كود الخصم.', 'COUPON_MIN_ORDER_NOT_MET', { min_order_value: 250 });
+assert.equal(couponErrorRes.statusCode, 400, 'apiError status');
+assert.equal(couponErrorPayload.requestId, 'req_coupon_err', 'apiError requestId');
+assert.equal(couponErrorPayload.min_order_value, 250, 'legacy top-level error scalar');
+assert.deepEqual(couponErrorPayload.data, { min_order_value: 250 }, 'canonical error data');
+
+// jsonContract: missing or unsupported Content-Type on a non-empty body is 415.
+function runJsonContract(headers, body, expectTermination, label) {
+  let passedNext = false;
+  let rejectedPayload;
+  const res = {
+    statusCode: 0,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { rejectedPayload = payload; return this; }
+  };
+  res.req = { id: 'req_ct_test' };
+  jsonContract({
+    path: '/api/account/addresses',
+    method: 'POST',
+    headers,
+    body
+  }, res, () => { passedNext = true; });
+  if (expectTermination) {
+    assert.equal(passedNext, false, `${label} must terminate`);
+    assert.equal(res.statusCode, 415, `${label} must answer 415`);
+    assert.equal(rejectedPayload.code, 'UNSUPPORTED_CONTENT_TYPE', `${label} stable code`);
+    assert.equal(rejectedPayload.success, false, `${label} failure flag`);
+  } else {
+    assert.equal(passedNext, true, `${label} must pass through`);
+  }
+}
+
+runJsonContract({ 'content-type': 'text/plain', 'content-length': '30' }, '{"title":"wrong ct"}', true, 'text/plain JSON body');
+runJsonContract({ 'content-length': '30' }, '{"title":"missing ct"}', true, 'missing content-type');
+runJsonContract({ 'content-type': 'application/xml', 'content-length': '12' }, '<x/>', true, 'unsupported xml body');
+runJsonContract({ 'content-type': 'application/json', 'content-length': '20' }, { title: 'ok' }, false, 'valid application/json');
+runJsonContract({ 'content-type': 'application/json;charset=utf-8', 'content-length': '20' }, { title: 'ok' }, false, 'json with charset suffix');
+runJsonContract({ 'content-type': 'multipart/form-data; boundary=x', 'content-length': '400' }, {}, false, 'multipart upload');
+runJsonContract({ 'content-type': 'application/x-www-form-urlencoded', 'content-length': '18' }, 'a=1&b=2', false, 'form encoded webhook');
+runJsonContract({}, undefined, false, 'bodyless DELETE passes');
 
 console.log('Contract smoke tests passed');

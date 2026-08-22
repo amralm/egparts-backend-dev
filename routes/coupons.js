@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const { verifyPermission } = require('../middleware/auth');
 const couponService = require('../services/couponService');
@@ -30,7 +31,7 @@ router.get('/', verifyPermission('coupons.view'), async (req, res) => {
 
   try {
     const coupons = await couponService.listCoupons(storeId);
-    res.json({ success: true, coupons });
+    sendSuccess(res, { coupons });
   } catch (err) {
     logger.error('[coupons] list failed:', err.message);
     sendError(res, err);
@@ -43,15 +44,14 @@ router.post('/validate', validateBody(couponValidationSchema), async (req, res) 
 
   try {
     const coupon = await couponService.validateCoupon(storeId, req.body?.code, req.body?.subtotal);
-    res.json({ success: true, coupon });
+    sendSuccess(res, { coupon });
   } catch (err) {
     logger.error('[coupons] validate failed:', err.message);
     const status = err.statusCode || 500;
-    res.status(status).json({
-      success: false,
-      code: err.code || 'COUPON_VALIDATION_FAILED',
-      min_order_value: err.min_order_value
-    });
+    const errorData = err.min_order_value !== undefined && err.min_order_value !== null
+      ? { min_order_value: err.min_order_value }
+      : null;
+    apiError(res, status, 'تعذر تطبيق كود الخصم.', err.code || 'COUPON_VALIDATION_FAILED', errorData);
   }
 });
 
@@ -68,7 +68,7 @@ router.post('/', verifyPermission('coupons.create'), validateBody(couponSchema),
     }
     const coupon = await couponService.createCoupon(storeId, req.body || {});
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
-    res.status(201).json({ success: true, coupon });
+    sendSuccess(res, { coupon }, { status: 201 });
   } catch (err) {
     if (typeof reservationKey !== 'undefined') {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
@@ -84,7 +84,7 @@ router.put('/:id', verifyPermission('coupons.update'), validateBody(couponSchema
 
   try {
     const coupon = await couponService.updateCoupon(storeId, req.params.id, req.body || {});
-    res.json({ success: true, coupon });
+    sendSuccess(res, { coupon });
   } catch (err) {
     logger.error('[coupons] update failed:', err.message);
     sendError(res, err);
@@ -97,7 +97,7 @@ router.patch('/:id/status', verifyPermission('coupons.update'), async (req, res)
 
   try {
     const coupon = await couponService.setCouponStatus(storeId, req.params.id, req.body?.is_active);
-    res.json({ success: true, coupon });
+    sendSuccess(res, { coupon });
   } catch (err) {
     logger.error('[coupons] status update failed:', err.message);
     sendError(res, err);
@@ -110,7 +110,7 @@ router.delete('/:id', verifyPermission('coupons.delete'), async (req, res) => {
 
   try {
     await couponService.deleteCoupon(storeId, req.params.id);
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('[coupons] delete failed:', err.message);
     sendError(res, err);

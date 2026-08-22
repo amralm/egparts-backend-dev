@@ -19,6 +19,7 @@ const { supabase } = require('../services/supabase');
 const { verifyPermission } = require('../middleware/auth');
 const { resolvePaymentMethods, assertPaymentMethodAvailable } = require('../services/paymentMethodPolicy');
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const { validateBody } = require('../middleware/requestValidation');
 const { paymentToggleSchema } = require('../schemas/paymentSchemas');
 
@@ -47,7 +48,7 @@ router.get('/', async (req, res) => {
   try {
     const storeId = req.store.id;
     const resolved = await resolvePaymentMethods(storeId);
-    return res.json({ success: true, ...resolved });
+    return sendSuccess(res, { ...resolved });
 
   } catch (err) {
     console.error('[payments/methods] Error:', err.message);
@@ -70,13 +71,10 @@ router.get('/:method/settings', verifyPermission('payments.view'), async (req, r
   try {
     const gateway = await getGateway(storeId, method === 'card' ? 'paymob' : method);
     const resolved = await resolvePaymentMethods(storeId);
-    return res.json({
-      success: true,
-      availability: resolved.availability[method],
+    return sendSuccess(res, { availability: resolved.availability[method],
       settings: {
         is_active: gateway ? gateway.is_active : (method === 'cod'), // COD defaults true
-      }
-    });
+      } });
   } catch (err) {
     console.error(`[payments/methods/${method}/settings] Error:`, err.message);
     return apiError(res, 500, 'Failed to fetch settings', 'PAYMENT_SETTINGS_LOAD_FAILED');
@@ -126,10 +124,7 @@ router.post('/:method/toggle', verifyPermission('payments.configure'), validateB
         .eq('store_id', storeId);
     }
 
-    return res.json({
-      success: true,
-      message: `تم ${is_active ? 'تفعيل' : 'تعطيل'} وسيلة الدفع بنجاح.`
-    });
+    return sendSuccess(res, { message: `تم ${is_active ? 'تفعيل' : 'تعطيل'} وسيلة الدفع بنجاح.` });
   } catch (err) {
     console.error(`[payments/methods/${method}/toggle] Error:`, err.message);
     return apiError(res, 500, 'Failed to toggle payment method', 'PAYMENT_METHOD_TOGGLE_FAILED');

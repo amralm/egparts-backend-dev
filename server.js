@@ -28,6 +28,7 @@ process.on('unhandledRejection', (reason, promise) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const express = require('express');
+const { sendSuccess } = require('./utils/apiResponse');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
@@ -376,7 +377,7 @@ ${safeStack || 'No stack trace available'}
       logger.error('Failed to write client error to Supabase:', error.message);
     }
 
-    res.status(200).json({ success: true });
+    sendSuccess(res, {}, { status: 200 });
   } catch (err) {
     logger.error('Failed to log client error:', err.message);
     apiError(res, 500, 'Failed to record log', `HTTP_500`);
@@ -394,13 +395,23 @@ app.use('/api/blocked', tenantResolver, blockedRoutes);
 // âœ… Resolve Tenant for all other API endpoints
 app.use('/api/', tenantResolver);
 
-app.get('/api/store-context', (req, res) => {
+// Public tenant telemetry is unauthenticated; keep it on a tight budget so it
+// cannot be used as a free DB fan-out or enumeration amplifier.
+const publicTelemetryLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many requests. Please try again later.', data: null }
+});
+
+app.get('/api/store-context', publicTelemetryLimiter, (req, res) => {
   if (!req.store?.id) {
     return apiError(res, 404, 'Store context not found', 'STORE_NOT_FOUND');
   }
 
   const store = req.store;
-  res.json({
+  sendSuccess(res, {
     id: store.id,
     name: store.name,
     subdomain: store.subdomain,
@@ -415,7 +426,7 @@ app.get('/api/store-context', (req, res) => {
   });
 });
 
-app.get('/api/store-usage', async (req, res) => {
+app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
   if (!req.store?.id) {
     return apiError(res, 404, 'Store context not found', 'STORE_NOT_FOUND');
   }
@@ -515,7 +526,7 @@ app.get('/api/store-usage', async (req, res) => {
     const otpLimit = limits['otp_messages_month']?.max_value ?? 
                      limits['whatsapp_notifications']?.max_value ?? 1000;
 
-    res.json({
+    sendSuccess(res, {
       store: {
         id: req.store.id,
         name: req.store.name,
@@ -699,7 +710,7 @@ app.post('/api/auth/qr-login', async (req, res) => {
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000 // 1 day
     });
-    return res.json({ success: true });
+    return sendSuccess(res, {});
   }
 
   return apiError(res, 401, 'اسم المستخدم أو كلمة المرور غير صحيحة', `HTTP_401`);
@@ -932,7 +943,7 @@ app.get('/qr/debug', verifyAdminOrLocal, async (req, res) => {
   }
   const { supabase } = require('./services/supabase');
   const { data: s } = await supabase.from('whatsapp_sessions').select('id').like('id', `${whatsappService.sessionId}:%`).limit(20);
-  res.json({
+  sendSuccess(res, {
     envFlag: process.env.ENABLE_WHATSAPP || '(not set)',
     socketExists: !!whatsappService.sock, isReady: whatsappService.isReady,
     isInitializing: whatsappService.isInitializing, reconnectAttempts: whatsappService.reconnectAttempts,
@@ -945,12 +956,12 @@ app.get('/qr/debug', verifyAdminOrLocal, async (req, res) => {
 app.get('/', (req, res) => {
   const whatsappStatus = whatsappPoolService.getStatus();
   
-  res.status(200).json({
+  sendSuccess(res, {
     status: 'online',
     server: 'ok',
     whatsapp: whatsappStatus,
     timestamp: new Date().toISOString()
-  });
+  }, { status: 200 });
 });
 
 // âœ… New Centralized Error Handler

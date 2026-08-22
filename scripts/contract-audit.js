@@ -74,6 +74,36 @@ if (/message\s*:\s*\{\s*error\s*:/.test(source)) {
   failures.push('legacy rate-limit message objects');
 }
 
+// Envelope enforcement: every /api JSON response must be sent through
+// sendSuccess()/apiError(). Raw res.json() is allowed only in middleware that
+// builds the canonical envelope themselves or the compatibility shim.
+const envelopeAllowedMiddleware = new Set([
+  'errorHandler.js',
+  'apiNotFound.js',
+  'responseContract.js'
+]);
+function findRawJsonSenders() {
+  const hits = [];
+  const rawPattern = /res\.(?:status\([^)]*\)\.)?json\(/g;
+  for (const file of files) {
+    if (file.startsWith('middleware') && envelopeAllowedMiddleware.has(path.basename(file))) continue;
+    const text = fs.readFileSync(path.join(root, file), 'utf8');
+    let match;
+    while ((match = rawPattern.exec(text))) {
+      const line = text.slice(0, match.index).split('\n').length;
+      hits.push(`${file}:${line}`);
+    }
+  }
+  return hits;
+}
+
+const rawJsonSenders = findRawJsonSenders();
+if (rawJsonSenders.length) {
+  failures.push(
+    `raw res.json() senders bypassing the response contract (${rawJsonSenders.length}): ${rawJsonSenders.join(', ')}`
+  );
+}
+
 if (failures.length) {
   console.error('Contract audit failed:\n- ' + failures.join('\n- '));
   process.exit(1);

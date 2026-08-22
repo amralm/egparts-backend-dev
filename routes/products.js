@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
@@ -21,7 +22,7 @@ router.get('/:id/detail', async (req, res) => {
       crossSellActive: req.query.cross_sell_active !== 'false',
       crossSellDemo: req.query.cross_sell_demo !== 'false'
     });
-    res.json({ success: true, ...detail });
+    sendSuccess(res, { ...detail });
   } catch (err) {
     logger.error('[products] detail failed:', err.message);
     apiError(res, err.statusCode || 500, err.statusCode === 404 ? 'Product not found' : 'Unable to load product.', err.statusCode === 404 ? 'PRODUCT_NOT_FOUND' : 'PRODUCT_LOAD_FAILED');
@@ -34,7 +35,7 @@ router.post('/:id/reviews', async (req, res) => {
 
   try {
     const review = await publicProductService.submitReview(storeId, req.params.id, req.body || {});
-    res.json({ success: true, review });
+    sendSuccess(res, { review });
   } catch (err) {
     logger.error('[products] review submit failed:', err.message);
     apiError(res, err.statusCode || 500, err.statusCode === 400 ? 'Invalid review' : 'Unable to submit review.', err.statusCode === 400 ? 'INVALID_REVIEW' : 'REVIEW_CREATE_FAILED');

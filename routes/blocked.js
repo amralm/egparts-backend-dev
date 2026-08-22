@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const router = require('express').Router();
@@ -63,7 +64,7 @@ router.get('/check', async (req, res) => {
     }
   }
 
-  res.json({ blocked });
+  sendSuccess(res, { blocked });
 });
 
 module.exports = router;

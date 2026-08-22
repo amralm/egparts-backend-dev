@@ -124,11 +124,13 @@ module.exports = async function tenantResolver(req, res, next) {
     if (!store.is_active || isExpired) {
       const isContextOrUsage = req.path === '/store-context' || req.path === '/store-usage';
       if (!isContextOrUsage) {
-        return res.status(403).json({
-          success: false,
-          code: isExpired ? 'STORE_SUBSCRIPTION_EXPIRED' : 'STORE_SUSPENDED',
-          data: { is_suspended: true }
-        });
+        return apiError(
+          res,
+          403,
+          isExpired ? 'انتهت صلاحية اشتراك هذا المتجر.' : 'هذا المتجر معلق حاليًا.',
+          isExpired ? 'STORE_SUBSCRIPTION_EXPIRED' : 'STORE_SUSPENDED',
+          { is_suspended: true }
+        );
       }
     }
 

@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router  = express.Router();
 const multer  = require('multer');
@@ -126,7 +127,7 @@ router.post('/upload', verifyUser, uploadLimiter, upload.single('file'), async (
     // Telemetry
     healthCollector.recordR2Upload(0);
 
-    return res.status(201).json({ success: true, ...result });
+    return sendSuccess(res, { ...result }, { status: 201 });
   } catch (err) {
     const status = err.statusCode || 500;
     const safe   = status < 500 ? err.message : 'Upload failed. Please try again.';
@@ -197,7 +198,9 @@ router.post('/presigned-url', verifyUser, uploadLimiter, async (req, res) => {
       }
     }
 
-    const idempotencyKey = `upload_${fileId}`;
+    // Store-bound idempotency key: report-metrics refuses commit/rollback for
+    // keys that do not start with this caller's own `upload_<storeId>_` prefix.
+    const idempotencyKey = `upload_${storeId}_${fileId}`;
     const reserved = await subscriptionLimitService.reserveFeatureUsage(storeId, uploadFeatureKey, 1, idempotencyKey, 15);
     if (!reserved) {
       return apiError(res, 403, 'Feature limit exceeded for uploads', `HTTP_403`);
@@ -247,7 +250,7 @@ router.post('/presigned-url', verifyUser, uploadLimiter, async (req, res) => {
     const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
     const publicUrl = `${process.env.R2_PUBLIC_DOMAIN}/${key}`;
 
-    res.json({ uploadUrl, key: publicUrl, reservationKey: idempotencyKey });
+    sendSuccess(res, { uploadUrl, key: publicUrl, reservationKey: idempotencyKey });
   } catch (error) {
     console.error('Error generating pre-signed URL:', error);
     apiError(res, 500, 'Failed to generate upload URL', `HTTP_500`);
@@ -324,7 +327,7 @@ router.post('/delete-file', deleteFileLimiter, verifyUser, async (req, res) => {
     // Record deletion metric in healthCollector
     healthCollector.recordR2Delete();
 
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (error) {
     console.error('Error deleting object from R2:', error);
     apiError(res, 500, 'Failed to delete file', `HTTP_500`);
@@ -334,20 +337,32 @@ router.post('/delete-file', deleteFileLimiter, verifyUser, async (req, res) => {
 // 3. Report Client Upload Duration (Telemetry) & Commit Quota
 router.post('/report-metrics', verifyUser, async (req, res) => {
   const { duration, reservationKey, failed } = req.body;
+  const isPlatform = req.context?.type === 'platform';
+  const platformStoreId = process.env.PLATFORM_STORE_ID || '00000000-0000-0000-0000-000000000000';
+  const callerStoreId = req.store?.id || (isPlatform ? platformStoreId : null);
 
   try {
+    // Tenant isolation: clients may only commit/rollback reservations that
+    // belong to their own store. Keys are minted as `upload_<storeId>_<fileId>`
+    // (platform uploads use the platform store id). Anything else is refused
+    // so a forged key can never touch another tenant's quota.
     if (reservationKey) {
+      const keyText = typeof reservationKey === 'string' ? reservationKey.trim() : '';
+      const ownedPrefix = `upload_${callerStoreId}_`;
+      if (!keyText || keyText.length > 200 || !keyText.startsWith(ownedPrefix)) {
+        return apiError(res, 403, 'مفتاح الحجز لا يتبع متجرك.', 'QUOTA_RESERVATION_FORBIDDEN');
+      }
       if (failed) {
-        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+        await subscriptionLimitService.rollbackFeatureUsage(keyText, callerStoreId);
       } else {
-        await subscriptionLimitService.commitFeatureUsage(reservationKey);
+        await subscriptionLimitService.commitFeatureUsage(keyText, callerStoreId);
       }
     }
 
     if (typeof duration === 'number') {
       healthCollector.recordR2Upload(duration);
     }
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (error) {
     logger.error('Error recording R2 upload metrics/commits:', error.message);
     apiError(res, 500, 'Failed to record metrics', `HTTP_500`);

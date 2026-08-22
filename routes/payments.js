@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
@@ -132,7 +133,7 @@ router.get('/active', async (req, res) => {
       .eq('is_active', true);
 
     const activeProviders = (gateways || []).map(g => g.provider_name);
-    return res.json({ active_providers: activeProviders });
+    return sendSuccess(res, { active_providers: activeProviders });
   } catch (err) {
     console.error('Fetch active gateways error:', err.message);
     return apiError(res, 500, 'Failed to fetch active gateways', `HTTP_500`);
@@ -152,7 +153,7 @@ router.get('/methods/cod/settings', verifyUser, verifyPermission('payments.confi
       .maybeSingle();
       
     if (error) throw error;
-    res.json({ success: true, settings: data || { is_active: true } });
+    sendSuccess(res, { settings: data || { is_active: true } });
   } catch (err) {
     apiError(res, 500, 'Server error', `HTTP_500`);
   }
@@ -174,7 +175,7 @@ router.post('/methods/cod/toggle', verifyUser, verifyPermission('payments.config
       }, { onConflict: 'store_id,provider_name' });
       
     if (error) throw error;
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     apiError(res, 500, 'Server error', `HTTP_500`);
   }
@@ -219,13 +220,10 @@ router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
     }
 
     if (!isEnabled) {
-      return res.json({
-        success: true,
-        allowed: false,
+      return sendSuccess(res, { allowed: false,
         code: 'FEATURE_DISABLED',
         message: 'بوابات الدفع الإلكتروني (Paymob) غير متوفرة في باقتك الحالية. يرجى الترقية للباقة الاحترافية أو أعلى لتفعيلها.',
-        data: null
-      });
+        data: null });
     }
 
     // 3. Fetch gateway settings for this store
@@ -257,7 +255,7 @@ router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
       config.hmac_secret = credentials.hmac_secret ? 'd_••••••••••••••••' + credentials.hmac_secret.slice(-4) : '';
     }
 
-    return res.json({ allowed: true, config });
+    return sendSuccess(res, { allowed: true, config });
   } catch (err) {
     console.error('Fetch payment settings error:', err.message);
     return apiError(res, 500, 'Failed to fetch payment settings', `HTTP_500`);
@@ -336,7 +334,7 @@ router.post('/settings', paymentSetupRateLimiter, verifyPermission('payments.con
 
     if (error) throw error;
 
-    return res.json({ success: true, message: 'تم حفظ إعدادات بوابة الدفع بنجاح.' });
+    return sendSuccess(res, { message: 'تم حفظ إعدادات بوابة الدفع بنجاح.' });
   } catch (err) {
     console.error('Save payment settings error:', err.message);
     return apiError(res, 500, 'Failed to save payment settings', `HTTP_500`);
@@ -410,13 +408,10 @@ router.post('/create', paymentRateLimiter, verifyUser, validateBody(intentSchema
     const paymentUrl = `https://accept.paymob.com/api/acceptance/iframes/${iframeId}?payment_token=${paymentKeyRes.data.token}`;
     await supabase.from('orders').update({ paymob_order_id: String(paymobOrderRes.data.id) }).eq('id', orderId).eq('store_id', req.store.id);
 
-    return res.json({
-      success: true,
-      payment_url: paymentUrl,
+    return sendSuccess(res, { payment_url: paymentUrl,
       iframe_url: paymentUrl,
       orderId: order.id,
-      amount: order.total
-    });
+      amount: order.total });
 
   } catch (error) {
     console.error('Paymob Error:', error.response?.data || error.message);
@@ -574,12 +569,9 @@ router.get('/verify-redirect', async (req, res) => {
       if (isBrowserNavigation) {
         return res.redirect(302, `${storeUrl}/payment/success?method=card&orderId=${order.id}&isPaymob=true`);
       }
-      return res.json({ 
-        success: true, 
-        payment_status: 'paid', 
+      return sendSuccess(res, { payment_status: 'paid', 
         orderId: order.id, 
-        store: order.stores 
-      });
+        store: order.stores });
     }
 
     // Otherwise, verify the GET HMAC to confirm success instantly
@@ -660,12 +652,10 @@ router.get('/verify-redirect', async (req, res) => {
       }
     }
 
-    return res.json({ 
-      success: isSuccess, 
+    return sendSuccess(res, { success: isSuccess, 
       payment_status: isSuccess ? 'paid' : 'failed',
       orderId: order.id,
-      store: order.stores
-    });
+      store: order.stores });
 
   } catch (err) {
     console.error('Verify Redirect Error:', err.message);

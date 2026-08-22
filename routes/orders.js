@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
@@ -30,7 +31,7 @@ router.get('/my', verifyUser, async (req, res) => {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    res.json({ success: true, orders: data || [] });
+    sendSuccess(res, { orders: data || [] });
   } catch (error) {
     console.error('Customer orders list error:', error.message);
     apiError(res, 500, 'Failed to load orders', `HTTP_500`);
@@ -59,7 +60,7 @@ router.get('/:id/tracking', verifyUser, async (req, res) => {
       .order('created_at', { ascending: true });
 
     if (trackingError) throw trackingError;
-    res.json({ success: true, order, tracking: tracking || [] });
+    sendSuccess(res, { order, tracking: tracking || [] });
   } catch (error) {
     console.error('Customer order tracking error:', error.message);
     apiError(res, 500, 'Failed to load order tracking', `HTTP_500`);
@@ -96,7 +97,7 @@ router.get('/admin/list', verifyPermission('orders.view'), async (req, res) => {
       orders = orders.filter((order) => Array.isArray(order.items) && order.items.some((item) => item.id === productId));
     }
 
-    res.json({ success: true, orders, filter_product: filterProduct });
+    sendSuccess(res, { orders, filter_product: filterProduct });
   } catch (error) {
     console.error('Admin orders list error:', error.message);
     apiError(res, 500, 'Failed to load orders', `HTTP_500`);
@@ -113,7 +114,7 @@ router.get('/admin/:id/customer-address', verifyPermission('orders.view'), async
       .eq('store_id', req.store.id)
       .maybeSingle();
 
-    if (!order || !order.user_id) return res.json({ success: true, address: null });
+    if (!order || !order.user_id) return sendSuccess(res, { address: null });
 
     let { data } = await supabase
       .from('user_addresses')
@@ -133,7 +134,7 @@ router.get('/admin/:id/customer-address', verifyPermission('orders.view'), async
         .limit(1));
     }
 
-    res.json({ success: true, address: data && data[0] ? data[0] : null });
+    sendSuccess(res, { address: data && data[0] ? data[0] : null });
   } catch (error) {
     console.error('Admin order customer address error:', error.message);
     apiError(res, 500, 'Failed to load customer address', `HTTP_500`);
@@ -162,7 +163,7 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), vali
     if (oldErr) throw oldErr;
     if (!oldOrder) return apiError(res, 404, 'Order not found', `HTTP_404`);
     if (status === oldOrder.status && (!payment_status || payment_status === oldOrder.payment_status)) {
-      return res.json({ success: true, order: oldOrder, unchanged: true });
+      return sendSuccess(res, { order: oldOrder, unchanged: true });
     }
 
     const nextStatus = status || oldOrder.status;
@@ -223,13 +224,23 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), vali
 
 
     // Duplicate manual WhatsApp notification removed since it is handled by DB triggers
-    res.json({ success: true, order });
+    sendSuccess(res, { order });
   } catch (error) {
     console.error('Admin order status update error:', error.message);
     apiError(res, 500, 'Failed to update order status', `HTTP_500`);
   }
 });
 
+
+// Privacy: public social proof shows first name + initial only.
+function maskBuyerName(fullName) {
+  if (!fullName || typeof fullName !== 'string') return 'عميل';
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'عميل';
+  const firstName = parts[0];
+  const initial = parts[1] ? ` ${parts[1].charAt(0)}.` : '';
+  return `${firstName}${initial}`;
+}
 
 // Securely fetch recent purchases for Social Proof
 router.get('/recent-purchases', async (req, res) => {
@@ -267,7 +278,9 @@ router.get('/recent-purchases', async (req, res) => {
               name: item.title || item.name || 'منتج',
               image: item.image || null,
               time: order.created_at,
-              buyer_name: order.user_id ? (profilesMap.get(order.user_id) || 'عميل') : 'عميل',
+              // Privacy: never expose full customer names publicly — first
+              // name + initial only (e.g. "أحمد م.").
+              buyer_name: maskBuyerName(order.user_id ? profilesMap.get(order.user_id) : null),
               city: order.city || null // Real city if available
             });
           });
@@ -275,7 +288,7 @@ router.get('/recent-purchases', async (req, res) => {
       });
     }
 
-    res.json({ success: true, purchases });
+    sendSuccess(res, { purchases });
   } catch (error) {
     console.error('Error fetching recent purchases:', error.message);
     apiError(res, 500, 'Failed to fetch recent purchases', `HTTP_500`);
@@ -362,7 +375,7 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
     }
 
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
-    res.json({ success: true, checkout: result || null });
+    sendSuccess(res, { checkout: result || null });
   } catch (error) {
     await subscriptionLimitService.rollbackFeatureUsage(reservationKey).catch(() => {});
     console.error('WhatsApp checkout error:', error.message);
@@ -438,7 +451,7 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
       .maybeSingle();
 
     if (existingOrder) {
-      return res.json({ success: true, message: 'Order already processed', orderId: existingOrder.id, total: existingOrder.total });
+      return sendSuccess(res, { message: 'Order already processed', orderId: existingOrder.id, total: existingOrder.total });
     }
 
     const reservationKey = `order-${req.store.id}-${idempotencyScope}`;
@@ -548,7 +561,7 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
 
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
     const order = Array.isArray(data) ? data[0] : data;
-    return res.status(201).json({ success: true, orderId: order.id, total: order.total });
+    return sendSuccess(res, { orderId: order.id, total: order.total }, { status: 201 });
 
 
   } catch (error) {

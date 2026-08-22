@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const { verifyPermission } = require('../middleware/auth');
 const shippingZoneService = require('../services/shippingZoneService');
@@ -28,7 +29,7 @@ router.get('/', verifyPermission('shipping.manage'), async (req, res) => {
 
   try {
     const zones = await shippingZoneService.listZones(storeId);
-    res.json({ success: true, zones });
+    sendSuccess(res, { zones });
   } catch (err) {
     logger.error('[shipping-zones] list failed:', err.message);
     sendError(res, err);
@@ -41,7 +42,7 @@ router.post('/', verifyPermission('shipping.manage'), validateBody(shippingZoneS
 
   try {
     const zone = await shippingZoneService.createZone(storeId, req.body || {});
-    res.status(201).json({ success: true, zone });
+    sendSuccess(res, { zone }, { status: 201 });
   } catch (err) {
     logger.error('[shipping-zones] create failed:', err.message);
     sendError(res, err);
@@ -54,7 +55,7 @@ router.put('/:id', verifyPermission('shipping.manage'), validateBody(shippingZon
 
   try {
     const zone = await shippingZoneService.updateZone(storeId, req.params.id, req.body || {});
-    res.json({ success: true, zone });
+    sendSuccess(res, { zone });
   } catch (err) {
     logger.error('[shipping-zones] update failed:', err.message);
     sendError(res, err);
@@ -67,7 +68,7 @@ router.delete('/:id', verifyPermission('shipping.manage'), async (req, res) => {
 
   try {
     await shippingZoneService.deleteZone(storeId, req.params.id);
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('[shipping-zones] delete failed:', err.message);
     sendError(res, err);

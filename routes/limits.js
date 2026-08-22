@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const { verifyUser } = require('../middleware/auth');
@@ -14,7 +15,7 @@ router.get('/features', verifyUser, async (req, res) => {
 
     const states = await getFeatureStates(req.store.id);
     const usage = await getUsageSummary(req.store.id);
-    res.json({ ...states, usage });
+    sendSuccess(res, { ...states, usage });
   } catch (err) {
     logger.error('Failed to load feature limits:', err.message);
     apiError(res, 500, 'Failed to load feature limits', `HTTP_500`);
@@ -35,7 +36,7 @@ router.post('/reset-monthly', verifyUser, async (req, res) => {
     }
 
     const ok = await resetMonthlyUsage();
-    res.json({ success: ok });
+    sendSuccess(res, { success: ok });
   } catch (err) {
     logger.error('Failed to reset monthly limits:', err.message);
     apiError(res, 500, 'Failed to reset monthly limits', `HTTP_500`);
@@ -86,7 +87,7 @@ router.get('/platform-dashboard', verifyUser, async (req, res) => {
       return feature && !feature.is_unlimited && feature.limit != null && (feature.usage || 0) >= Math.max(1, Math.floor(feature.limit * 0.8));
     });
 
-    res.json({
+    sendSuccess(res, {
       stores: stores || [],
       over_limit_stores: overLimitStores,
       near_limit_stores: nearLimitStores,

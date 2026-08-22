@@ -40,6 +40,16 @@ const errorResponseSchema = z.object({
   data: z.null()
 });
 
+// Canonical response envelope. Business payloads live under `data`; the
+// transition bridge also mirrors plain-object data keys at the top level.
+const successEnvelopeShape = {
+  success: z.literal(true),
+  code: z.string().min(1),
+  message: z.string(),
+  requestId: z.string().nullable(),
+  data: z.unknown()
+};
+
 module.exports = {
   contract,
   normalizePaymentMethod,
@@ -48,5 +58,6 @@ module.exports = {
   paymentStatusValueSchema,
   itemSchema,
   addressSchema,
-  errorResponseSchema
+  errorResponseSchema,
+  successResponseSchema: z.object(successEnvelopeShape)
 };

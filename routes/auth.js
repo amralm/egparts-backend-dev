@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
@@ -12,6 +13,8 @@ const userProfileService = require('../services/userProfileService');
 const twoFactorService = require('../services/twoFactorService');
 const phoneVerificationService = require('../services/phoneVerificationService');
 const { sendOTPSchema, verifyOTPSchema, resolvePhoneSchema, phoneVerificationClaimSchema, resetPasswordSchema } = require('../schemas/authSchemas');
+const { validateBody } = require('../middleware/requestValidation');
+const { z } = require('zod');
 
 async function recordOtpAudit(entry) {
   try {
@@ -41,7 +44,7 @@ router.get('/health', async (req, res) => {
     status.db = `exception: ${err.message}`;
   }
 
-  res.json(status);
+  sendSuccess(res, status);
 });
 
 function normalizeEgyptianPhone(value) {
@@ -153,7 +156,7 @@ router.post('/resolve-phone', phoneLoginLimiter, async (req, res) => {
       p_store_id: req.store.id
     });
     if (error || !data) return apiError(res, 401, 'بيانات الدخول غير صحيحة', `HTTP_401`);
-    return res.json({ success: true, email: data });
+    return sendSuccess(res, { email: data });
   } catch (err) {
     logger.warn('Phone login resolution failed:', err.message);
     return apiError(res, 401, 'بيانات الدخول غير صحيحة', `HTTP_401`);
@@ -175,7 +178,7 @@ router.post('/profile/sync', verifyUser, sensitiveWriteRateLimiter, async (req, 
   try {
     if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_CONTEXT_REQUIRED');
     const profile = await userProfileService.syncUserProfile(req.user, req.store.id);
-    return res.json({ success: true, profile });
+    return sendSuccess(res, { profile });
   } catch (err) {
     logger.error('Profile sync failed:', err.message);
     return apiError(res, err.statusCode || 500, err.statusCode === 401 ? 'Unauthorized' : 'Unable to sync profile', 'PROFILE_SYNC_FAILED');
@@ -186,14 +189,19 @@ router.post('/profile/mark-email-verified', verifyUser, sensitiveWriteRateLimite
   try {
     if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_CONTEXT_REQUIRED');
     const profile = await userProfileService.markEmailVerified(req.user, req.store.id);
-    return res.json({ success: true, profile });
+    return sendSuccess(res, { profile });
   } catch (err) {
     logger.error('Mark email verified failed:', err.message);
     return apiError(res, err.statusCode || 500, err.statusCode === 401 ? 'Unauthorized' : 'Unable to update verification status', 'EMAIL_VERIFICATION_UPDATE_FAILED');
   }
 });
 
-router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req, res) => {
+const phoneUpdateSchema = z.object({
+  phone: z.string().trim().min(8).max(20),
+  store_id: z.string().uuid().optional()
+}).strict();
+
+router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, validateBody(phoneUpdateSchema), async (req, res) => {
   try {
     const requestedStoreId = req.body?.store_id || req.store?.id;
     const platformStoreId = userProfileService.DEFAULT_STORE_ID;
@@ -218,7 +226,7 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req,
     }
 
     const profile = await userProfileService.updateProfilePhone(req.user, requestedStoreId, req.body?.phone);
-    return res.json({ success: true, profile });
+    return sendSuccess(res, { profile });
   } catch (err) {
     logger.error('Profile phone update failed', {
       error: {
@@ -236,7 +244,7 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req,
 });
 
 router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) => {
-  const { phone, user_id, purpose, turnstileToken } = { ...req.body, ...sendOTPSchema.parse(req.body) };
+  const { phone, purpose, turnstileToken } = { ...req.body, ...sendOTPSchema.parse(req.body) };
   let normalizedPhone;
   try {
     normalizedPhone = normalizeEgyptianPhone(phone);
@@ -288,8 +296,19 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
 
   // تأكد إن الرقم مش مرتبط بحساب تاني
   // لو purpose = forgot → سيبها (نسيان كلمة المرور)
-  // لو معانا user_id → بلوك بس لو الرقم مملوك لغير صاحب الـ user_id
-  // لو مفيش user_id (إنشاء حساب جديد) → بلوك لو الرقم موجود أصلاً
+  // الهوية الموثوقة تُستخرج من توكن الجلسة فقط — user_id من الجسم يُتجاهل
+  // حتى لا يستطيع أي متصل تجاوز الحارس بإرسال user_id حساب آخر.
+  let sessionUserId = null;
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const tokenVerifier = require('../utils/tokenVerifier');
+      sessionUserId = tokenVerifier.verify(authHeader.split(' ')[1]).sub || null;
+    } catch {
+      sessionUserId = null; // anonymous or expired token → treated as public caller
+    }
+  }
+
   const { data: existing } = await supabase
     .from('user_profiles')
     .select('user_id')
@@ -297,7 +316,8 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
     .eq('store_id', req.store.id)
     .maybeSingle();
   if (existing && purpose !== 'forgot') {
-    if (!user_id || existing.user_id !== user_id) {
+    const isOwnPhone = sessionUserId && existing.user_id === sessionUserId;
+    if (!isOwnPhone) {
       return apiError(res, 409, 'هذا الرقم مسجل بحساب آخر من قبل. برجاء تسجيل الدخول أو استخدام رقم آخر.', `HTTP_409`);
     }
   }
@@ -341,7 +361,7 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
     throw err;
   }
   
-  res.json({ success: true, message: 'تم إرسال كود التحقق بنجاح' });
+  sendSuccess(res, { message: 'تم إرسال كود التحقق بنجاح' });
 });
 
 // Route: Verify OTP — IP rate limited + Phone rate limited to prevent distributed brute force
@@ -369,7 +389,7 @@ router.post('/verify-otp', optionalAuth, verifyRateLimiter, perPhoneVerifyLimite
           normalizedPhone,
           'whatsapp_otp'
         );
-        return res.json({ success: true, message: 'تم التحقق بنجاح', verification });
+        return sendSuccess(res, { message: 'تم التحقق بنجاح', verification });
       }
 
       // Signup happens after OTP verification. Persist a one-time proof in
@@ -379,12 +399,9 @@ router.post('/verify-otp', optionalAuth, verifyRateLimiter, perPhoneVerifyLimite
         req.store.id,
         purpose || 'whatsapp_otp'
       );
-      return res.json({
-        success: true,
-        message: 'تم التحقق بنجاح',
+      return sendSuccess(res, { message: 'تم التحقق بنجاح',
         verification_token: ticket.token,
-        verification_expires_at: ticket.expiresAt
-      });
+        verification_expires_at: ticket.expiresAt });
     } catch (verificationError) {
       logger.error('Central phone verification failed after valid OTP:', verificationError);
       return apiError(res, verificationError.statusCode || 500, verificationError.statusCode === 409 ? verificationError.message : 'تم قبول الكود لكن تعذر تثبيت توثيق الرقم. حاول مرة أخرى.', verificationError.code || 'PHONE_VERIFICATION_UNAVAILABLE');
@@ -406,7 +423,7 @@ router.post('/phone-verification/claim', verifyUser, sensitiveWriteRateLimiter, 
       parsed.data.token,
       parsed.data.phone
     );
-    return res.json({ success: true, verification });
+    return sendSuccess(res, { verification });
   } catch (error) {
     logger.warn('Phone verification ticket claim failed:', error.message);
     return apiError(res, error.statusCode || 500, error.statusCode === 409 || error.statusCode === 400 ? error.message : 'تعذر تثبيت توثيق الرقم', error.code || 'PHONE_VERIFICATION_CLAIM_FAILED');
@@ -419,7 +436,7 @@ router.get('/phone-verification', verifyUser, async (req, res) => {
       return apiError(res, 400, 'Tenant context required', 'TENANT_CONTEXT_REQUIRED');
     }
     const status = await phoneVerificationService.getStatus(req.user.sub, req.store.id);
-    return res.json({ success: true, verification: status });
+    return sendSuccess(res, { verification: status });
   } catch (error) {
     logger.error('Phone verification status failed:', error.message);
     return apiError(res, 500, 'تعذر قراءة حالة توثيق الرقم', 'PHONE_VERIFICATION_STATUS_FAILED');
@@ -475,7 +492,7 @@ router.post('/reset-password', sensitiveWriteRateLimiter, async (req, res) => {
       return apiError(res, 500, 'فشل في تحديث كلمة المرور', `HTTP_500`);
     }
 
-    res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح' });
+    sendSuccess(res, { message: 'تم تغيير كلمة المرور بنجاح' });
   } catch (err) {
     if (err?.name === 'ZodError') {
       return apiError(res, 400, err.issues?.[0]?.message || 'بيانات تغيير كلمة المرور غير صالحة', 'PASSWORD_RESET_INVALID');
@@ -578,7 +595,7 @@ router.get('/oauth/login', async (req, res) => {
       `${callbackBase}/api/auth/oauth/callback?broker_token=${encodeURIComponent(stateToken)}`
     )}`;
 
-    res.json({ url: redirectUrl });
+    sendSuccess(res, { url: redirectUrl });
   } catch (err) {
     logger.error('OAuth login initialization failed', { message: err.message });
     apiError(res, 500, 'Failed to initialize OAuth login', `HTTP_500`);
@@ -850,7 +867,7 @@ router.post('/oauth/implicit-callback', async (req, res) => {
     });
 
     const redirectUrl = `${targetHost}/auth/callback?exchange_token=${token}&redirect_to=${encodeURIComponent(safeRedirect)}`;
-    res.json({ redirectUrl });
+    sendSuccess(res, { redirectUrl });
   } catch (err) {
     logger.error('Implicit OAuth callback process failed:', err);
     apiError(res, 500, 'حدث خطأ أثناء مصادقة الهوية.', `HTTP_500`);
@@ -930,7 +947,7 @@ router.post('/oauth/exchange', exchangeRateLimiter, async (req, res) => {
     }
 
     logger.info('OAuth exchange: successful session handoff', { token: token.substring(0, 8) + '...' });
-    res.json({ success: true, session: sessionData });
+    sendSuccess(res, { session: sessionData });
   } catch (err) {
     logger.error('Session exchange exception occurred', { message: err.message });
     apiError(res, 500, 'حدث خطأ غير متوقع أثناء معالجة الرمز', `HTTP_500`);
@@ -977,12 +994,9 @@ router.get('/invitation/verify', async (req, res) => {
         .eq('id', invitation.id);
     }
 
-    res.json({
-      success: true,
-      email: invitation.email,
+    sendSuccess(res, { email: invitation.email,
       phone: invitation.phone,
-      store_id: invitation.store_id
-    });
+      store_id: invitation.store_id });
   } catch (err) {
     logger.error('Invitation verify error:', err.message);
     apiError(res, 500, 'خطأ داخلي أثناء التحقق من الدعوة', `HTTP_500`);
@@ -1255,12 +1269,9 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
       .select('subdomain, custom_domain')
       .single();
 
-    res.json({
-      success: true,
-      message: 'تم تفعيل حساب صاحب المتجر وتهيئة البنية التحتية بنجاح',
+    sendSuccess(res, { message: 'تم تفعيل حساب صاحب المتجر وتهيئة البنية التحتية بنجاح',
       subdomain: store?.subdomain,
-      custom_domain: store?.custom_domain
-    });
+      custom_domain: store?.custom_domain });
   } catch (err) {
     logger.error('Invitation accept error:', err);
     apiError(res, 500, 'حدث خطأ أثناء تفعيل وتجهيز المتجر.', `HTTP_500`);
@@ -1274,7 +1285,16 @@ router.post('/validate-admin', async (req, res) => {
     return apiError(res, 401, 'Unauthorized: No token provided', `HTTP_401`);
   }
 
-  const { store_id } = req.body;
+  // Tenant scope comes from the server-resolved store only. The body store_id
+  // is honored solely as a consistency check so a stale client cannot probe
+  // role membership in a store it did not address, and the cross-store
+  // fallback is removed (it leaked "am I admin anywhere" globally).
+  const requestedStoreId = req.body?.store_id || null;
+  const resolvedStoreId = req.store?.id || null;
+  if (requestedStoreId && resolvedStoreId && requestedStoreId !== resolvedStoreId) {
+    return apiError(res, 403, 'تعارض بين سياق المتجر المطلوب والمُحلّوم من الخادم.', 'STORE_CONTEXT_MISMATCH');
+  }
+  const scopedStoreId = resolvedStoreId || requestedStoreId;
 
   try {
     const tokenVerifier = require('../utils/tokenVerifier');
@@ -1284,17 +1304,14 @@ router.post('/validate-admin', async (req, res) => {
 
     const [{ data: superAdmin }, { data: storeAdmin }] = await Promise.all([
       supabase.from('super_admins').select('user_id').eq('user_id', userId).maybeSingle(),
-      store_id
-        ? supabase.from('user_roles').select('role_id').eq('user_id', userId).eq('store_id', store_id).limit(1).maybeSingle()
-        : supabase.from('user_roles').select('role_id').eq('user_id', userId).limit(1).maybeSingle()
+      scopedStoreId
+        ? supabase.from('user_roles').select('role_id').eq('user_id', userId).eq('store_id', scopedStoreId).limit(1).maybeSingle()
+        : Promise.resolve({ data: null })
     ]);
 
-    res.json({
-      success: true,
-      isSuperAdmin: !!superAdmin,
+    sendSuccess(res, { isSuperAdmin: !!superAdmin,
       isStoreAdmin: !!storeAdmin,
-      isAuthorized: !!(superAdmin || storeAdmin)
-    });
+      isAuthorized: !!(superAdmin || storeAdmin) });
   } catch (err) {
     logger.error('Admin validation endpoint error:', err.message);
     apiError(res, 401, 'Unauthorized: Invalid token', `HTTP_401`);
@@ -1310,7 +1327,7 @@ router.get('/2fa/status', verifyUser, async (req, res) => {
   try {
     if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
     const status = await twoFactorService.get2FAStatus(req.user.sub, req.store.id);
-    res.json({ success: true, ...status });
+    sendSuccess(res, { ...status });
   } catch (err) {
     logger.error('2FA status error:', err.message);
     apiError(res, 500, 'فشل تحميل إعدادات الأمان', `HTTP_500`);
@@ -1330,7 +1347,7 @@ router.get('/2fa/totp/setup', verifyUser, async (req, res) => {
       store?.name || 'EG Parts',
       profile?.email || req.user.email || 'user'
     );
-    res.json({ success: true, ...result });
+    sendSuccess(res, { ...result });
   } catch (err) {
     logger.error('TOTP setup error:', err.message);
     apiError(res, 500, 'فشل إعداد Google Authenticator', `HTTP_500`);
@@ -1345,7 +1362,7 @@ router.post('/2fa/totp/verify-setup', verifyUser, async (req, res) => {
     if (!token) return apiError(res, 400, 'كود التحقق مطلوب', `HTTP_400`);
     const result = await twoFactorService.verifyTOTPSetup(req.user.sub, req.store.id, token);
     if (!result.success) return apiError(res, 400, 'الكود غير صحيح، تأكد من التوقيت على هاتفك', `HTTP_400`);
-    res.json({ success: true, backup_codes: result.backup_codes });
+    sendSuccess(res, { backup_codes: result.backup_codes });
   } catch (err) {
     logger.error('TOTP verify-setup error:', err.message);
     apiError(res, 500, err.message || 'فشل التحقق من الإعداد', 'TOTP_SETUP_VERIFICATION_FAILED');
@@ -1357,7 +1374,7 @@ router.post('/2fa/enable', verifyUser, async (req, res) => {
   try {
     if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
     const result = await twoFactorService.enableWhatsApp2FA(req.user.sub, req.store.id);
-    res.json({ success: true, backup_codes: result.backup_codes });
+    sendSuccess(res, { backup_codes: result.backup_codes });
   } catch (err) {
     logger.error('Enable 2FA error:', err.message);
     apiError(res, 500, 'فشل تفعيل التحقق بخطوتين', `HTTP_500`);
@@ -1369,36 +1386,81 @@ router.post('/2fa/disable', verifyUser, async (req, res) => {
   try {
     if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
     await twoFactorService.disable2FA(req.user.sub, req.store.id);
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Disable 2FA error:', err.message);
     apiError(res, 500, 'فشل إلغاء التحقق بخطوتين', `HTTP_500`);
   }
 });
 
-// POST /api/auth/2fa/challenge — send WhatsApp OTP challenge (called right after login if 2FA enabled)
-router.post('/2fa/challenge', async (req, res) => {
+// POST /api/auth/2fa/begin — mint a short-lived 2FA continuation ticket.
+// Must be called while the password session is still alive (before the client
+// signs out to await the second factor). The ticket replaces the raw user_id
+// that challenge/verify used to trust from the request body.
+const twoFactorTickets = require('../utils/twoFactorTickets');
+const twoFALimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, code: 'TWO_FACTOR_RATE_LIMITED', message: 'محاولات كثيرة جدًا. حاول بعد قليل.', data: null },
+  keyGenerator: (req) => `${req.body?.user_id || req.user?.sub || req.ip}`
+});
+
+router.post('/2fa/begin', verifyUser, async (req, res) => {
   try {
     if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
-    const { user_id } = req.body;
-    if (!user_id) return apiError(res, 400, 'user_id مطلوب', `HTTP_400`);
-    const result = await twoFactorService.sendChallenge(user_id, req.store.id, req.store);
-    res.json({ success: true, ...result });
+    const status = await twoFactorService.get2FAStatus(req.user.sub, req.store.id);
+    if (!status?.is_enabled) {
+      return sendSuccess(res, { is_enabled: false });
+    }
+    const ticket = twoFactorTickets.issueTicket(req.user.sub, req.store.id);
+    if (!ticket) return apiError(res, 500, 'تعذر بدء التحقق بخطوتين.', 'TWO_FACTOR_TICKET_FAILED');
+    sendSuccess(res, {
+      is_enabled: true,
+      method: status.method || 'whatsapp',
+      phone_hint: status.phone_hint || null,
+      ticket
+    });
+  } catch (err) {
+    logger.error('2FA begin error:', err.message);
+    apiError(res, 500, 'فشل بدء التحقق بخطوتين.', 'TWO_FACTOR_BEGIN_FAILED');
+  }
+});
+
+// POST /api/auth/2fa/challenge — send WhatsApp OTP challenge.
+// Authorization comes from the one-time ticket issued by /2fa/begin; the body
+// user_id is ignored so this can never be aimed at an arbitrary account.
+router.post('/2fa/challenge', twoFALimiter, async (req, res) => {
+  try {
+    if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
+    const { ticket } = req.body;
+    const userId = twoFactorTickets.resolveTicketUser(ticket, req.store.id);
+    if (!userId) {
+      return apiError(res, 401, 'انتهت صلاحية جلسة التحقق. سجل الدخول مرة أخرى.', 'TWO_FACTOR_TICKET_INVALID');
+    }
+    const result = await twoFactorService.sendChallenge(userId, req.store.id, req.store);
+    sendSuccess(res, { ...result });
   } catch (err) {
     logger.error('2FA challenge error:', err.message);
     apiError(res, 500, err.message || 'فشل إرسال كود التحقق', 'TOTP_CHALLENGE_FAILED');
   }
 });
 
-// POST /api/auth/2fa/verify — verify challenge + confirm login is complete
-router.post('/2fa/verify', async (req, res) => {
+// POST /api/auth/2fa/verify — verify challenge + confirm login completion.
+router.post('/2fa/verify', twoFALimiter, async (req, res) => {
   try {
     if (!req.store?.id) return apiError(res, 400, 'store context required', `HTTP_400`);
-    const { user_id, token } = req.body;
-    if (!user_id || !token) return apiError(res, 400, 'user_id والكود مطلوبان', `HTTP_400`);
-    const result = await twoFactorService.verifyChallenge(user_id, req.store.id, token, req.store);
+    const { ticket, token } = req.body;
+    if (!token) return apiError(res, 400, 'الكود مطلوب', `HTTP_400`);
+    const userId = twoFactorTickets.resolveTicketUser(ticket, req.store.id);
+    if (!userId) {
+      return apiError(res, 401, 'انتهت صلاحية جلسة التحقق. سجل الدخول مرة أخرى.', 'TWO_FACTOR_TICKET_INVALID');
+    }
+    const result = await twoFactorService.verifyChallenge(userId, req.store.id, token, req.store);
     if (!result.success) return apiError(res, 400, 'الكود غير صحيح أو انتهت صلاحيته', `HTTP_400`);
-    res.json({ success: true, used_backup_code: result.used_backup_code || false });
+    twoFactorTickets.burnTicket(ticket);
+    sendSuccess(res, { used_backup_code: result.used_backup_code || false });
   } catch (err) {
     logger.error('2FA verify error:', err.message);
     apiError(res, 500, err.message || 'فشل التحقق', 'TOTP_VERIFICATION_FAILED');

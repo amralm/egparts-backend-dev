@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 /**
  * Manual Wallet Payment Routes
  * Handles the full lifecycle of manual wallet payments (Vodafone Cash, Etisalat Cash, etc.)
@@ -138,7 +139,7 @@ router.get('/info', async (req, res) => {
       }
     }
 
-    return res.json({
+    return sendSuccess(res, {
       wallets,
       instructions,
       amount,
@@ -175,7 +176,7 @@ router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
       }
     }
 
-    return res.json({ success: true, wallets, is_active });
+    return sendSuccess(res, { wallets, is_active });
   } catch (err) {
     console.error('[wallet/settings] Error:', err.message);
     return apiError(res, 500, 'Failed to fetch wallet settings', `HTTP_500`);
@@ -220,7 +221,7 @@ async function saveWalletSettings(req, res) {
       .update({ manual_wallet_enabled: !!(is_active) })
       .eq('store_id', req.store.id);
 
-    return res.json({ success: true, message: 'تم حفظ إعدادات المحافظ الإلكترونية بنجاح' });
+    return sendSuccess(res, { message: 'تم حفظ إعدادات المحافظ الإلكترونية بنجاح' });
   } catch (err) {
     console.error('[wallet/settings] Error:', err.message);
     return apiError(res, 500, 'Failed to save wallet settings', `HTTP_500`);
@@ -261,11 +262,8 @@ router.post('/initiate', walletRateLimiter, verifyUser, validateBody(intentSchem
       { user_id: req.user.sub }
     );
 
-    return res.json({
-      success: true,
-      intent_id: result.provider_reference?.replace('wallet_manual_', '') || null,
-      ...result,
-    });
+    return sendSuccess(res, { intent_id: result.provider_reference?.replace('wallet_manual_', '') || null,
+      ...result, });
   } catch (err) {
     console.error('[wallet/initiate] Error:', err.message);
     return apiError(res, 500, 'Failed to initiate wallet payment', `HTTP_500`);
@@ -461,7 +459,7 @@ router.post('/submit-proof', walletRateLimiter, verifyUser, upload.single('recei
       console.error('[wallet/submit-proof] Notification failed (non-fatal):', notifErr.message);
     }
 
-    return res.json({ success: true, message: 'Receipt uploaded successfully' });
+    return sendSuccess(res, { message: 'Receipt uploaded successfully' });
   } catch (err) {
     // If the durable retention record was not created, clean up the object and
     // its quota immediately so a failed request cannot orphan R2 bytes.
@@ -528,7 +526,7 @@ router.get('/pending-proofs', verifyPermission('payments.view'), async (req, res
       };
     }));
 
-    return res.json({ pending: result });
+    return sendSuccess(res, { pending: result });
   } catch (err) {
     console.error('[wallet/pending-proofs] Error:', err.message);
     return apiError(res, 500, 'Failed to fetch pending proofs', `HTTP_500`);
@@ -552,7 +550,7 @@ router.get('/order-proof/:orderId', verifyPermission('payments.view'), async (re
 
     if (error) throw error;
     if (!intents || intents.length === 0) {
-      return res.json({ proof: null });
+      return sendSuccess(res, { proof: null });
     }
 
     // Determine active intent by status priority
@@ -578,7 +576,7 @@ router.get('/order-proof/:orderId', verifyPermission('payments.view'), async (re
       }
     }
 
-    return res.json({
+    return sendSuccess(res, {
       proof: {
         intent_id: activeIntent.id,
         order_id: activeIntent.order_id,
@@ -662,7 +660,7 @@ router.post('/approve', verifyPermission('payments.approve'), validateBody(proof
       );
     }
 
-    return res.json({ success: true, message: 'تم تأكيد الدفع وتحديث حالة الطلب بنجاح.' });
+    return sendSuccess(res, { message: 'تم تأكيد الدفع وتحديث حالة الطلب بنجاح.' });
   } catch (err) {
     console.error('[wallet/approve] Error:', err.message);
     return apiError(res, 500, 'Failed to approve payment', `HTTP_500`);
@@ -726,7 +724,7 @@ router.post('/reject', verifyPermission('payments.approve'), validateBody(proofD
       );
     }
 
-    return res.json({ success: true, message: 'تم رفض إيصال الدفع.', result: rejection });
+    return sendSuccess(res, { message: 'تم رفض إيصال الدفع.', result: rejection });
   } catch (err) {
     console.error('[wallet/reject] Error:', err.message);
     return apiError(res, 500, 'Failed to reject payment', `HTTP_500`);

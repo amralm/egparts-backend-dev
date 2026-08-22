@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
@@ -12,7 +13,7 @@ router.post('/', verifyPermission('usage.view'), async (req, res) => {
 
   try {
     const dashboard = await adminDashboardService.getDashboard(req.store.id, req.body?.settings || {});
-    res.json({ success: true, ...dashboard });
+    sendSuccess(res, { ...dashboard });
   } catch (err) {
     logger.error('[admin-dashboard] load failed:', err.message);
     apiError(res, 500, 'Unable to load dashboard.', `HTTP_500`);

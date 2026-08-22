@@ -4,34 +4,32 @@ const { getSnapshot } = require('../services/healthCollector');
 const { verifyPlatformPermission } = require('../middleware/platformAdmin');
 const { supabase } = require('../services/supabase');
 const logger = require('../utils/logger');
+const { sendSuccess } = require('../utils/apiResponse');
 
 // Public liveness endpoint for Render/load balancers. Keep infrastructure
 // details out of this response; the authenticated platform endpoint exposes
 // the full health snapshot.
 router.get('/', (req, res) => {
-  res.status(200).json({
-    success: true,
-    status: 'ok',
+  sendSuccess(res, { status: 'ok',
     service: 'eg-parts-backend',
     timestamp: new Date().toISOString(),
-    requestId: req.correlationId || req.id || null
-  });
+    requestId: req.correlationId || req.id || null }, { status: 200 });
 });
 
 // GET /api/health/platform
 router.get('/platform', verifyPlatformPermission('platform.health.read'), async (req, res) => {
   try {
     const snapshot = await getSnapshot();
-    res.json(snapshot);
+    sendSuccess(res, snapshot);
   } catch (err) {
     logger.error('Failed to retrieve health snapshot:', err);
     // Return a degraded snapshot instead of 500 to prevent frontend crash
-    res.status(200).json({
+    sendSuccess(res, {
       timestamp: new Date().toISOString(),
       overall_status: 'degraded',
       services: {},
       message: 'Failed to retrieve full health snapshot'
-    });
+    }, { status: 200 });
   }
 });
 
@@ -48,12 +46,12 @@ router.get('/maintenance', async (req, res) => {
       data.forEach(s => { settings[s.key] = s.value; });
     }
 
-    res.json({
+    sendSuccess(res, {
       maintenance: settings['maintenance_mode'] === 'true',
       devMode: settings['dev_mode_enabled'] === 'true' || global.DEV_MODE_ENABLED === true
     });
   } catch (err) {
-    res.json({ maintenance: false, devMode: global.DEV_MODE_ENABLED === true });
+    sendSuccess(res, { maintenance: false, devMode: global.DEV_MODE_ENABLED === true });
   }
 });
 

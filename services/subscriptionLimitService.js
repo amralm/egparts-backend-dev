@@ -194,11 +194,13 @@ async function reserveFeatureUsage(storeId, featureKey, amount = 1, idempotencyK
   return !!data;
 }
 
-async function commitFeatureUsage(idempotencyKey) {
+async function commitFeatureUsage(idempotencyKey, expectedStoreId = null) {
   if (!idempotencyKey) return false;
-  const { data, error } = await supabase.rpc('commit_feature_usage', {
-    p_idempotency_key: idempotencyKey
-  });
+  const rpcArgs = { p_idempotency_key: idempotencyKey };
+  // Defense in depth: when the caller knows which tenant owns the
+  // reservation, the RPC refuses to act on foreign rows.
+  if (expectedStoreId) rpcArgs.p_expected_store_id = expectedStoreId;
+  const { data, error } = await supabase.rpc('commit_feature_usage', rpcArgs);
 
   if (error) {
     logger.warn(`Failed to commit feature usage for key ${idempotencyKey}:`, error.message);
@@ -207,11 +209,11 @@ async function commitFeatureUsage(idempotencyKey) {
   return !!data;
 }
 
-async function rollbackFeatureUsage(idempotencyKey) {
+async function rollbackFeatureUsage(idempotencyKey, expectedStoreId = null) {
   if (!idempotencyKey) return false;
-  const { data, error } = await supabase.rpc('rollback_feature_usage', {
-    p_idempotency_key: idempotencyKey
-  });
+  const rpcArgs = { p_idempotency_key: idempotencyKey };
+  if (expectedStoreId) rpcArgs.p_expected_store_id = expectedStoreId;
+  const { data, error } = await supabase.rpc('rollback_feature_usage', rpcArgs);
 
   if (error) {
     logger.warn(`Failed to rollback feature usage for key ${idempotencyKey}:`, error.message);

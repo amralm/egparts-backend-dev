@@ -1,13 +1,19 @@
 {
-  "version": 1,
+  "version": 2,
   "payment_methods": ["cod", "card", "manual_wallet"],
   "legacy_payment_method_aliases": {"paymob": "card", "cash_on_delivery": "cod"},
   "order_statuses": ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"],
   "payment_statuses": ["unpaid", "pending", "paid", "failed", "cancelled", "canceled", "expired"],
+  "wallet_verification_statuses": ["none", "waiting_verification"],
+  "order_item_fields": {
+    "canonical_quantity": "qty",
+    "legacy_quantity_aliases": ["quantity"]
+  },
   "fields": {
     "address_title_max": 80,
     "phone_min": 8,
     "phone_max": 20,
+    "egyptian_phone_max": 15,
     "city_max": 120,
     "address_max": 500,
     "note_max": 2000,
@@ -16,7 +22,22 @@
     "items_max": 100,
     "item_id_max": 120,
     "item_quantity_max": 100000,
-    "location_url_max": 2048
+    "location_url_max": 2048,
+    "otp_code_length": 6,
+    "password_min": 6,
+    "password_max": 256,
+    "email_max": 254,
+    "settings_key_max": 120,
+    "settings_value_max": 8000,
+    "settings_items_max": 200,
+    "guarantee_product_ids_max": 200,
+    "uuid_param": "uuid",
+    "reservation_key_max": 200
   },
-  "error_response": ["success", "code", "message", "requestId", "data"]
+  "success_response": ["success", "code", "message", "requestId", "data"],
+  "error_response": ["success", "code", "message", "requestId", "data"],
+  "two_factor": {
+    "ticket_hex_length": 64,
+    "methods": ["whatsapp", "totp"]
+  }
 }

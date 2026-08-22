@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const rateLimit = require('express-rate-limit');
@@ -24,7 +25,7 @@ router.get('/reverse', geocodeLimiter, async (req, res) => {
   const cacheKey = `${Math.round(latitude * 1000) / 1000},${Math.round(longitude * 1000) / 1000}`;
   const cached = geocodeCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL) {
-    return res.json({ success: true, ...cached.data, cached: true });
+    return sendSuccess(res, { ...cached.data, cached: true });
   }
   
   try {
@@ -40,7 +41,7 @@ router.get('/reverse', geocodeLimiter, async (req, res) => {
       address: a.road || a.suburb || a.neighbourhood || ''
     };
     geocodeCache.set(cacheKey, { ts: Date.now(), data: result });
-    res.json({ success: true, ...result });
+    sendSuccess(res, { ...result });
   } catch (err) {
     apiError(res, 502, 'Geocoding provider unavailable.', `HTTP_502`);
   }

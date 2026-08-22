@@ -1,4 +1,5 @@
 const { apiError } = require('../utils/apiError');
+const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
@@ -8,7 +9,8 @@ const { supabase } = require('../services/supabase');
 const { verifyPlatformAdmin, verifyPlatformPermission } = require('../middleware/platformAdmin');
 const logger = require('../utils/logger');
 const { z } = require('zod');
-const { validateBody } = require('../middleware/requestValidation');
+const { validateBody, validateParams } = require('../middleware/requestValidation');
+const { managerInviteCreateSchema, invitationIdParamSchema } = require('../schemas/platformSchemas');
 const { sanitizeIlikeTerm } = require('../utils/postgrest');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
 const whatsappPoolService = require('../services/whatsappPoolService');
@@ -197,7 +199,7 @@ router.get('/themes/all', async (req, res) => {
       .select('*')
       .order('sort_order', { ascending: true });
     if (error) throw error;
-    res.json({ success: true, items: data || [] });
+    sendSuccess(res, { items: data || [] });
   } catch (err) {
     logger.error('Platform themes load failed:', err.message);
     apiError(res, 500, 'Unable to load platform themes.', `HTTP_500`);
@@ -210,7 +212,7 @@ router.post('/themes', async (req, res) => {
     const { data, error } = await supabase.from('platform_themes').insert(payload).select().single();
     if (error) throw error;
     await auditPlatform(req, 'platform.themes.create', 'platform_theme', data.id, {}, data);
-    res.status(201).json({ success: true, item: data });
+    sendSuccess(res, { item: data }, { status: 201 });
   } catch (err) {
     logger.error('Platform theme create failed:', err.message);
     apiError(res, err.statusCode || 500, err.statusCode ? err.message : 'Unable to create platform theme.', 'PLATFORM_THEME_CREATE_FAILED');
@@ -226,7 +228,7 @@ router.put('/themes/:id', async (req, res) => {
     const { data, error } = await supabase.from('platform_themes').update(payload).eq('id', req.params.id).select().single();
     if (error) throw error;
     await auditPlatform(req, 'platform.themes.update', 'platform_theme', data.id, before, data);
-    res.json({ success: true, item: data });
+    sendSuccess(res, { item: data });
   } catch (err) {
     logger.error('Platform theme update failed:', err.message);
     apiError(res, err.statusCode || 500, err.statusCode ? err.message : 'Unable to update platform theme.', 'PLATFORM_THEME_UPDATE_FAILED');
@@ -241,7 +243,7 @@ router.post('/themes/:id/toggle-publish', async (req, res) => {
     const { data, error } = await supabase.from('platform_themes').update({ is_published: !before.is_published }).eq('id', req.params.id).select().single();
     if (error) throw error;
     await auditPlatform(req, 'platform.themes.publish', 'platform_theme', data.id, before, data);
-    res.json({ success: true, item: data });
+    sendSuccess(res, { item: data });
   } catch (err) {
     logger.error('Platform theme publish toggle failed:', err.message);
     apiError(res, 500, 'Unable to update platform theme.', `HTTP_500`);
@@ -256,7 +258,7 @@ router.delete('/themes/:id', async (req, res) => {
     const { error } = await supabase.from('platform_themes').delete().eq('id', req.params.id);
     if (error) throw error;
     await auditPlatform(req, 'platform.themes.delete', 'platform_theme', req.params.id, before, {});
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Platform theme delete failed:', err.message);
     apiError(res, 500, 'Unable to delete platform theme.', `HTTP_500`);
@@ -365,7 +367,7 @@ router.get('/resources/:resource', verifyPlatformAdmin, async (req, res) => {
     }
     const { data, error } = await query;
     if (error) throw error;
-    res.json({ success: true, items: data || [] });
+    sendSuccess(res, { items: data || [] });
   } catch (err) {
     logger.error(`Platform resource load failed (${req.params.resource}):`, err.message);
     apiError(res, 500, 'Unable to load platform resource', `HTTP_500`);
@@ -394,7 +396,7 @@ router.delete('/resources/:resource/:id', verifyPlatformAdmin, async (req, res) 
     const { error } = await supabase.from(table).delete().eq('id', req.params.id);
     if (error) throw error;
     await auditPlatform(req, `platform.${req.params.resource}.delete`, req.params.resource, req.params.id, oldData);
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error(`Platform resource delete failed (${req.params.resource}):`, err.message);
     apiError(res, 500, 'Unable to delete platform resource', `HTTP_500`);
@@ -411,7 +413,7 @@ router.get('/orders/:orderId/customer-address', verifyPlatformAdmin, async (req,
 
     if (orderError) throw orderError;
     if (!order) return apiError(res, 404, 'Order not found', `HTTP_404`);
-    if (!order.user_id) return res.json({ success: true, address: null });
+    if (!order.user_id) return sendSuccess(res, { address: null });
 
     let { data, error } = await supabase
       .from('user_addresses')
@@ -435,7 +437,7 @@ router.get('/orders/:orderId/customer-address', verifyPlatformAdmin, async (req,
       data = fallback.data;
     }
 
-    res.json({ success: true, address: data?.[0] || null });
+    sendSuccess(res, { address: data?.[0] || null });
   } catch (err) {
     logger.error(`Platform order address load failed (${req.params.orderId}):`, err.message);
     apiError(res, 500, 'Unable to load customer address', `HTTP_500`);
@@ -455,7 +457,7 @@ router.get('/settings', verifyPlatformAdmin, async (req, res) => {
         settings[item.key] = item.value;
       });
     }
-    res.json(settings);
+    sendSuccess(res, settings);
   } catch (err) {
     logger.error('Failed to get system settings:', err.message);
     apiError(res, 500, 'Failed to retrieve system settings', `HTTP_500`);
@@ -530,7 +532,7 @@ router.post('/settings', verifyPlatformAdmin, validateBody(platformSettingsSchem
       }
     }
 
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to update system settings:', err.message);
     apiError(res, 500, 'Failed to update settings', `HTTP_500`);
@@ -551,7 +553,7 @@ router.get('/stores/:id/proof-retention', verifyPlatformAdmin, async (req, res) 
 
     const override = setting?.proof_retention_days;
     const defaultDays = Number.isInteger(Number(globalSetting?.value)) ? Number(globalSetting.value) : 30;
-    res.json({
+    sendSuccess(res, {
       store: { id: store.id, name: store.name },
       default_days: defaultDays,
       override_days: override === null || override === undefined ? null : Number(override),
@@ -585,7 +587,7 @@ router.patch('/stores/:id/proof-retention', verifyPlatformAdmin, validateBody(pr
     await auditPlatform(req, 'platform.store.proof_retention.update', 'store_settings', store.id,
       { proof_retention_days: before?.proof_retention_days ?? null },
       { proof_retention_days: days }, store.id);
-    res.json({ success: true, store_id: store.id, override_days: days });
+    sendSuccess(res, { store_id: store.id, override_days: days });
   } catch (err) {
     logger.error('Failed to update store proof retention:', err.message);
     apiError(res, 500, 'Failed to update store proof retention', `HTTP_500`);
@@ -612,13 +614,10 @@ router.get('/payment-proofs/retention-health', verifyPlatformAdmin, async (req, 
       .lte('expires_at', now);
     if (overdueError) throw overdueError;
 
-    res.json({
-      success: true,
-      checked_at: now,
+    sendSuccess(res, { checked_at: now,
       counts,
       overdue: overdue || 0,
-      scheduler: 'external_render_cron_required',
-    });
+      scheduler: 'external_render_cron_required', });
   } catch (err) {
     logger.error('Failed to load payment proof retention health:', err.message);
     apiError(res, 500, 'Failed to load payment proof retention health', `HTTP_500`);
@@ -651,7 +650,7 @@ router.post('/settings/test-smtp', verifyPlatformAdmin, validateBody(smtpTestSch
       text: 'This is a test email from the EGParts platform to verify SMTP settings.',
     });
 
-    res.json({ success: true, message: 'Test email sent successfully' });
+    sendSuccess(res, { message: 'Test email sent successfully' });
   } catch (err) {
     logger.error('Failed to send test email:', err.message);
     apiError(res, 500, 'Failed to send test email: ' + err.message, 'TEST_EMAIL_FAILED');
@@ -682,7 +681,7 @@ router.get('/plans', verifyPlatformAdmin, async (req, res) => {
       .order('sort_order', { ascending: true });
 
     if (planErr) throw planErr;
-    res.json(plans);
+    sendSuccess(res, plans);
   } catch (err) {
     logger.error('Failed to retrieve plans:', err.message);
     apiError(res, 500, 'Failed to retrieve plans', `HTTP_500`);
@@ -781,7 +780,7 @@ router.post('/plans', verifyPlatformAdmin, validateBody(planPayloadSchema), asyn
     await auditPlatform(req, 'platform.plan.update', 'plan', plan.id, null, { code, display_name, features }, null);
     await subscriptionLimitService.clearStoreCache(null);
 
-    res.json({ success: true, plan });
+    sendSuccess(res, { plan });
   } catch (err) {
     logger.error('Failed to save SaaS plan:', err);
     apiError(res, 500, 'Failed to save plan', `HTTP_500`);
@@ -810,7 +809,7 @@ router.get('/stores', verifyPlatformAdmin, async (req, res) => {
       subscription_status: s.store_subscriptions?.status || null
     }));
 
-    res.json(formatted);
+    sendSuccess(res, formatted);
   } catch (err) {
     logger.error('Failed to retrieve platform stores:', err.message);
     apiError(res, 500, 'Failed to retrieve stores', `HTTP_500`);
@@ -920,7 +919,7 @@ router.post('/stores', verifyPlatformAdmin, validateBody(platformStoreCreateSche
 
     await ensureOwnerTemplateRole();
     await auditPlatform(req, 'platform.store.create', 'store', store.id, {}, store, store.id);
-    res.status(201).json({ success: true, store });
+    sendSuccess(res, { store }, { status: 201 });
   } catch (err) {
     logger.error('Failed to create platform store:', err);
     apiError(res, 500, err.message || 'Failed to create store', 'STORE_CREATE_FAILED');
@@ -999,7 +998,7 @@ router.patch('/stores/:id', verifyPlatformAdmin, validateBody(platformStoreUpdat
     if (store.custom_domain) tenantCache.delete(store.custom_domain);
 
     await auditPlatform(req, 'platform.store.update', 'store', id, oldStore, store, id);
-    res.json({ success: true, store });
+    sendSuccess(res, { store });
   } catch (err) {
     logger.error('Failed to update platform store:', err);
     apiError(res, 500, 'Failed to update store', `HTTP_500`);
@@ -1027,7 +1026,7 @@ router.post('/stores/:id/suspend', verifyPlatformAdmin, async (req, res) => {
     if (store.custom_domain) tenantCache.delete(store.custom_domain);
 
     await auditPlatform(req, 'platform.store.suspend', 'store', id, oldStore, { ...store, reason }, id);
-    res.json({ success: true, store });
+    sendSuccess(res, { store });
   } catch (err) {
     logger.error('Failed to suspend store:', err.message);
     apiError(res, 500, 'Failed to suspend store', `HTTP_500`);
@@ -1054,7 +1053,7 @@ router.post('/stores/:id/recover', verifyPlatformAdmin, async (req, res) => {
     if (store.custom_domain) tenantCache.delete(store.custom_domain);
 
     await auditPlatform(req, 'platform.store.recover', 'store', id, oldStore, store, id);
-    res.json({ success: true, store });
+    sendSuccess(res, { store });
   } catch (err) {
     logger.error('Failed to recover store:', err.message);
     apiError(res, 500, 'Failed to recover store', `HTTP_500`);
@@ -1080,7 +1079,7 @@ router.get('/stores/options', verifyPlatformAdmin, async (req, res) => {
     if (error) throw error;
     const rows = data || [];
     const items = rows.slice(0, limit);
-    res.json({ items, nextCursor: rows.length > limit ? items[items.length - 1]?.name || null : null });
+    sendSuccess(res, { items, nextCursor: rows.length > limit ? items[items.length - 1]?.name || null : null });
   } catch (err) {
     logger.error('Failed to retrieve store options:', err.message);
     apiError(res, 500, 'Failed to retrieve store options', `HTTP_500`);
@@ -1096,7 +1095,7 @@ router.get('/storage', verifyPlatformAdmin, async (req, res) => {
       return apiError(res, 503, 'R2 storage is not configured.', `HTTP_503`);
     }
     const selectedId = typeof req.query.store_id === 'string' ? req.query.store_id : null;
-    if (!selectedId) return res.json({ success: true, stores: [], selected: null, tree: null });
+    if (!selectedId) return sendSuccess(res, { stores: [], selected: null, tree: null });
     const { data: selected, error } = await supabase
       .from('stores')
       .select('id,name,subdomain,status,is_active')
@@ -1113,14 +1112,11 @@ router.get('/storage', verifyPlatformAdmin, async (req, res) => {
     const prefix = requestedPrefix;
     const objects = await listS3Objects(process.env.R2_BUCKET_NAME, prefix);
     const tree = buildStorageTree(objects, prefix);
-    res.json({
-      success: true,
-      stores: [selected],
+    sendSuccess(res, { stores: [selected],
       selected,
       prefix,
       totals: { files: objects.length, bytes: objects.reduce((sum, item) => sum + item.size, 0) },
-      tree
-    });
+      tree });
   } catch (err) {
     logger.error('Platform storage listing failed:', err.message);
     apiError(res, 500, 'Unable to load platform storage.', `HTTP_500`);
@@ -1138,7 +1134,7 @@ router.delete('/storage/object', verifyPlatformAdmin, async (req, res) => {
     if (!store) return apiError(res, 404, 'Store not found.', `HTTP_404`);
     await s3Client.send(new DeleteObjectsCommand({ Bucket: process.env.R2_BUCKET_NAME, Delete: { Objects: [{ Key: key }] } }));
     await auditPlatform(req, 'platform.storage.object_delete', 'storage_object', key, { store_id: storeId }, null, storeId);
-    res.json({ success: true, key });
+    sendSuccess(res, { key });
   } catch (err) {
     logger.error('Platform storage object deletion failed:', err.message);
     apiError(res, 500, 'Unable to delete storage object.', `HTTP_500`);
@@ -1157,7 +1153,7 @@ router.delete('/storage/folder', verifyPlatformAdmin, async (req, res) => {
     if (!store) return apiError(res, 404, 'Store not found.', `HTTP_404`);
     const result = await emptyS3Directory(process.env.R2_BUCKET_NAME, requestedPrefix);
     await auditPlatform(req, 'platform.storage.folder_delete', 'storage_folder', requestedPrefix, { store_id: storeId }, result, storeId);
-    res.json({ success: true, prefix: requestedPrefix, ...result });
+    sendSuccess(res, { prefix: requestedPrefix, ...result });
   } catch (err) {
     logger.error('Platform storage folder deletion failed:', err.message);
     apiError(res, 500, 'Unable to delete storage folder.', `HTTP_500`);
@@ -1190,7 +1186,7 @@ router.delete('/stores/:id', verifyPlatformAdmin, async (req, res) => {
     if (error) throw error;
 
     await auditPlatform(req, 'platform.store.delete_hard', 'store', id, oldStore, { storageResult }, id);
-    res.json({ success: true, message: 'Store completely deleted.', storage: storageResult });
+    sendSuccess(res, { message: 'Store completely deleted.', storage: storageResult });
   } catch (err) {
     logger.error('Failed to hard delete store:', err.message);
     apiError(res, 500, 'Failed to delete store', `HTTP_500`);
@@ -1238,7 +1234,7 @@ router.get('/tenants/metrics', verifyPlatformAdmin, async (req, res) => {
       });
     }
 
-    res.json(metrics);
+    sendSuccess(res, metrics);
   } catch (err) {
     logger.error('Failed to retrieve tenant metrics:', err.message);
     apiError(res, 500, 'Failed to retrieve tenant metrics', `HTTP_500`);
@@ -1311,7 +1307,7 @@ router.get('/users', verifyPlatformAdmin, async (req, res) => {
 
     const users = Array.from(userMap.values());
 
-    res.json({ success: true, users });
+    sendSuccess(res, { users });
   } catch (err) {
     logger.error('Platform users list failed:', err.message);
     apiError(res, 500, 'Failed to load users', `HTTP_500`);
@@ -1402,7 +1398,7 @@ router.get('/admin-users', verifyPlatformAdmin, async (req, res) => {
 
     adminUsers.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
-    res.json({ success: true, users: adminUsers });
+    sendSuccess(res, { users: adminUsers });
   } catch (err) {
     logger.error('Platform admin users list failed:', err.message);
     apiError(res, 500, 'Failed to load admin users', `HTTP_500`);
@@ -1417,7 +1413,7 @@ router.get('/users/:user_id/addresses', verifyPlatformAdmin, async (req, res) =>
       .eq('user_id', req.params.user_id);
 
     if (error) throw error;
-    res.json({ success: true, addresses: data || [] });
+    sendSuccess(res, { addresses: data || [] });
   } catch (err) {
     logger.error('Platform user addresses failed:', err.message);
     apiError(res, 500, 'Failed to load user addresses', `HTTP_500`);
@@ -1449,7 +1445,7 @@ router.post('/users/:user_id/ban', verifyPlatformAdmin, async (req, res) => {
       .eq('user_id', userId);
 
     if (error) throw error;
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Platform user ban failed:', err.message);
     apiError(res, 500, 'Failed to ban user', `HTTP_500`);
@@ -1479,7 +1475,7 @@ router.post('/users/:user_id/unban', verifyPlatformAdmin, async (req, res) => {
       .eq('user_id', userId);
 
     if (error) throw error;
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Platform user unban failed:', err.message);
     apiError(res, 500, 'Failed to unban user', `HTTP_500`);
@@ -1529,7 +1525,7 @@ router.post('/users/:user_id/reset-link', verifyPlatformAdmin, async (req, res) 
       });
     }
 
-    res.json({ success: true, link: resetLink });
+    sendSuccess(res, { link: resetLink });
   } catch (err) {
     logger.error('Failed to generate reset link:', err.message);
     apiError(res, 500, 'Failed to generate reset link', `HTTP_500`);
@@ -1611,7 +1607,7 @@ router.get('/users/:user_id/details', verifyPlatformAdmin, async (req, res) => {
       last_order_date
     };
 
-    res.json({ success: true, user: detail });
+    sendSuccess(res, { user: detail });
   } catch (err) {
     logger.error('Platform user detail failed:', err.message);
     apiError(res, 500, 'Failed to load user details', `HTTP_500`);
@@ -1645,7 +1641,7 @@ router.delete('/users/:user_id', verifyPlatformAdmin, async (req, res) => {
 
     await auditPlatform(req, 'platform.users.remove_admin', 'user', user_id, oldRoles, null);
 
-    res.json({ success: true, message: 'Admin privileges removed successfully' });
+    sendSuccess(res, { message: 'Admin privileges removed successfully' });
   } catch (err) {
     logger.error('Platform user admin removal failed:', err.message);
     apiError(res, 500, 'Failed to remove admin privileges', `HTTP_500`);
@@ -1680,7 +1676,7 @@ router.post('/impersonate/start', verifyPlatformAdmin, async (req, res) => {
     if (error) throw error;
 
     await auditPlatform(req, 'platform.impersonate.start', 'store', store_id, null, session, session.id);
-    res.json({ success: true, session_token: session.session_token, store_id });
+    sendSuccess(res, { session_token: session.session_token, store_id });
   } catch (err) {
     logger.error('Failed to start impersonation:', err.message);
     apiError(res, 500, 'Failed to start impersonation', `HTTP_500`);
@@ -1704,7 +1700,7 @@ router.post('/impersonate/stop', verifyPlatformAdmin, async (req, res) => {
     if (error) throw error;
 
     await auditPlatform(req, 'platform.impersonate.stop', 'store', session.store_id, null, session, session.id);
-    res.json({ success: true, message: 'Impersonation ended successfully' });
+    sendSuccess(res, { message: 'Impersonation ended successfully' });
   } catch (err) {
     logger.error('Failed to stop impersonation:', err.message);
     apiError(res, 500, 'Failed to stop impersonation', `HTTP_500`);
@@ -1747,7 +1743,7 @@ router.post('/users/ban', verifyPlatformAdmin, async (req, res) => {
     }
 
     await auditPlatform(req, 'platform.users.ban', 'user', user_id, null, banLog, banLog.id);
-    res.json({ success: true, banLog });
+    sendSuccess(res, { banLog });
   } catch (err) {
     logger.error('Failed to ban user:', err.message);
     apiError(res, 500, 'Failed to ban user', `HTTP_500`);
@@ -1785,7 +1781,7 @@ router.post('/users/unban', verifyPlatformAdmin, async (req, res) => {
     }
 
     await auditPlatform(req, 'platform.users.unban', 'user', banLog.user_id, null, banLog, banLog.id);
-    res.json({ success: true, banLog });
+    sendSuccess(res, { banLog });
   } catch (err) {
     logger.error('Failed to unban user:', err.message);
     apiError(res, 500, 'Failed to unban user', `HTTP_500`);
@@ -1822,7 +1818,7 @@ router.post('/impersonation/start', verifyPlatformAdmin, async (req, res) => {
     }]);
 
     await auditPlatform(req, 'platform.impersonation.start', 'store', store.id, {}, { store_id: store.id, audit_id: auditId }, store.id);
-    res.json({ success: true, token, store, expires_in: IMPERSONATION_TTL_SECONDS, audit_id: auditId });
+    sendSuccess(res, { token, store, expires_in: IMPERSONATION_TTL_SECONDS, audit_id: auditId });
   } catch (err) {
     logger.error('Failed to start impersonation:', err.message);
     apiError(res, 500, 'Failed to start impersonation', `HTTP_500`);
@@ -1846,7 +1842,7 @@ router.post('/impersonation/end', verifyPlatformAdmin, async (req, res) => {
       .eq('super_admin_id', req.user.sub);
 
     await auditPlatform(req, 'platform.impersonation.end', 'store', decoded.store_id, {}, { audit_id: decoded.jti }, decoded.store_id);
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to end impersonation:', err.message);
     apiError(res, 400, 'Invalid or expired impersonation token', `HTTP_400`);
@@ -1870,7 +1866,7 @@ router.post('/impersonation/session', async (req, res) => {
       .maybeSingle();
     if (error || !store) return apiError(res, 404, 'Store not found', `HTTP_404`);
 
-    res.json({ success: true, store, audit_id: decoded.jti });
+    sendSuccess(res, { store, audit_id: decoded.jti });
   } catch (err) {
     apiError(res, 400, 'Invalid or expired impersonation token', `HTTP_400`);
   }
@@ -1908,7 +1904,7 @@ router.post('/stores/subscription', verifyPlatformAdmin, async (req, res) => {
 
     if (storeErr) throw storeErr;
 
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to update tenant subscription:', err.message);
     apiError(res, 500, 'Failed to update subscription', `HTTP_500`);
@@ -1953,7 +1949,7 @@ router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
     const { data: logs, count, error } = await query;
     if (error) throw error;
 
-    res.json({ data: logs, total: count || 0 });
+    sendSuccess(res, { data: logs, total: count || 0 });
   } catch (err) {
     logger.error('Failed to query platform audit logs:', err.message);
     apiError(res, 500, 'Failed to retrieve global audit logs', `HTTP_500`);
@@ -1981,7 +1977,7 @@ router.delete('/audit-logs', verifyPlatformAdmin, async (req, res) => {
     if (error) throw error;
     
     await auditPlatform(req, 'platform.audit_logs.purge', 'system', 'global', null, { mode, days });
-    res.json({ success: true, message: 'تم تنظيف السجلات بنجاح' });
+    sendSuccess(res, { message: 'تم تنظيف السجلات بنجاح' });
   } catch (err) {
     logger.error('Failed to purge audit logs:', err.message);
     apiError(res, 500, 'Failed to purge audit logs', `HTTP_500`);
@@ -2010,7 +2006,7 @@ router.get('/invitations', verifyPlatformAdmin, async (req, res) => {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    res.json(invitations);
+    sendSuccess(res, invitations);
   } catch (err) {
     logger.error('Failed to list invitations:', err.message);
     apiError(res, 500, 'Failed to retrieve invitations', `HTTP_500`);
@@ -2056,7 +2052,7 @@ async function sendInvitationWhatsApp({ phone, activationLink, storeName, invita
 }
 
 // POST /api/platform/invitations - Create owner invitation (via email/WhatsApp)
-router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
+router.post('/invitations', verifyPlatformAdmin, validateBody(managerInviteCreateSchema), async (req, res) => {
   const { email, phone, store_id, role_id } = req.body;
   if ((!phone && !email) || !store_id) {
     return apiError(res, 400, 'Please provide either email or phone, and a valid store_id', `HTTP_400`);
@@ -2162,7 +2158,7 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
       }
     }
 
-    res.json({ success: true, invitation, whatsapp });
+    sendSuccess(res, { invitation, whatsapp });
   } catch (err) {
     logger.error('Failed to create invitation:', err.message);
     apiError(res, 500, 'Failed to create invitation', `HTTP_500`);
@@ -2170,7 +2166,7 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
 });
 
 // POST /api/platform/invitations/:id/resend - Resend invitation
-router.post('/invitations/:id/resend', verifyPlatformAdmin, async (req, res) => {
+router.post('/invitations/:id/resend', verifyPlatformAdmin, validateParams(invitationIdParamSchema), async (req, res) => {
   const { id } = req.params;
   try {
     const { data: invite, error: fetchErr } = await supabase
@@ -2217,7 +2213,7 @@ router.post('/invitations/:id/resend', verifyPlatformAdmin, async (req, res) => 
       }
     }
 
-    res.json({ success: true, invitation: updated, whatsapp });
+    sendSuccess(res, { invitation: updated, whatsapp });
   } catch (err) {
     logger.error('Failed to resend invitation:', err.message);
     apiError(res, 500, 'Failed to resend invitation', `HTTP_500`);
@@ -2225,7 +2221,7 @@ router.post('/invitations/:id/resend', verifyPlatformAdmin, async (req, res) => 
 });
 
 // POST /api/platform/invitations/:id/revoke - Revoke invitation
-router.post('/invitations/:id/revoke', verifyPlatformAdmin, async (req, res) => {
+router.post('/invitations/:id/revoke', verifyPlatformAdmin, validateParams(invitationIdParamSchema), async (req, res) => {
   const { id } = req.params;
   try {
     const { error } = await supabase
@@ -2238,7 +2234,7 @@ router.post('/invitations/:id/revoke', verifyPlatformAdmin, async (req, res) => 
       .eq('id', id);
 
     if (error) throw error;
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to revoke invitation:', err.message);
     apiError(res, 500, 'Failed to revoke invitation', `HTTP_500`);
@@ -2260,7 +2256,7 @@ router.delete('/invitations/cleanup', verifyPlatformAdmin, async (req, res) => {
       await auditPlatform(req, 'platform.invitation.cleanup', 'tenant_invitation', 'bulk', { count: data.length }, null);
     }
     
-    res.json({ success: true, message: `Deleted ${data ? data.length : 0} inactive invitations`, count: data ? data.length : 0 });
+    sendSuccess(res, { message: `Deleted ${data ? data.length : 0} inactive invitations`, count: data ? data.length : 0 });
   } catch (err) {
     logger.error('Failed to cleanup invitations:', err.message);
     apiError(res, 500, 'Failed to cleanup invitations', `HTTP_500`);
@@ -2268,7 +2264,7 @@ router.delete('/invitations/cleanup', verifyPlatformAdmin, async (req, res) => {
 });
 
 // DELETE /api/platform/invitations/:id - Delete invitation completely
-router.delete('/invitations/:id', verifyPlatformAdmin, async (req, res) => {
+router.delete('/invitations/:id', verifyPlatformAdmin, validateParams(invitationIdParamSchema), async (req, res) => {
   const { id } = req.params;
   try {
     const { error } = await supabase
@@ -2281,7 +2277,7 @@ router.delete('/invitations/:id', verifyPlatformAdmin, async (req, res) => {
     // Optional audit log for complete destruction
     await auditPlatform(req, 'platform.invitation.delete', 'tenant_invitation', id, { id }, null);
     
-    res.json({ success: true, message: 'Invitation deleted permanently' });
+    sendSuccess(res, { message: 'Invitation deleted permanently' });
   } catch (err) {
     logger.error('Failed to delete invitation:', err.message);
     apiError(res, 500, 'Failed to delete invitation', `HTTP_500`);
@@ -2308,7 +2304,7 @@ router.get('/domains', verifyPlatformAdmin, async (req, res) => {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    res.json(domains);
+    sendSuccess(res, domains);
   } catch (err) {
     logger.error('Failed to list custom domains:', err.message);
     apiError(res, 500, 'Failed to retrieve custom domains', `HTTP_500`);
@@ -2361,7 +2357,7 @@ router.post('/domains', verifyPlatformAdmin, async (req, res) => {
     setTimeout(() => runDomainCheck(newDomain.id), 1000);
 
     await auditPlatform(req, 'platform.domain.create', 'custom_domain', newDomain.id, {}, newDomain, store_id);
-    res.json({ success: true, domain: newDomain });
+    sendSuccess(res, { domain: newDomain });
   } catch (err) {
     logger.error('Failed to configure custom domain:', err.message);
     apiError(res, 500, 'Failed to configure custom domain', `HTTP_500`);
@@ -2399,7 +2395,7 @@ router.patch('/domains/:id/primary', verifyPlatformAdmin, async (req, res) => {
     if (error) throw error;
     
     await auditPlatform(req, 'platform.domain.update_primary', 'custom_domain', id, { is_primary: !is_primary }, { is_primary: !!is_primary }, domain.store_id);
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to update primary domain:', err.message);
     apiError(res, 500, 'Failed to update primary domain', `HTTP_500`);
@@ -2412,7 +2408,7 @@ router.post('/domains/:id/verify', verifyPlatformAdmin, async (req, res) => {
   try {
     const { runDomainCheck } = require('../services/domainValidator');
     await runDomainCheck(id);
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Manual domain check failed:', err.message);
     apiError(res, 500, 'Failed to verify custom domain', `HTTP_500`);
@@ -2431,7 +2427,7 @@ router.get('/domains/:id/logs', verifyPlatformAdmin, async (req, res) => {
       .limit(30);
 
     if (error) throw error;
-    res.json(logs);
+    sendSuccess(res, logs);
   } catch (err) {
     logger.error('Failed to fetch domain check logs:', err.message);
     apiError(res, 500, 'Failed to retrieve check logs', `HTTP_500`);
@@ -2455,7 +2451,7 @@ router.delete('/domains/:id', verifyPlatformAdmin, async (req, res) => {
 
     if (error) throw error;
     await auditPlatform(req, 'platform.domain.delete', 'custom_domain', id, oldDomain || {}, {}, oldDomain?.store_id || null);
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to delete custom domain:', err.message);
     apiError(res, 500, 'Failed to delete custom domain', `HTTP_500`);
@@ -2503,7 +2499,7 @@ router.get('/payment-providers', verifyPlatformAdmin, async (req, res) => {
       };
     });
 
-    res.json(masked);
+    sendSuccess(res, masked);
   } catch (err) {
     logger.error('Failed to list payment providers:', err.message);
     apiError(res, 500, 'Failed to retrieve payment providers', `HTTP_500`);
@@ -2563,7 +2559,7 @@ router.post('/payment-providers', verifyPlatformAdmin, async (req, res) => {
       .single();
 
     if (error) throw error;
-    res.json({ success: true, provider });
+    sendSuccess(res, { provider });
   } catch (err) {
     logger.error('Failed to configure payment provider:', err.message);
     apiError(res, 500, 'Failed to configure payment provider', `HTTP_500`);
@@ -2588,7 +2584,7 @@ router.get('/invoices', verifyPlatformAdmin, async (req, res) => {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    res.json(invoices);
+    sendSuccess(res, invoices);
   } catch (err) {
     logger.error('Failed to query invoices:', err.message);
     apiError(res, 500, 'Failed to retrieve invoices', `HTTP_500`);
@@ -2634,7 +2630,7 @@ router.get('/store-transactions', verifyPlatformAdmin, async (req, res) => {
     const { data: orders, error } = await query;
     if (error) throw error;
 
-    res.json(orders || []);
+    sendSuccess(res, orders || []);
   } catch (err) {
     logger.error('Failed to query store transactions:', err.message);
     apiError(res, 500, 'Failed to retrieve store transactions', `HTTP_500`);
@@ -2669,7 +2665,7 @@ router.get('/platform-billing-analytics', verifyPlatformAdmin, async (req, res) 
 
     const totalPaidRevenue = (paidInvoices || []).reduce((sum, inv) => sum + parseFloat(inv.total || 0), 0);
 
-    res.json({
+    sendSuccess(res, {
       mrr,
       arr,
       total_paid_revenue: totalPaidRevenue
@@ -2754,7 +2750,7 @@ router.get('/transactions-analytics', verifyPlatformAdmin, async (req, res) => {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 10);
 
-    res.json({
+    sendSuccess(res, {
       overview: {
         total_revenue: totalRevenue,
         total_transactions: totalTransactions,
@@ -2849,7 +2845,7 @@ router.post('/invoices/:id/refund', verifyPlatformAdmin, async (req, res) => {
       })
       .eq('id', id);
 
-    res.json({ success: true, message: 'تم استرداد المبلغ بنجاح وتحديث السجلات' });
+    sendSuccess(res, { message: 'تم استرداد المبلغ بنجاح وتحديث السجلات' });
   } catch (err) {
     logger.error('Failed to refund invoice:', err.message);
     apiError(res, 500, 'Failed to process refund', `HTTP_500`);
@@ -2872,7 +2868,7 @@ router.get('/notifications/preferences', verifyPlatformAdmin, async (req, res) =
       .eq('store_id', storeId)
       .order('event_key');
     if (error) throw error;
-    res.json(data || []);
+    sendSuccess(res, data || []);
   } catch (err) {
     logger.error('Failed to load notification preferences:', err.message);
     apiError(res, 500, 'Failed to retrieve notification preferences', `HTTP_500`);
@@ -2902,7 +2898,7 @@ router.patch('/notifications/preferences/:eventKey', verifyPlatformAdmin, async 
     if (error) throw error;
     if (!data) return apiError(res, 404, 'Notification event not found. Apply migration 48 first.', `HTTP_404`);
     await auditPlatform(req, 'platform.notification_preference.update', 'notification_preference', eventKey, {}, data);
-    res.json(data);
+    sendSuccess(res, data);
   } catch (err) {
     logger.error('Failed to update notification preference:', err.message);
     apiError(res, 500, 'Failed to update notification preference', `HTTP_500`);
@@ -2924,7 +2920,7 @@ router.get('/notifications/templates', verifyPlatformAdmin, async (req, res) => 
       .order('code', { ascending: true });
 
     if (error) throw error;
-    res.json(data);
+    sendSuccess(res, data);
   } catch (err) {
     logger.error('Failed to list templates:', err.message);
     apiError(res, 500, 'Failed to retrieve notification templates', `HTTP_500`);
@@ -2961,7 +2957,7 @@ router.post('/notifications/templates', verifyPlatformAdmin, async (req, res) =>
     const { error } = await query;
     if (error) throw error;
 
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to save notification template:', err.message);
     apiError(res, 500, 'Failed to save template', `HTTP_500`);
@@ -2974,7 +2970,7 @@ router.delete('/notifications/templates/:id', verifyPlatformAdmin, async (req, r
     const { id } = req.params;
     const { error } = await supabase.from('notification_templates').delete().eq('id', id);
     if (error) throw error;
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to delete notification template:', err.message);
     apiError(res, 500, 'Failed to delete template', `HTTP_500`);
@@ -2990,7 +2986,7 @@ router.get('/notifications/layouts', verifyPlatformAdmin, async (req, res) => {
       .order('name');
 
     if (error) throw error;
-    res.json(data);
+    sendSuccess(res, data);
   } catch (err) {
     logger.error('Failed to list layouts:', err.message);
     apiError(res, 500, 'Failed to retrieve notification layouts', `HTTP_500`);
@@ -3021,7 +3017,7 @@ router.post('/notifications/layouts', verifyPlatformAdmin, async (req, res) => {
     const { data, error } = await query.single();
     if (error) throw error;
 
-    res.json({ success: true, id: data.id });
+    sendSuccess(res, { id: data.id });
   } catch (err) {
     logger.error('Failed to save notification layout:', err.message);
     apiError(res, 500, 'Failed to save layout', `HTTP_500`);
@@ -3034,7 +3030,7 @@ router.delete('/notifications/layouts/:id', verifyPlatformAdmin, async (req, res
     const { id } = req.params;
     const { error } = await supabase.from('notification_layouts').delete().eq('id', id);
     if (error) throw error;
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to delete notification layout:', err.message);
     apiError(res, 500, 'Failed to delete layout', `HTTP_500`);
@@ -3057,7 +3053,7 @@ router.post('/notifications/test-send', verifyPlatformAdmin, async (req, res) =>
       variables: variables || {}
     });
 
-    res.json({ success: true, results });
+    sendSuccess(res, { results });
   } catch (err) {
     logger.error('Test notification delivery failed:', err.message);
     apiError(res, 500, 'Delivery test failed', `HTTP_500`);
@@ -3083,7 +3079,7 @@ router.get('/notifications/history', verifyPlatformAdmin, async (req, res) => {
       .limit(100);
 
     if (error) throw error;
-    res.json(data);
+    sendSuccess(res, data);
   } catch (err) {
     logger.error('Failed to list notification history:', err.message);
     apiError(res, 500, 'Failed to retrieve notification history', `HTTP_500`);
@@ -3131,7 +3127,7 @@ router.get('/login-logs', verifyPlatformAdmin, async (req, res) => {
       store_name: log.stores?.name || 'Platform'
     }));
 
-    res.json({ logs: formattedLogs, total: count || 0 });
+    sendSuccess(res, { logs: formattedLogs, total: count || 0 });
   } catch (err) {
     logger.error('Failed to fetch login logs:', err.message);
     apiError(res, 500, 'Failed to fetch login logs', `HTTP_500`);
@@ -3143,7 +3139,7 @@ router.delete('/login-logs/:id', verifyPlatformAdmin, async (req, res) => {
   try {
     const { error } = await supabase.from('user_login_logs').delete().eq('id', req.params.id);
     if (error) throw error;
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to delete login log:', err.message);
     apiError(res, 500, 'Failed to delete log', `HTTP_500`);
@@ -3155,7 +3151,7 @@ router.delete('/login-logs', verifyPlatformAdmin, async (req, res) => {
   try {
     const { error } = await supabase.from('user_login_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     if (error) throw error;
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to clear login logs:', err.message);
     apiError(res, 500, 'Failed to clear logs', `HTTP_500`);
@@ -3176,7 +3172,7 @@ router.get('/blocked-ips', verifyPlatformAdmin, async (req, res) => {
     }
     const { data: ips, count, error } = await query;
     if (error) throw error;
-    res.json({ ips: ips || [], total: count || 0, limit, offset });
+    sendSuccess(res, { ips: ips || [], total: count || 0, limit, offset });
   } catch (err) {
     logger.error('Failed to fetch blocked IPs:', err.message);
     apiError(res, 500, 'Failed to fetch blocked IPs', `HTTP_500`);
@@ -3202,7 +3198,7 @@ router.post('/blocked-ips/block', verifyPlatformAdmin, async (req, res) => {
     });
 
     if (error) throw error;
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to block IP:', err.message);
     apiError(res, 500, 'Failed to block IP', `HTTP_500`);
@@ -3217,7 +3213,7 @@ router.post('/blocked-ips/unblock', verifyPlatformAdmin, async (req, res) => {
 
     const { error } = await supabase.from('blocked_ips').delete().eq('ip_address', ip_address);
     if (error) throw error;
-    res.json({ success: true });
+    sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to unblock IP:', err.message);
     apiError(res, 500, 'Failed to unblock IP', `HTTP_500`);
