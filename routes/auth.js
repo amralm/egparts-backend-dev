@@ -1403,6 +1403,7 @@ const twoFALimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
   message: { success: false, code: 'TWO_FACTOR_RATE_LIMITED', message: 'محاولات كثيرة جدًا. حاول بعد قليل.', data: null },
   keyGenerator: (req) => `${req.body?.user_id || req.user?.sub || req.ip}`
 });
