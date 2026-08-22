@@ -692,46 +692,20 @@ router.post('/reject', verifyPermission('payments.approve'), validateBody(proofD
     }
 
     const now = new Date().toISOString();
-
-    // Mark proof lifecycle as rejected and persist an immediate deletion deadline.
+    const { data: rejection, error: rejectionError } = await supabase.rpc('reject_manual_wallet_payment', {
+      p_intent_id: intent_id,
+      p_store_id: req.store.id,
+      p_admin_id: req.user.sub,
+      p_reason: reason || null,
+    });
+    if (rejectionError) throw rejectionError;
     const rejectedMetadata = {
       ...(intent.metadata || {}),
       rejected_by: req.user.sub,
       rejected_at: now,
       rejection_reason: reason || 'Merchant rejected payment',
-      proof: {
-        ...(intent.metadata?.proof || {}),
-        lifecycle_status: 'rejected',
-      },
+      proof: { ...(intent.metadata?.proof || {}), lifecycle_status: 'rejected' },
     };
-
-    const { error: intentRejectError } = await supabase
-      .from('payment_intents')
-      .update({
-        status: 'failed',
-        updated_at: now,
-        metadata: rejectedMetadata,
-      })
-      .eq('id', intent_id);
-    if (intentRejectError) throw intentRejectError;
-
-    // Update the associated order's payment_status to 'failed'
-    if (intent.order_id) {
-      const { error: orderRejectError } = await supabase
-        .from('orders')
-        .update({ payment_status: 'failed' })
-        .eq('id', intent.order_id)
-        .eq('store_id', req.store.id);
-      if (orderRejectError) throw orderRejectError;
-      await supabase.rpc('restore_order_stock', { p_order_id: intent.order_id });
-    }
-
-    await supabase.from('payment_timelines').insert({
-      payment_intent_id: intent_id,
-      event_type: 'payment_failed',
-      description: reason || 'Merchant rejected payment receipt',
-      data: { rejected_by: req.user.sub, rejected_at: now },
-    });
 
     await applyDecisionToProof({
       intentId: intent_id,
@@ -752,7 +726,7 @@ router.post('/reject', verifyPermission('payments.approve'), validateBody(proofD
       );
     }
 
-    return res.json({ success: true, message: 'تم رفض إيصال الدفع.' });
+    return res.json({ success: true, message: 'تم رفض إيصال الدفع.', result: rejection });
   } catch (err) {
     console.error('[wallet/reject] Error:', err.message);
     return apiError(res, 500, 'Failed to reject payment', `HTTP_500`);
