@@ -2157,7 +2157,7 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
       try {
         whatsapp = await sendInvitationWhatsApp({ phone: normalizedPhone, activationLink, storeName: storeInfo?.name, invitationId: invitation.id, storeId: store_id });
       } catch (error) {
-        whatsapp = { status: 'failed', error: error.message };
+        whatsapp = { status: 'failed', message: String(error.message || 'WhatsApp delivery failed').slice(0, 400) };
         logger.error('Failed to send invitation WhatsApp:', error.message);
       }
     }
@@ -2212,7 +2212,7 @@ router.post('/invitations/:id/resend', verifyPlatformAdmin, async (req, res) => 
       try {
         whatsapp = await sendInvitationWhatsApp({ phone: invite.phone, activationLink, storeName: storeInfo?.name, invitationId: id, storeId: invite.store_id });
       } catch (error) {
-        whatsapp = { status: 'failed', error: error.message };
+        whatsapp = { status: 'failed', message: String(error.message || 'WhatsApp delivery failed').slice(0, 400) };
         logger.error('Failed to resend invitation WhatsApp:', error.message);
       }
     }
