@@ -1,4 +1,5 @@
 const { PolicyDeniedError } = require('../../errors');
+const { apiError } = require('../../../../utils/apiError');
 
 /**
  * permissionMiddleware
@@ -9,7 +10,7 @@ const requirePermission = (routeMetadata) => {
     return (req, res, next) => {
         try {
             if (!req.context || !req.context.identity) {
-                return res.status(500).json({ error: 'Authorization context is missing. Ensure authMiddleware is executed first.' });
+                return apiError(res, 500, 'Authorization context is missing. Ensure authMiddleware is executed first.', 'AUTHORIZATION_CONTEXT_MISSING');
             }
 
             const { requiredPermission } = routeMetadata;
@@ -23,10 +24,7 @@ const requirePermission = (routeMetadata) => {
             const hasAccess = req.context.hasPermission(requiredPermission);
 
             if (!hasAccess) {
-                return res.status(403).json({ 
-                    error: 'Forbidden', 
-                    details: `You do not have the required permission: ${requiredPermission}` 
-                });
+                return apiError(res, 403, 'Forbidden', 'PERMISSION_DENIED', { requiredPermission });
             }
 
             // Optional: attach routeMetadata to context for audit trails down the line
@@ -36,7 +34,7 @@ const requirePermission = (routeMetadata) => {
             next();
         } catch (err) {
             console.error('[PermissionMiddleware] Error:', err);
-            return res.status(500).json({ error: 'Internal server error during permission check' });
+            return apiError(res, 500, 'Internal server error during permission check', 'PERMISSION_CHECK_FAILED');
         }
     };
 };

@@ -6,6 +6,7 @@ postman_environment*.json
 Very important.txt
 .DS_Store
 logs/
+audit/
 auth_info_baileys/
 
 # Scratch & test scripts (not for production)

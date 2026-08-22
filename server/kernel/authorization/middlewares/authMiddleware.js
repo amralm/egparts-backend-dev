@@ -2,6 +2,7 @@ const { supabase } = require('../../../services/supabase');
 const AuthorizationSnapshot = require('../contexts/AuthorizationSnapshot');
 const CorrelationChain = require('../contexts/CorrelationChain');
 const DomainResolutionStrategy = require('../strategies/DomainResolutionStrategy');
+const { apiError } = require('../../../../utils/apiError');
 
 /**
  * authMiddleware Pipeline
@@ -11,7 +12,7 @@ const requireAuth = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).json({ error: 'Missing or invalid authorization header' });
+            return apiError(res, 401, 'Missing or invalid authorization header', 'AUTHORIZATION_HEADER_INVALID');
         }
 
         const token = authHeader.split(' ')[1];
@@ -20,7 +21,7 @@ const requireAuth = async (req, res, next) => {
         const { data: { user }, error: authError } = await supabase.auth.getUser(token);
         
         if (authError || !user) {
-            return res.status(401).json({ error: 'Unauthorized', details: authError?.message });
+            return apiError(res, 401, 'Unauthorized', 'UNAUTHORIZED');
         }
 
         const userId = user.id;
@@ -30,7 +31,7 @@ const requireAuth = async (req, res, next) => {
         try {
             targetStoreId = await DomainResolutionStrategy.resolve(req);
         } catch (e) {
-            return res.status(400).json({ error: 'Bad Request', details: e.message });
+            return apiError(res, 400, 'Bad Request', 'TENANT_CONTEXT_INVALID', { reason: e.message });
         }
 
         // 3. Resolve Membership & Identity
@@ -66,7 +67,7 @@ const requireAuth = async (req, res, next) => {
                 .maybeSingle();
 
             if (!superAdmin) {
-                return res.status(403).json({ error: 'Access denied to this store' });
+                return apiError(res, 403, 'Access denied to this store', 'STORE_ACCESS_DENIED');
             }
 
             // Super Admin Impersonation
@@ -113,7 +114,7 @@ const requireAuth = async (req, res, next) => {
         next();
     } catch (err) {
         console.error('[AuthMiddleware] Error:', err);
-        return res.status(500).json({ error: 'Internal server error during authorization' });
+        return apiError(res, 500, 'Internal server error during authorization', 'AUTHORIZATION_FAILED');
     }
 };
 

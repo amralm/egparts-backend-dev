@@ -1,6 +1,7 @@
 const EntitlementFacade = require('./EntitlementFacade');
 const { LimitExceededError, PolicyDeniedError, KernelError } = require('../errors');
 const { FeatureRegistry } = require('../core/FeatureRegistry');
+const { apiError } = require('../../../utils/apiError');
 
 /**
  * Policy Middleware
@@ -22,7 +23,7 @@ const requireEntitlement = (policies) => {
             const userId = req.user?.sub;
 
             if (!storeId) {
-                return res.status(400).json({ error: 'Tenant context required for policy evaluation' });
+                return apiError(res, 400, 'Tenant context required for policy evaluation', 'STORE_CONTEXT_REQUIRED');
             }
 
             req.policies = req.policies || {};
@@ -31,7 +32,7 @@ const requireEntitlement = (policies) => {
             // 1. Authorize ALL first (Fail-fast before consuming)
             for (const policy of policyArray) {
                 if (!policy.feature) {
-                    return res.status(500).json({ error: 'Feature key is missing in policy configuration' });
+                    return apiError(res, 500, 'Feature key is missing in policy configuration', 'FEATURE_KEY_MISSING');
                 }
 
                 const consumeAmt = policy.consume || 0;
@@ -44,14 +45,12 @@ const requireEntitlement = (policies) => {
                         const isPermission = def && def.feature_type === 'BOOLEAN';
                         const status = isPermission ? 403 : 429;
                         
-                        return res.status(status).json({
-                            error: 'Policy Enforced',
+                        return apiError(res, status, 'Policy Enforced', error.code || (isPermission ? 'FEATURE_DISABLED' : 'QUOTA_EXCEEDED'), {
                             reason: error.code,
                             feature: policy.feature,
-                            answer: isPermission 
+                            answer: isPermission
                                 ? `عذراً، هذه الميزة غير متاحة في باقتك الحالية. يرجى الترقية.`
                                 : `عذراً، لقد استهلكت الحد المسموح لهذه الميزة. يرجى الترقية للاستمرار.`,
-                            details: error.message,
                             upgrade: {
                                 recommended: true,
                                 reason: policy.feature,
@@ -107,19 +106,19 @@ const requireEntitlement = (policies) => {
                 }
                 
                 if (consumeError instanceof KernelError) {
-                     return res.status(403).json({ error: consumeError.code, details: consumeError.message });
+                     return apiError(res, 403, 'Policy consumption denied', consumeError.code || 'POLICY_CONSUMPTION_DENIED');
                 }
                 
-                return res.status(500).json({ error: 'Internal policy evaluation error', details: consumeError.message });
+                return apiError(res, 500, 'Internal policy evaluation error', 'POLICY_CONSUMPTION_FAILED');
             }
 
             next();
         } catch (error) {
             console.error(`[PolicyMiddleware] Error in policy evaluation:`, error);
             if (error instanceof KernelError) {
-                return res.status(400).json({ error: error.code, details: error.message });
+                return apiError(res, 400, 'Policy evaluation denied', error.code || 'POLICY_DENIED');
             }
-            return res.status(500).json({ error: 'Internal policy evaluation error', details: error.message });
+            return apiError(res, 500, 'Internal policy evaluation error', 'POLICY_EVALUATION_FAILED');
         }
     };
 };

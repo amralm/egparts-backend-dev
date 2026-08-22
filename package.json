@@ -7,9 +7,10 @@
     "postinstall": "node scripts/harden-runtime-dependencies.js",
     "start": "node server.js",
     "lint": "node scripts/syntax-check.js",
-    "test": "npm run lint && npm run test:contracts && npm run audit:contracts",
+    "test": "npm run lint && npm run audit:inventory && npm run test:contracts && npm run audit:contracts",
     "dev": "node server.js",
     "audit:contracts": "node scripts/contract-audit.js",
+    "audit:inventory": "node scripts/contract-inventory.js",
     "security:scan": "node scripts/secret-scan.js",
     "test:contracts": "node scripts/contract-smoke.js",
     "retention:cleanup": "node scripts/cleanup-payment-proofs.js"
