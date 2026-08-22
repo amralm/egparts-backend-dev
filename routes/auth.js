@@ -11,7 +11,7 @@ const { verifyUser, optionalAuth } = require('../middleware/auth');
 const userProfileService = require('../services/userProfileService');
 const twoFactorService = require('../services/twoFactorService');
 const phoneVerificationService = require('../services/phoneVerificationService');
-const { sendOTPSchema, verifyOTPSchema, resolvePhoneSchema } = require('../schemas/authSchemas');
+const { sendOTPSchema, verifyOTPSchema, resolvePhoneSchema, phoneVerificationClaimSchema, resetPasswordSchema } = require('../schemas/authSchemas');
 
 async function recordOtpAudit(entry) {
   try {
@@ -394,11 +394,6 @@ router.post('/verify-otp', optionalAuth, verifyRateLimiter, perPhoneVerifyLimite
   }
 });
 
-const phoneVerificationClaimSchema = z.object({
-  token: z.string().min(20).max(200),
-  phone: z.string().min(10).max(16)
-});
-
 // Claims the one-time proof created before Supabase Auth signUp returned a JWT.
 router.post('/phone-verification/claim', verifyUser, sensitiveWriteRateLimiter, async (req, res) => {
   const parsed = phoneVerificationClaimSchema.safeParse(req.body);
@@ -429,13 +424,6 @@ router.get('/phone-verification', verifyUser, async (req, res) => {
     logger.error('Phone verification status failed:', error.message);
     return apiError(res, 500, 'تعذر قراءة حالة توثيق الرقم', 'PHONE_VERIFICATION_STATUS_FAILED');
   }
-});
-
-// Validation Schema for Reset Password
-const resetPasswordSchema = z.object({
-  phone: z.string(),
-  code: z.string().regex(/^\d{6}$/),
-  new_password: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'),
 });
 
 // Route: Reset Password via OTP (forgot password)
@@ -489,8 +477,8 @@ router.post('/reset-password', sensitiveWriteRateLimiter, async (req, res) => {
 
     res.json({ success: true, message: 'تم تغيير كلمة المرور بنجاح' });
   } catch (err) {
-    if (err instanceof z.ZodError) {
-      return apiError(res, 400, err.errors[0].message, 'PASSWORD_RESET_INVALID');
+    if (err?.name === 'ZodError') {
+      return apiError(res, 400, err.issues?.[0]?.message || 'بيانات تغيير كلمة المرور غير صالحة', 'PASSWORD_RESET_INVALID');
     }
     logger.error('Reset password error:', err);
     apiError(res, 500, 'حدث خطأ غير متوقع', `HTTP_500`);
