@@ -10,7 +10,7 @@ module.exports = function responseContract(req, res, next) {
       const nested = payload.error && typeof payload.error === 'object' ? payload.error : {};
       const message = payload.message || nested.message || (typeof payload.error === 'string' ? payload.error : 'تعذر تنفيذ الطلب.');
       const code = payload.code || nested.code || `HTTP_${res.statusCode}`;
-      payload = {
+      const canonical = {
         ...payload,
         success: false,
         code,
@@ -18,6 +18,8 @@ module.exports = function responseContract(req, res, next) {
         requestId: payload.requestId || nested.requestId || req.id || req.correlationId || null,
         data: payload.data ?? null
       };
+      delete canonical.error;
+      payload = canonical;
     }
     return originalJson(payload);
   };

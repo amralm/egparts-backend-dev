@@ -33,23 +33,18 @@ const errorHandler = (err, req, res, next) => {
     code: errorCode,
     message,
     requestId: req.id || req.correlationId || null,
-    data: null,
-    // Kept temporarily for older clients; new clients must use the
-    // top-level contract fields above.
-    error: {
-      message,
-      code: errorCode,
-      requestId: req.id || req.correlationId || null
-    }
+    data: null
   };
 
   // Attach full context if DEV_MODE_ENABLED
   if (global.DEV_MODE_ENABLED) {
-    errorResponse.error.stack = err.stack;
-    errorResponse.error.requestContext = {
+    errorResponse.data = {
+      stack: err.stack,
+      requestContext: {
       body: sanitizeBody(req.body),
       query: sanitizeBody(req.query),
       headers: sanitizeBody(req.headers)
+      }
     };
   }
 

@@ -18,6 +18,7 @@ const router = express.Router();
 const { supabase } = require('../services/supabase');
 const { verifyPermission } = require('../middleware/auth');
 const { resolvePaymentMethods, assertPaymentMethodAvailable } = require('../services/paymentMethodPolicy');
+const { apiError } = require('../utils/apiError');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ async function getGateway(storeId, providerName) {
 
 router.get('/', async (req, res) => {
   if (!req.store?.id) {
-    return res.status(404).json({ error: 'Store not found' });
+    return apiError(res, 404, 'Store not found', 'STORE_NOT_FOUND');
   }
 
   try {
@@ -48,7 +49,7 @@ router.get('/', async (req, res) => {
 
   } catch (err) {
     console.error('[payments/methods] Error:', err.message);
-    return res.status(500).json({ error: 'Failed to load payment methods' });
+    return apiError(res, 500, 'Failed to load payment methods', 'PAYMENT_METHODS_LOAD_FAILED');
   }
 });
 
@@ -57,11 +58,11 @@ router.get('/', async (req, res) => {
 router.get('/:method/settings', verifyPermission('payments.view'), async (req, res) => {
   const { method } = req.params;
   const storeId = req.store?.id;
-  if (!storeId) return res.status(404).json({ error: 'Store not found' });
+  if (!storeId) return apiError(res, 404, 'Store not found', 'STORE_NOT_FOUND');
 
   const SUPPORTED = ['cod', 'manual_wallet', 'card'];
   if (!SUPPORTED.includes(method)) {
-    return res.status(400).json({ error: `Unsupported payment method: ${method}` });
+    return apiError(res, 400, `Unsupported payment method: ${method}`, 'UNSUPPORTED_PAYMENT_METHOD');
   }
 
   try {
@@ -76,7 +77,7 @@ router.get('/:method/settings', verifyPermission('payments.view'), async (req, r
     });
   } catch (err) {
     console.error(`[payments/methods/${method}/settings] Error:`, err.message);
-    return res.status(500).json({ error: 'Failed to fetch settings' });
+    return apiError(res, 500, 'Failed to fetch settings', 'PAYMENT_SETTINGS_LOAD_FAILED');
   }
 });
 
@@ -87,11 +88,11 @@ router.post('/:method/toggle', verifyPermission('payments.configure'), async (re
   const { is_active } = req.body;
   const storeId = req.store?.id;
 
-  if (!storeId) return res.status(404).json({ error: 'Store not found' });
+  if (!storeId) return apiError(res, 404, 'Store not found', 'STORE_NOT_FOUND');
 
   const SUPPORTED = ['cod', 'manual_wallet'];
   if (!SUPPORTED.includes(method)) {
-    return res.status(400).json({ error: `Cannot toggle payment method: ${method}` });
+    return apiError(res, 400, `Cannot toggle payment method: ${method}`, 'UNSUPPORTED_PAYMENT_METHOD');
   }
 
   // Paymob toggle is handled via /api/payments/settings — it needs credential management
@@ -101,7 +102,7 @@ router.post('/:method/toggle', verifyPermission('payments.configure'), async (re
     if (is_active && method === 'manual_wallet') {
       const resolved = await resolvePaymentMethods(storeId);
       if (!resolved.availability.manual_wallet || resolved.availability.manual_wallet.reason === 'PLAN_FEATURE_NOT_INCLUDED' || resolved.availability.manual_wallet.reason === 'NO_ACTIVE_SUBSCRIPTION' || resolved.availability.manual_wallet.reason === 'PLAN_FEATURE_DISABLED') {
-        return res.status(409).json({ error: 'Payment method is not included in the active plan', code: 'PAYMENT_METHOD_UNAVAILABLE', reason: resolved.availability.manual_wallet.reason });
+        return apiError(res, 409, 'Payment method is not included in the active plan', 'PAYMENT_METHOD_UNAVAILABLE', { reason: resolved.availability.manual_wallet.reason });
       }
     }
     const { error } = await supabase
@@ -129,7 +130,7 @@ router.post('/:method/toggle', verifyPermission('payments.configure'), async (re
     });
   } catch (err) {
     console.error(`[payments/methods/${method}/toggle] Error:`, err.message);
-    return res.status(500).json({ error: 'Failed to toggle payment method' });
+    return apiError(res, 500, 'Failed to toggle payment method', 'PAYMENT_METHOD_TOGGLE_FAILED');
   }
 });
 
