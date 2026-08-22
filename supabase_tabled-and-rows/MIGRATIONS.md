@@ -86,6 +86,8 @@ Rules:
 
 | 84 | 84_dev_2fa_settings_and_fk_indexes.sql | Create missing user_2fa_settings (+deny-all RLS) and complete 52's FK indexes with existence guards | ✅ 2026-08-22 | ❌ forbidden until verified |
 | 85 | 85_plan_features_fk_index.sql | plan_features FK index on real column feature_id | ✅ 2026-08-22 | ❌ forbidden until verified |
+| 86 | 86_deny_all_policies_for_policyless_rls_tables.sql | Explicit deny_public_api_* policies for every RLS-on/no-policy table (33 on Dev; frontend verified zero direct table/rpc access) | ✅ 2026-08-22 | ❌ forbidden until verified |
+| 87 | 87_drop_duplicate_nonconstraint_indexes.sql | Drop two true duplicate btree twins (order_items.order_id, products store/active/deleted); seven unique-constraint pairs intentionally kept — dropping a constraint side alters ON CONFLICT semantics | ✅ 2026-08-22 | ❌ forbidden until verified |
 
 ## Applied-late note (2026-08-22) — CRITICAL functional impact
 
