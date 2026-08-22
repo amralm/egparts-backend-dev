@@ -4,7 +4,7 @@ const { decryptCredentials, getEncryptionKeyForVersion } = require('../utils/cry
 const METHOD_DEFINITIONS = {
   cod: { label: 'الدفع عند الاستلام', type: 'cash', icon: 'payments' },
   manual_wallet: { label: 'محفظة إلكترونية', type: 'manual_wallet', icon: 'account_balance_wallet' },
-  paymob: { label: 'بطاقة بنكية', type: 'gateway', icon: 'credit_card' },
+  card: { label: 'بطاقة بنكية', type: 'gateway', icon: 'credit_card' },
 };
 
 async function hasGatewayEntitlement(storeId) {
@@ -58,7 +58,7 @@ async function resolvePaymentMethods(storeId) {
       cardConfigured = Boolean(creds.api_key && creds.integration_id && creds.iframe_id && creds.hmac_secret);
     } catch { cardConfigured = false; }
   }
-  result.paymob = {
+  result.card = {
     enabled: entitlement.allowed && card?.is_active === true && cardConfigured,
     reason: !entitlement.allowed ? entitlement.reason : !card?.is_active ? 'GATEWAY_DISABLED' : !cardConfigured ? 'GATEWAY_NOT_CONFIGURED' : 'AVAILABLE',
     source: entitlement.allowed ? 'plan_and_gateway' : 'plan',
@@ -67,7 +67,7 @@ async function resolvePaymentMethods(storeId) {
 }
 
 async function assertPaymentMethodAvailable(storeId, method) {
-  const canonical = method === 'card' ? 'paymob' : method === 'cash_on_delivery' ? 'cod' : method;
+  const canonical = method === 'paymob' ? 'card' : method === 'cash_on_delivery' ? 'cod' : method;
   if (!METHOD_DEFINITIONS[canonical]) {
     const err = new Error('UNSUPPORTED_PAYMENT_METHOD'); err.code = 'PAYMENT_METHOD_UNAVAILABLE'; err.status = 400; throw err;
   }

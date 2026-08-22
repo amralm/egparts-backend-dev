@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "payment_methods": ["cod", "card", "manual_wallet"],
+  "legacy_payment_method_aliases": {"paymob": "card", "cash_on_delivery": "cod"},
+  "order_statuses": ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"],
+  "payment_statuses": ["unpaid", "pending", "paid", "failed", "cancelled", "canceled", "expired"],
+  "fields": {
+    "address_title_max": 80,
+    "phone_min": 8,
+    "phone_max": 20,
+    "city_max": 120,
+    "address_max": 500,
+    "note_max": 2000,
+    "idempotency_key_min": 8,
+    "idempotency_key_max": 255,
+    "items_max": 100,
+    "item_id_max": 120,
+    "item_quantity_max": 100000,
+    "location_url_max": 2048
+  },
+  "error_response": ["success", "code", "message", "requestId", "data"]
+}

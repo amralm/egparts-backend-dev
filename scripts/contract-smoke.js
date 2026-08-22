@@ -27,6 +27,9 @@ expectInvalid(createOrderSchema, {
 expectValid(createOrderSchema, {
   items: [{ id: 'p1', qty: 1 }], paymentMethod: 'cod', idempotencyKey: 'order-test-123', phone: '01234567890', city: 'Cairo', address: 'Main'
 }, 'valid order');
+assert.equal(createOrderSchema.parse({
+  items: [{ id: 'p1', qty: 1 }], paymentMethod: 'paymob', idempotencyKey: 'legacy-paymob-1', phone: '01234567890', city: 'Cairo', address: 'Main'
+}).paymentMethod, 'card', 'legacy Paymob input must normalize to canonical card');
 expectInvalid(orderStatusSchema, {}, 'empty status transition');
 expectValid(orderStatusSchema, { status: 'confirmed' }, 'valid status transition');
 
