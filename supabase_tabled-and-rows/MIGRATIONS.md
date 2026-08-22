@@ -84,16 +84,30 @@ Rules:
 | 82 | 82_tenant_bind_quota_reservations.sql | Tenant-bind commit/rollback reservation RPCs (`p_expected_store_id`) | ✅ 2026-08-22 | ❌ forbidden until verified |
 | 83 | 83_drop_legacy_quota_overloads_and_harden.sql | Drop legacy single-arg quota overloads (anon/authenticated EXECUTABLE); re-run search_path hardening; service_role-only grants on bound quota RPCs | ✅ 2026-08-22 | ❌ forbidden until verified |
 
-## Applied-late note (2026-08-22)
+| 84 | 84_dev_2fa_settings_and_fk_indexes.sql | Create missing user_2fa_settings (+deny-all RLS) and complete 52's FK indexes with existence guards | ✅ 2026-08-22 | ❌ forbidden until verified |
+| 85 | 85_plan_features_fk_index.sql | plan_features FK index on real column feature_id | ✅ 2026-08-22 | ❌ forbidden until verified |
 
-Live audit of Dev revealed migrations 19/43/48/70/71 (+fixes 72/73) had NEVER been
-applied even though earlier sessions assumed they were — 8 tables were absent
-(whatsapp_accounts, payment_proof_retention, account_phone_verifications,
-phone_verification_tickets, notification_preferences, vehicle_brands,
-vehicle_models, parts_compatibility). All were applied on 2026-06-22→2026-08-22 via
-`scripts/pg-migration-audit.js` + `scripts/pg-apply.js`. Lesson codified: never
-assume a migration is applied because its file exists — verify against
-`pg_tables` (the audit script does exactly this).
+## Applied-late note (2026-08-22) — CRITICAL functional impact
+
+Live authenticated E2E exposed that Dev was ALSO missing index-only migrations
+that no table audit could catch:
+
+- **65** `orders_idempotency_key_unique` — absent → EVERY order creation on Dev
+  failed with 42P10 (`ON CONFLICT` had no arbiter). Root cause of the
+  "orders always fail" symptom.
+- **66** notification_queue idempotency index redefined from PARTIAL to full —
+  name-based audits saw it "present" while the definition was incompatible.
+- **62/68** payment_outbox idempotency unique — wallet/payment outbox upserts
+  were broken the same way.
+- Plus FK/perf sets 32/52/58/59/77 and table fixes 19/43/48/70/71/72/73/84/85.
+
+All applied to Dev on 2026-08-22. Verified by live tests afterwards:
+COD order creation 201 → idempotent replay same orderId; cross-store IDOR probes
+show zero data leakage across three tenants.
+
+Lesson codified twice over: (1) never assume a migration is applied because the
+file exists; (2) index audits must compare DEFINITIONS (partial vs full), not
+just names — see scripts/pg-index-audit.js SUPERSEDED note.
 
 ## Verification evidence
 
