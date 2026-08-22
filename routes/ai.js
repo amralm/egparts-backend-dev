@@ -290,7 +290,7 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
       if (payload.productId && typeof payload.new_stock === 'number') {
         const { error: updateErr } = await supabase
           .from('products')
-          .update({ stock: payload.new_stock })
+          .update({ stock_quantity: payload.new_stock, stock: payload.new_stock })
           .eq('id', payload.productId)
           .eq('store_id', storeId);
         
@@ -348,8 +348,9 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
             store_id: storeId,
             name: payload.name,
             price: payload.price,
+            stock_quantity: payload.stock || 0,
             stock: payload.stock || 0,
-            category_id: payload.category_id || null,
+            category: payload.category || null,
             is_active: true
           });
         if (insertErr) throw insertErr;

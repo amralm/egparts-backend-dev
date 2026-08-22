@@ -595,7 +595,7 @@ registry.registerTool({
     name: 'String: Product name',
     price: 'Number: Product price',
     stock: 'Number: Initial stock quantity',
-    category_id: 'UUID (Optional): Category ID'
+    category: 'String (Optional): Product category label'
   },
   outputs: { status: 'drafted' }
 }, async () => { return { status: 'drafted' }; });
