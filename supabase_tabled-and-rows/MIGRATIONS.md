@@ -81,12 +81,23 @@ Rules:
 | 79 | 79_isolate_rls_helper_functions.sql | Isolate RLS helper functions | ✅ | ✅ |
 | 80 | 80_atomic_manual_wallet_rejection.sql | Atomic manual wallet rejection | ✅ | ✅ |
 | 81 | 81_harden_all_security_definer_search_path.sql | search_path on all SECURITY DEFINER fns | ✅ | ✅ |
-| 82 | 82_tenant_bind_quota_reservations.sql | Tenant-bind commit/rollback reservation RPCs (`p_expected_store_id`) | ⏳ pending apply | ❌ forbidden until verified |
+| 82 | 82_tenant_bind_quota_reservations.sql | Tenant-bind commit/rollback reservation RPCs (`p_expected_store_id`) | ✅ 2026-08-22 | ❌ forbidden until verified |
+| 83 | 83_drop_legacy_quota_overloads_and_harden.sql | Drop legacy single-arg quota overloads (anon/authenticated EXECUTABLE); re-run search_path hardening; service_role-only grants on bound quota RPCs | ✅ 2026-08-22 | ❌ forbidden until verified |
 
-## Pending verification checklist for 82
+## Applied-late note (2026-08-22)
 
-1. Apply `82_tenant_bind_quota_reservations.sql` to Dev via SQL editor/CLI.
-2. Verify signatures:
-   `SELECT proname, pg_get_function_arguments(oid) FROM pg_proc WHERE proname IN ('commit_feature_usage','rollback_feature_usage');`
-3. Regression: reserve → rollback with foreign `p_expected_store_id` returns false/no-op.
-4. Run Supabase Advisors before/after and record counts in the audit report.
+Live audit of Dev revealed migrations 19/43/48/70/71 (+fixes 72/73) had NEVER been
+applied even though earlier sessions assumed they were — 8 tables were absent
+(whatsapp_accounts, payment_proof_retention, account_phone_verifications,
+phone_verification_tickets, notification_preferences, vehicle_brands,
+vehicle_models, parts_compatibility). All were applied on 2026-06-22→2026-08-22 via
+`scripts/pg-migration-audit.js` + `scripts/pg-apply.js`. Lesson codified: never
+assume a migration is applied because its file exists — verify against
+`pg_tables` (the audit script does exactly this).
+
+## Verification evidence
+
+- `audit/advisors-before.json` / `audit/advisors-after.json`: search_path gaps 24→0;
+  wide definer grants reduced after dropping legacy overloads.
+- `node scripts/pg-test-quota-binding.js`: 7/7 PASS on Dev (foreign-store
+  commit/rollback refused, owner rollback works, legacy shape preserved).
