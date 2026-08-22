@@ -48,6 +48,44 @@ const planPayloadSchema = z.object({
     }).strict()).max(8).optional().default([])
   }).strict()).max(200).optional().default([])
 }).strict();
+
+const platformSettingsSchema = z.object({
+  settings: z.record(
+    z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9_.-]+$/),
+    z.union([z.string().max(4096), z.number().finite(), z.boolean(), z.null()])
+  ).refine((value) => Object.keys(value).length <= 100, 'Too many settings in one request')
+}).strict();
+
+const smtpTestSchema = z.object({
+  host: z.string().trim().min(1).max(255),
+  port: z.coerce.number().int().min(1).max(65535).default(587),
+  secure: z.union([z.boolean(), z.string().regex(/^(true|false)$/i)]).default(false),
+  user: z.string().trim().min(1).max(320),
+  pass: z.string().min(1).max(1024),
+  recipient: z.string().trim().email().max(320)
+}).strict();
+
+const platformStoreCreateSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  subdomain: z.string().trim().min(1).max(63).regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i),
+  custom_domain: z.string().trim().max(253).nullable().optional(),
+  subscription_expires_at: z.string().datetime({ offset: true }),
+  is_active: z.boolean().optional().default(true),
+  plan_id: z.string().uuid().nullable().optional()
+}).strict();
+
+const platformStoreUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(160).optional(),
+  custom_domain: z.string().trim().max(253).nullable().optional(),
+  subscription_expires_at: z.string().datetime({ offset: true }).optional(),
+  is_active: z.boolean().optional(),
+  plan_id: z.string().uuid().nullable().optional(),
+  status: z.string().trim().min(1).max(40).optional()
+}).strict().refine((value) => Object.keys(value).length > 0, 'At least one store field is required');
+
+const proofRetentionSchema = z.object({
+  retention_days: z.union([z.number().int().min(0).max(3650), z.string().regex(/^\\d+$/).transform(Number), z.null()])
+}).strict();
 const { encryptCredentials, decryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
 const { sanitizeThemeOverrides } = require('../services/themeSettingsService');
 const { tenantCache } = require('../utils/cache');
@@ -335,34 +373,16 @@ router.get('/resources/:resource', verifyPlatformAdmin, async (req, res) => {
 });
 
 router.post('/resources/:resource', verifyPlatformAdmin, async (req, res) => {
-  const table = platformResourceTables[req.params.resource];
-  if (!table) return apiError(res, 404, 'Unknown platform resource', `HTTP_404`);
-
-  try {
-    const { data, error } = await supabase.from(table).insert([req.body]).select();
-    if (error) throw error;
-    await auditPlatform(req, `platform.${req.params.resource}.create`, req.params.resource, data?.[0]?.id);
-    res.json({ success: true, item: data?.[0] || null });
-  } catch (err) {
-    logger.error(`Platform resource create failed (${req.params.resource}):`, err.message);
-    apiError(res, 500, 'Unable to create platform resource', `HTTP_500`);
-  }
+  // This was an untyped generic write endpoint. It accepted arbitrary client
+  // keys and forwarded them directly to Supabase, which made it a legacy
+  // contract and a schema-drift/privilege risk. No frontend consumer exists;
+  // resource administration must use the typed endpoints below/alongside the
+  // dedicated platform pages.
+  return apiError(res, 410, 'This legacy resource endpoint is disabled. Use the typed platform resource API.', 'LEGACY_RESOURCE_ENDPOINT_DISABLED');
 });
 
 router.patch('/resources/:resource/:id', verifyPlatformAdmin, async (req, res) => {
-  const table = platformResourceTables[req.params.resource];
-  if (!table) return apiError(res, 404, 'Unknown platform resource', `HTTP_404`);
-
-  try {
-    const { data: oldData } = await supabase.from(table).select('*').eq('id', req.params.id).maybeSingle();
-    const { data, error } = await supabase.from(table).update(req.body).eq('id', req.params.id).select();
-    if (error) throw error;
-    await auditPlatform(req, `platform.${req.params.resource}.update`, req.params.resource, req.params.id, oldData, data?.[0]);
-    res.json({ success: true, item: data?.[0] || null });
-  } catch (err) {
-    logger.error(`Platform resource update failed (${req.params.resource}):`, err.message);
-    apiError(res, 500, 'Unable to update platform resource', `HTTP_500`);
-  }
+  return apiError(res, 410, 'This legacy resource endpoint is disabled. Use the typed platform resource API.', 'LEGACY_RESOURCE_ENDPOINT_DISABLED');
 });
 
 router.delete('/resources/:resource/:id', verifyPlatformAdmin, async (req, res) => {
@@ -443,7 +463,7 @@ router.get('/settings', verifyPlatformAdmin, async (req, res) => {
 });
 
 // 2. POST /api/platform/settings - Update global settings
-router.post('/settings', verifyPlatformAdmin, async (req, res) => {
+router.post('/settings', verifyPlatformAdmin, validateBody(platformSettingsSchema), async (req, res) => {
   const { settings } = req.body;
   if (!settings || typeof settings !== 'object') {
     return apiError(res, 400, 'settings object is required', `HTTP_400`);
@@ -467,7 +487,7 @@ router.post('/settings', verifyPlatformAdmin, async (req, res) => {
 
     const upserts = Object.keys(settings).map(key => ({
       key,
-      value: settings[key].toString(),
+      value: settings[key] === null ? '' : String(settings[key]),
       updated_at: new Date().toISOString()
     }));
 
@@ -544,7 +564,7 @@ router.get('/stores/:id/proof-retention', verifyPlatformAdmin, async (req, res) 
   }
 });
 
-router.patch('/stores/:id/proof-retention', verifyPlatformAdmin, async (req, res) => {
+router.patch('/stores/:id/proof-retention', verifyPlatformAdmin, validateBody(proofRetentionSchema), async (req, res) => {
   const value = req.body?.retention_days;
   const clearOverride = value === null || value === undefined || value === '';
   const days = clearOverride ? null : Number(value);
@@ -606,7 +626,7 @@ router.get('/payment-proofs/retention-health', verifyPlatformAdmin, async (req, 
 });
 
 // 2.5. POST /api/platform/settings/test-smtp - Test SMTP configuration
-router.post('/settings/test-smtp', verifyPlatformAdmin, async (req, res) => {
+router.post('/settings/test-smtp', verifyPlatformAdmin, validateBody(smtpTestSchema), async (req, res) => {
   try {
     const { host, port, secure, user, pass, recipient } = req.body;
     if (!host || !user || !pass || !recipient) {
@@ -797,7 +817,7 @@ router.get('/stores', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
-router.post('/stores', verifyPlatformAdmin, async (req, res) => {
+router.post('/stores', verifyPlatformAdmin, validateBody(platformStoreCreateSchema), async (req, res) => {
   const { name, subdomain, custom_domain, subscription_expires_at, is_active = true, plan_id } = req.body;
   const cleanSubdomain = (subdomain || '').trim().toLowerCase();
   const cleanDomain = normalizeDomain(custom_domain);
@@ -907,7 +927,7 @@ router.post('/stores', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
-router.patch('/stores/:id', verifyPlatformAdmin, async (req, res) => {
+router.patch('/stores/:id', verifyPlatformAdmin, validateBody(platformStoreUpdateSchema), async (req, res) => {
   const { id } = req.params;
   const { name, custom_domain, subscription_expires_at, is_active, plan_id, status } = req.body;
   const cleanDomain = normalizeDomain(custom_domain);
