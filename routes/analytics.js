@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { supabase } = require('../services/supabase');
-const { sendSuccess } = require('../utils/apiResponse');
+const { sendSuccess, apiError } = require('../utils/apiResponse');
 
 const VALID_EVENTS = new Set([
   'otp_success','otp_failure','checkout_start','checkout_complete',
@@ -11,6 +11,7 @@ const VALID_EVENTS = new Set([
 
 router.post('/event', async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'تعذر تنفيذ الطلب.', 'TENANT_CONTEXT_REQUIRED');
+  
   // Always respond immediately — fire and forget
   sendSuccess(res, {});
   
