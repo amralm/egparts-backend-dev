@@ -55,4 +55,4 @@ function burnTicket(ticket) {
   if (typeof ticket === 'string') cache.del(ticket);
 }
 
-module.exports = { issueTicket, peekTicket, resolveTicketUser, burnTicket };
+module.exports = { issueTicket, resolveTicketUser, burnTicket };
