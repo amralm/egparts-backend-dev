@@ -9,6 +9,7 @@ const subscriptionLimitService = require('../services/subscriptionLimitService')
 const { assertPaymentMethodAvailable } = require('../services/paymentMethodPolicy');
 const { validateBody } = require('../middleware/requestValidation');
 const { createOrderSchema, whatsappOrderSchema, orderStatusSchema } = require('../schemas/orderSchemas');
+const { normalizePaymentMethod } = require('../schemas/canonicalSchemas');
 
 // Rate limiting for order creation (10 requests per minute per IP)
 const orderRateLimiter = rateLimit({
@@ -176,11 +177,12 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), vali
     if (status && status !== oldOrder.status && !transitions[oldOrder.status]?.has(status)) {
       return apiError(res, 409, 'Invalid order status transition', 'INVALID_ORDER_TRANSITION');
     }
-    if (status === 'delivered' && !['cod', 'cash_on_delivery'].includes(oldOrder.payment_method) && oldOrder.payment_status !== 'paid') {
+    const oldPaymentMethod = normalizePaymentMethod(oldOrder.payment_method);
+    if (status === 'delivered' && oldPaymentMethod !== 'cod' && oldOrder.payment_status !== 'paid') {
       return apiError(res, 409, 'Cannot deliver an unpaid non-COD order', 'PAYMENT_REQUIRED');
     }
     if (payment_status && payment_status !== oldOrder.payment_status) {
-      const isCod = ['cod', 'cash_on_delivery'].includes(oldOrder.payment_method);
+      const isCod = oldPaymentMethod === 'cod';
       if (!isCod || !['unpaid', 'paid'].includes(payment_status)) {
         return apiError(res, 409, 'Payment status is controlled by the payment workflow', 'PAYMENT_WORKFLOW_REQUIRED');
       }
@@ -191,7 +193,7 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), vali
     const updatePayload = {};
     if (status) updatePayload.status = status;
     if (payment_status) updatePayload.payment_status = payment_status;
-    if (status === 'delivered' && ['cod', 'cash_on_delivery'].includes(oldOrder.payment_method)) updatePayload.payment_status = 'paid';
+    if (status === 'delivered' && oldPaymentMethod === 'cod') updatePayload.payment_status = 'paid';
 
     const { data: order, error } = await supabase
       .from('orders')

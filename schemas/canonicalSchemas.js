@@ -1,8 +1,12 @@
 const { z } = require('zod');
 const contract = require('../contracts/api-contract.json');
 
+function normalizePaymentMethod(value) {
+  return contract.legacy_payment_method_aliases[value] || value;
+}
+
 const paymentMethodSchema = z.preprocess(
-  (value) => contract.legacy_payment_method_aliases[value] || value,
+  normalizePaymentMethod,
   z.enum(contract.payment_methods)
 );
 const orderStatusValueSchema = z.enum(contract.order_statuses);
@@ -38,6 +42,7 @@ const errorResponseSchema = z.object({
 
 module.exports = {
   contract,
+  normalizePaymentMethod,
   paymentMethodSchema,
   orderStatusValueSchema,
   paymentStatusValueSchema,
