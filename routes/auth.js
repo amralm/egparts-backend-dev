@@ -1,7 +1,6 @@
 const { apiError } = require('../utils/apiError');
 const express = require('express');
 const router = express.Router();
-const { z } = require('zod');
 const rateLimit = require('express-rate-limit');
 const otpService = require('../services/otpService');
 const whatsappService = require('../services/whatsappPoolService');
@@ -12,6 +11,7 @@ const { verifyUser, optionalAuth } = require('../middleware/auth');
 const userProfileService = require('../services/userProfileService');
 const twoFactorService = require('../services/twoFactorService');
 const phoneVerificationService = require('../services/phoneVerificationService');
+const { sendOTPSchema, verifyOTPSchema, resolvePhoneSchema } = require('../schemas/authSchemas');
 
 async function recordOtpAudit(entry) {
   try {
@@ -42,22 +42,6 @@ router.get('/health', async (req, res) => {
   }
 
   res.json(status);
-});
-
-// Validation Schemas
-const sendOTPSchema = z.object({
-  phone: z.string().min(10).max(15).regex(/^\+?[1-9]\d{1,14}$/, 'رقم هاتف غير صحيح'),
-  turnstileToken: z.string().optional(),
-});
-
-const verifyOTPSchema = z.object({
-  phone: z.string().min(10).max(16).regex(/^\+?[1-9]\d{1,14}$/),
-  code: z.string().regex(/^\d{6}$/, 'كود التحقق يجب أن يكون 6 أرقام'),
-  purpose: z.string().max(40).optional(),
-});
-const resolvePhoneSchema = z.object({
-  phone: z.string().min(10).max(15).regex(/^\+?[1-9]\d{1,14}$/),
-  password: z.string().min(1).max(256)
 });
 
 function normalizeEgyptianPhone(value) {
