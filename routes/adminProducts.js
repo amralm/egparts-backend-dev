@@ -5,6 +5,8 @@ const logger = require('../utils/logger');
 const { verifyPermission } = require('../middleware/auth');
 const productAdminService = require('../services/productAdminService');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
+const { validateBody } = require('../middleware/requestValidation');
+const { productSchema } = require('../schemas/catalogSchemas');
 
 function requireStore(req, res) {
   if (!req.store?.id) {
@@ -26,7 +28,7 @@ router.get('/', verifyPermission('products.view'), async (req, res) => {
   }
 });
 
-router.post('/', verifyPermission('products.create'), async (req, res) => {
+router.post('/', verifyPermission('products.create'), validateBody(productSchema), async (req, res) => {
   const storeId = requireStore(req, res);
   if (!storeId) return;
   let reservationKey;
@@ -48,7 +50,7 @@ router.post('/', verifyPermission('products.create'), async (req, res) => {
   }
 });
 
-router.put('/:id', verifyPermission('products.update'), async (req, res) => {
+router.put('/:id', verifyPermission('products.update'), validateBody(productSchema.partial()), async (req, res) => {
   const storeId = requireStore(req, res);
   if (!storeId) return;
   try {

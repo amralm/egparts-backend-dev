@@ -4,6 +4,8 @@ const { verifyPermission } = require('../middleware/auth');
 const bannerAdminService = require('../services/bannerAdminService');
 const logger = require('../utils/logger');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
+const { validateBody } = require('../middleware/requestValidation');
+const { bannerSchema } = require('../schemas/catalogSchemas');
 
 const router = express.Router();
 
@@ -33,7 +35,7 @@ router.get('/', verifyPermission('banners.view'), async (req, res) => {
   }
 });
 
-router.post('/', verifyPermission('banners.manage'), async (req, res) => {
+router.post('/', verifyPermission('banners.manage'), validateBody(bannerSchema), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
   let reservationKey;
@@ -57,7 +59,7 @@ router.post('/', verifyPermission('banners.manage'), async (req, res) => {
   }
 });
 
-router.put('/:id', verifyPermission('banners.manage'), async (req, res) => {
+router.put('/:id', verifyPermission('banners.manage'), validateBody(bannerSchema.partial()), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
   try {
@@ -69,7 +71,7 @@ router.put('/:id', verifyPermission('banners.manage'), async (req, res) => {
   }
 });
 
-router.patch('/:id/status', verifyPermission('banners.manage'), async (req, res) => {
+router.patch('/:id/status', verifyPermission('banners.manage'), validateBody(bannerSchema.pick({ is_active: true })), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
   try {

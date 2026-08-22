@@ -4,6 +4,8 @@ const { verifyPermission } = require('../middleware/auth');
 const couponService = require('../services/couponService');
 const logger = require('../utils/logger');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
+const { validateBody } = require('../middleware/requestValidation');
+const { couponSchema, couponValidationSchema } = require('../schemas/catalogSchemas');
 
 const router = express.Router();
 
@@ -35,7 +37,7 @@ router.get('/', verifyPermission('coupons.view'), async (req, res) => {
   }
 });
 
-router.post('/validate', async (req, res) => {
+router.post('/validate', validateBody(couponValidationSchema), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
 
@@ -53,7 +55,7 @@ router.post('/validate', async (req, res) => {
   }
 });
 
-router.post('/', verifyPermission('coupons.create'), async (req, res) => {
+router.post('/', verifyPermission('coupons.create'), validateBody(couponSchema), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
 
@@ -76,7 +78,7 @@ router.post('/', verifyPermission('coupons.create'), async (req, res) => {
   }
 });
 
-router.put('/:id', verifyPermission('coupons.update'), async (req, res) => {
+router.put('/:id', verifyPermission('coupons.update'), validateBody(couponSchema), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
 
