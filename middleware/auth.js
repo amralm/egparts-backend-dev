@@ -138,14 +138,33 @@ async function resolvePlatformPermissions(userId) {
 // Validates the Bearer JWT and sets req.user.
 // Does NOT check any DB table.
 // ─────────────────────────────────────────────────────────────
-const verifyUser = (req, res, next) => {
+async function verifyBearerToken(token) {
+  try {
+    return tokenVerifier.verify(token);
+  } catch (legacyError) {
+    // Supabase may issue tokens signed with a managed/JWKS key rather than the
+    // legacy project JWT secret. Validate those through Auth instead of
+    // treating a valid session as anonymous. Never log or return the token.
+    const { data, error } = await supabase.auth.getUser(token);
+    if (error || !data?.user?.id) throw legacyError;
+    return {
+      sub: data.user.id,
+      email: data.user.email,
+      role: 'authenticated',
+      user_metadata: data.user.user_metadata || {},
+      app_metadata: data.user.app_metadata || {}
+    };
+  }
+}
+
+const verifyUser = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return apiError(res, 401, 'Unauthorized: No token provided', `HTTP_401`);
   }
 
   try {
-    req.user = tokenVerifier.verify(authHeader.split(' ')[1]);
+    req.user = await verifyBearerToken(authHeader.split(' ')[1]);
     next();
   } catch (error) {
     logger.error('JWT verification error:', error.message);
@@ -157,7 +176,7 @@ const verifyUser = (req, res, next) => {
 // Middleware: optionalAuth
 // Like verifyUser but non-blocking (sets req.user = null if no token).
 // ─────────────────────────────────────────────────────────────
-const optionalAuth = (req, res, next) => {
+const optionalAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     req.user = null;
@@ -165,7 +184,7 @@ const optionalAuth = (req, res, next) => {
   }
 
   try {
-    req.user = tokenVerifier.verify(authHeader.split(' ')[1]);
+    req.user = await verifyBearerToken(authHeader.split(' ')[1]);
   } catch {
     req.user = null;
   }
@@ -228,7 +247,7 @@ const verifyPermission = (permissionName) => {
     }
 
     try {
-      const decoded = tokenVerifier.verify(authHeader.split(' ')[1]);
+      const decoded = await verifyBearerToken(authHeader.split(' ')[1]);
       req.user = decoded;
 
       const userId = decoded.sub;
