@@ -6,6 +6,8 @@
   "scripts": {
     "postinstall": "node scripts/harden-runtime-dependencies.js",
     "start": "node server.js",
+    "lint": "node scripts/syntax-check.js",
+    "test": "npm run lint && npm run test:contracts && npm run audit:contracts",
     "dev": "node server.js",
     "audit:contracts": "node scripts/contract-audit.js",
     "security:scan": "node scripts/secret-scan.js",
