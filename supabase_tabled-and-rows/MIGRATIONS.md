@@ -102,10 +102,21 @@ that no table audit could catch:
 - **62/68** payment_outbox idempotency unique — wallet/payment outbox upserts
   were broken the same way.
 - Plus FK/perf sets 32/52/58/59/77 and table fixes 19/43/48/70/71/72/73/84/85.
+- **Function/column-only migrations** (invisible to both table and index audits):
+  - **57** `restore_order_stock(uuid)` — absent → wallet rejection crashed
+    (`function does not exist`), stock never restored on Dev.
+  - **69** `orders.paid_at` column — absent → `approve_manual_wallet_payment`
+    crashed with `column paid_at does not exist`; COD delivery settlement
+    timestamp impossible.
+  - **80** `reject_manual_wallet_payment(uuid,uuid,uuid,text)` — absent entirely;
+    the older 3-arg approve existed while reject did not.
 
 All applied to Dev on 2026-08-22. Verified by live tests afterwards:
-COD order creation 201 → idempotent replay same orderId; cross-store IDOR probes
-show zero data leakage across three tenants.
+COD order creation 201 → idempotent replay same orderId; manual-wallet lifecycle
+14/14 (approve → paid/confirmed/paid_at, double-approve refused, reject →
+payment failed + stock restored); cross-store IDOR probes show zero data
+leakage across three tenants; IDOR write attacks (delete/patch foreign user's
+address, patch via foreign store context) silently no-op with resource intact.
 
 Lesson codified twice over: (1) never assume a migration is applied because the
 file exists; (2) index audits must compare DEFINITIONS (partial vs full), not
