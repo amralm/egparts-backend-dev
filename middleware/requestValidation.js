@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { apiError } = require('../utils/apiError');
 
 const clientErrorSchema = z.object({
   message: z.string().trim().min(1).max(4000),
@@ -13,14 +14,7 @@ function validateBody(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      return res.status(400).json({
-        success: false,
-        code: 'VALIDATION_ERROR',
-        message: 'بيانات الطلب غير صالحة.',
-        error: 'بيانات الطلب غير صالحة.',
-        requestId: req.correlationId || req.id || null,
-        fields: result.error.flatten().fieldErrors
-      });
+      return apiError(res, 400, 'بيانات الطلب غير صالحة.', 'VALIDATION_ERROR', { fields: result.error.flatten().fieldErrors });
     }
     req.body = result.data;
     next();

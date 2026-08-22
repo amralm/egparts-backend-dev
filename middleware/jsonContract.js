@@ -1,4 +1,5 @@
 'use strict';
+const { apiError } = require('../utils/apiError');
 
 /**
  * Reject JSON-like mutation payloads sent as text/plain before they reach a
@@ -16,23 +17,11 @@ module.exports = function jsonContract(req, res, next) {
   const looksLikeJson = rawBody.startsWith('{') || rawBody.startsWith('[');
 
   if (isTextPayload && looksLikeJson) {
-    return res.status(415).json({
-      success: false,
-      code: 'UNSUPPORTED_CONTENT_TYPE',
-      error: 'يجب إرسال بيانات JSON مع Content-Type: application/json.',
-      message: 'صيغة الطلب غير مدعومة.',
-      requestId: req.requestId || req.correlationId || req.id || null
-    });
+    return apiError(res, 415, 'صيغة الطلب غير مدعومة.', 'UNSUPPORTED_CONTENT_TYPE');
   }
 
   if (isTextPayload && req.body !== undefined && req.body !== '') {
-    return res.status(415).json({
-      success: false,
-      code: 'UNSUPPORTED_CONTENT_TYPE',
-      error: 'هذا المسار لا يقبل نصًا خامًا.',
-      message: 'صيغة الطلب غير مدعومة.',
-      requestId: req.requestId || req.correlationId || req.id || null
-    });
+    return apiError(res, 415, 'صيغة الطلب غير مدعومة.', 'UNSUPPORTED_CONTENT_TYPE');
   }
 
   next();

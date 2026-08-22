@@ -1,3 +1,4 @@
+const { apiError } = require('../utils/apiError');
 const { supabase } = require('../services/supabase');
 const tokenVerifier = require('../utils/tokenVerifier');
 const logger = require('../utils/logger');
@@ -77,10 +78,7 @@ module.exports = async function maintenanceMiddleware(req, res, next) {
     }
 
     // 4. Return 503 Service Unavailable for all blocked endpoints
-    return res.status(503).json({
-      error: 'الموقع تحت الصيانة حالياً. سنعود قريباً.',
-      is_maintenance: true
-    });
+    return apiError(res, 503, 'الموقع تحت الصيانة حالياً. سنعود قريباً.', 'MAINTENANCE_MODE', { is_maintenance: true });
   } catch (err) {
     logger.error('Maintenance middleware error:', err.message);
     next();

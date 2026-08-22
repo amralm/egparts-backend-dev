@@ -2086,11 +2086,7 @@ router.post('/invitations', verifyPlatformAdmin, async (req, res) => {
       existingInvitation = data;
     }
     if (existingInvitation) {
-      return res.status(409).json({
-        error: 'توجد دعوة نشطة بالفعل لهذا البريد أو الرقم. استخدم إعادة الإرسال بدل إنشاء دعوة جديدة.',
-        code: 'INVITATION_ALREADY_ACTIVE',
-        invitation: existingInvitation
-      });
+      return apiError(res, 409, 'توجد دعوة نشطة بالفعل لهذا البريد أو الرقم. استخدم إعادة الإرسال بدل إنشاء دعوة جديدة.', 'INVITATION_ALREADY_ACTIVE', { invitation: existingInvitation });
     }
 
     let targetRoleId = role_id;

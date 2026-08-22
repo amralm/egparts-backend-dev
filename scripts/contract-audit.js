@@ -32,9 +32,46 @@ const failures = forbiddenContracts
   .filter(([needle]) => source.includes(needle))
   .map(([, description]) => description);
 
-const legacyErrorResponses = source.match(/res\.(?:status\([^)]*\)\.)?json\(\{[^\r\n]*\berror\s*:/g) || [];
+// Parse response object literals instead of checking only one line. This catches
+// the exact failure mode that previously escaped review: multiline `{ error }`
+// responses hidden inside otherwise valid routes. Logging/query variables named
+// `error` are allowed; only an error key inside a res.json object is forbidden.
+function findLegacyResponseObjects(text) {
+  const hits = [];
+  const startPattern = /res\.(?:status\([^)]*\)\.)?json\(\{/g;
+  let match;
+  while ((match = startPattern.exec(text))) {
+    const objectStart = match.index + match[0].length - 1;
+    let depth = 0;
+    let quote = null;
+    let escaped = false;
+    let end = objectStart;
+    for (; end < text.length; end += 1) {
+      const ch = text[end];
+      if (quote) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === quote) quote = null;
+        continue;
+      }
+      if (ch === "'" || ch === '"' || ch === '`') { quote = ch; continue; }
+      if (ch === '{') depth += 1;
+      if (ch === '}' && --depth === 0) break;
+    }
+    const body = text.slice(objectStart, end + 1);
+    if (/\berror\s*:/.test(body)) hits.push(body.slice(0, 180));
+    startPattern.lastIndex = Math.max(startPattern.lastIndex, end + 1);
+  }
+  return hits;
+}
+
+const legacyErrorResponses = findLegacyResponseObjects(source);
 if (legacyErrorResponses.length) {
   failures.push(`legacy error response objects (${legacyErrorResponses.length})`);
+}
+
+if (/message\s*:\s*\{\s*error\s*:/.test(source)) {
+  failures.push('legacy rate-limit message objects');
 }
 
 if (failures.length) {

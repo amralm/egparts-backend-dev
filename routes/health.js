@@ -30,7 +30,7 @@ router.get('/platform', verifyPlatformPermission('platform.health.read'), async 
       timestamp: new Date().toISOString(),
       overall_status: 'degraded',
       services: {},
-      error: 'Failed to retrieve full health snapshot'
+      message: 'Failed to retrieve full health snapshot'
     });
   }
 });

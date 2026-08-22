@@ -333,7 +333,7 @@ const clientErrorLimiter = rateLimit({
   limit: 30,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
-  message: { success: false, code: 'RATE_LIMITED', error: 'طلبات كثيرة جداً.' }
+  message: { success: false, code: 'RATE_LIMITED', message: 'طلبات كثيرة جداً.', data: null }
 });
 
 app.post('/api/logs/client-error', clientErrorLimiter, validateBody(clientErrorSchema), async (req, res) => {
@@ -626,7 +626,7 @@ const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 3000, // Increased to 3000 per IP per 15 minutes to prevent blocking real users with many components
   keyGenerator: (req) => req.clientIp, // Use extracted IP
-  message: { error: 'Too many requests, please try again later.' }
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many requests, please try again later.', data: null }
 });
 
 app.use('/api/', generalLimiter);
@@ -713,10 +713,7 @@ app.post('/qr/logout', (req, res) => {
 // ✅ WhatsApp QR Dashboard — ADMIN ONLY
 app.get('/qr', verifyAdminOrLocal, async (req, res) => {
   if (process.env.ENABLE_LEGACY_WHATSAPP_QR !== 'true') {
-    return res.status(410).json({
-      error: 'LEGACY_WHATSAPP_QR_DISABLED',
-      message: 'استخدم إدارة أرقام واتساب من حوض واتساب المركزي.'
-    });
+    return apiError(res, 410, 'استخدم إدارة أرقام واتساب من حوض واتساب المركزي.', 'LEGACY_WHATSAPP_QR_DISABLED');
   }
   const { phone } = req.query;
   const isConnected = whatsappService.isReady;

@@ -18,10 +18,8 @@ function getStoreId(req, res) {
 
 function sendError(res, err) {
   const status = err.statusCode || 500;
-  const body = status >= 500
-    ? { error: 'Internal server error' }
-    : { error: err.code || 'Request failed' };
-  return res.status(status).json(body);
+  const message = status >= 500 ? 'Internal server error' : (err.message || 'Request failed');
+  return apiError(res, status, message, err.code || (status >= 500 ? 'INTERNAL_SERVER_ERROR' : 'REQUEST_FAILED'));
 }
 
 router.get('/', verifyPermission('coupons.view'), async (req, res) => {

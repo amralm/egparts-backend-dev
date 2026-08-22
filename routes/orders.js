@@ -15,7 +15,7 @@ const { normalizePaymentMethod } = require('../schemas/canonicalSchemas');
 const orderRateLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
   max: 10,
-  message: { error: 'طلبات إنشاء الطلبات كثيرة جداً، حاول بعد دقيقة' }
+  message: { success: false, code: 'RATE_LIMITED', message: 'طلبات إنشاء الطلبات كثيرة جداً، حاول بعد دقيقة', data: null }
 });
 
 router.get('/my', verifyUser, async (req, res) => {

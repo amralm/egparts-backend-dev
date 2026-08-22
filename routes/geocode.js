@@ -10,7 +10,7 @@ const geocodeLimiter = rateLimit({
   limit: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { success: false, code: 'RATE_LIMITED', error: 'Too many geocoding requests.' }
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many geocoding requests.', data: null }
 });
 
 router.get('/reverse', geocodeLimiter, async (req, res) => {

@@ -50,7 +50,7 @@ const upload = multer({
 const walletRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
-  message: { error: 'طلبات كثيرة جداً، حاول بعد دقيقة' },
+  message: { success: false, code: 'RATE_LIMITED', message: 'طلبات كثيرة جداً، حاول بعد دقيقة', data: null },
   standardHeaders: true,
   legacyHeaders: false,
 });

@@ -24,9 +24,9 @@ async function reserveCopilot(req, res, next) {
       if (!ok) {
         await Promise.all(reservations.map(r => subscriptionLimitService.rollbackFeatureUsage(r)));
         const status = feature === 'copilot_messages_day' ? 403 : 429;
-        return res.status(status).json({
-          error: 'Policy Enforced', code: feature === 'copilot_messages_day' ? 'FEATURE_DISABLED' : 'QUOTA_EXCEEDED',
-          feature, answer: feature === 'copilot_messages_day' ? 'ميزة Copilot غير مفعّلة في باقة متجرك الحالية.' : 'انتهى الحد الشهري لطلبات Copilot.'
+        return apiError(res, status, 'Policy Enforced', feature === 'copilot_messages_day' ? 'FEATURE_DISABLED' : 'QUOTA_EXCEEDED', {
+          feature,
+          answer: feature === 'copilot_messages_day' ? 'ميزة Copilot غير مفعّلة في باقة متجرك الحالية.' : 'انتهى الحد الشهري لطلبات Copilot.'
         });
       }
       reservations.push(key);

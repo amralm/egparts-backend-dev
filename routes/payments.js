@@ -13,7 +13,7 @@ const { paymentSettingsSchema, paymentToggleSchema, intentSchema } = require('..
 const paymentRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 5,
-  message: { error: 'طلبات إنشاء الدفع كثيرة جداً، حاول بعد دقيقة' },
+  message: { success: false, code: 'RATE_LIMITED', message: 'طلبات إنشاء الدفع كثيرة جداً، حاول بعد دقيقة', data: null },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -21,7 +21,7 @@ const paymentRateLimiter = rateLimit({
 const paymentSetupRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 5,
-  message: { error: 'طلبات إعدادات الدفع كثيرة جداً، حاول بعد دقيقة' },
+  message: { success: false, code: 'RATE_LIMITED', message: 'طلبات إعدادات الدفع كثيرة جداً، حاول بعد دقيقة', data: null },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -219,9 +219,12 @@ router.get('/settings', verifyPermission('payments.view'), async (req, res) => {
     }
 
     if (!isEnabled) {
-      return res.json({ 
+      return res.json({
+        success: true,
         allowed: false,
-        error: 'بوابات الدفع الإلكتروني (Paymob) غير متوفرة في باقتك الحالية. يرجى الترقية للباقة الاحترافية أو أعلى لتفعيلها.' 
+        code: 'FEATURE_DISABLED',
+        message: 'بوابات الدفع الإلكتروني (Paymob) غير متوفرة في باقتك الحالية. يرجى الترقية للباقة الاحترافية أو أعلى لتفعيلها.',
+        data: null
       });
     }
 

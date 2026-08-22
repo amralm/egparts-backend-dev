@@ -18,9 +18,7 @@ function getStoreId(req, res) {
 
 function sendError(res, err) {
   const status = err.statusCode || 500;
-  return res.status(status).json({
-    error: status >= 500 ? 'Internal server error' : (err.code || 'Request failed')
-  });
+  return apiError(res, status, status >= 500 ? 'Internal server error' : (err.code || 'Request failed'), err.code || `HTTP_${status}`);
 }
 
 router.get('/', verifyPermission('banners.view'), async (req, res) => {

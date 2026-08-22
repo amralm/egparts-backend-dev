@@ -34,14 +34,14 @@ const s3Client = new S3Client({
 const uploadLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
   max: 30,
-  message: { error: 'Too many upload requests. Please try again later.' }
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many upload requests. Please try again later.', data: null }
 });
 
 // Rate limiting for file deletions: 10 requests per minute per user/IP
 const deleteFileLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
   max: 10,
-  message: { error: 'Too many file deletion requests. Please try again later.' }
+  message: { success: false, code: 'RATE_LIMITED', message: 'Too many file deletion requests. Please try again later.', data: null }
 });
 
 
@@ -141,10 +141,7 @@ router.post('/upload', verifyUser, uploadLimiter, upload.single('file'), async (
 router.post('/presigned-url', verifyUser, uploadLimiter, async (req, res) => {
   // Hard stop: direct-to-R2 uploads bypass AssetPipeline/sharp and can store
   // unoptimized images. Every new upload must pass through /upload.
-  return res.status(410).json({
-    error: 'This upload method is no longer supported. Use /api/storage/upload.',
-    code: 'UPLOAD_PIPELINE_REQUIRED',
-  });
+  return apiError(res, 410, 'This upload method is no longer supported. Use /api/storage/upload.', 'UPLOAD_PIPELINE_REQUIRED');
 
   // Deprecation headers — inform clients to migrate
   res.setHeader('Deprecation', 'true');

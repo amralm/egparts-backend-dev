@@ -83,7 +83,7 @@ const otpRateLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 5 * 60 * 1000,
   max: 3,
   keyGenerator: (req) => otpRateLimitKey(req, 'otp-send'),
-  message: { error: 'طلبات كود التحقق كثيرة جداً، حاول بعد 5 دقائق' },
+  message: { success: false, code: 'RATE_LIMITED', message: 'طلبات كود التحقق كثيرة جداً، حاول بعد 5 دقائق', data: null },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -92,7 +92,7 @@ const otpRateLimiter = rateLimit({ validate: { trustProxy: false },
 const perPhoneOtpLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 60 * 60 * 1000,
   max: 3,
-  message: { error: 'تم تجاوز الحد المسموح من طلبات التحقق لهذا الرقم، حاول بعد ساعة' },
+  message: { success: false, code: 'RATE_LIMITED', message: 'تم تجاوز الحد المسموح من طلبات التحقق لهذا الرقم، حاول بعد ساعة', data: null },
   standardHeaders: true,
   legacyHeaders: false,
   validate: { keyGeneratorIpFallback: false },
@@ -111,7 +111,7 @@ const verifyRateLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 60 * 1000,
   max: 5,
   keyGenerator: (req) => otpRateLimitKey(req, 'otp-verify'),
-  message: { error: 'محاولات تحقق كثيرة جداً، حاول بعد دقيقة' },
+  message: { success: false, code: 'RATE_LIMITED', message: 'محاولات تحقق كثيرة جداً، حاول بعد دقيقة', data: null },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -120,7 +120,7 @@ const verifyRateLimiter = rateLimit({ validate: { trustProxy: false },
 const perPhoneVerifyLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 15 * 60 * 1000,
   max: 5,
-  message: { error: 'تم إيقاف التحقق لهذا الرقم مؤقتاً لكثرة المحاولات الخاطئة. حاول بعد 15 دقيقة.' },
+  message: { success: false, code: 'RATE_LIMITED', message: 'تم إيقاف التحقق لهذا الرقم مؤقتاً لكثرة المحاولات الخاطئة. حاول بعد 15 دقيقة.', data: null },
   standardHeaders: true,
   legacyHeaders: false,
   validate: { keyGeneratorIpFallback: false },
@@ -139,14 +139,14 @@ const phoneLoginLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'محاولات تسجيل دخول كثيرة جداً، حاول لاحقاً' }
+  message: { success: false, code: 'RATE_LIMITED', message: 'محاولات تسجيل دخول كثيرة جداً، حاول لاحقاً', data: null }
 });
 
 // Rate limiter for sensitive write operations (5 req / 1 min per IP)
 const sensitiveWriteRateLimiter = rateLimit({ validate: { trustProxy: false }, validate: { trustProxy: false },
   windowMs: 60 * 1000,
   max: 5,
-  message: { error: 'طلبات كثيرة جداً، يرجى المحاولة لاحقاً' },
+  message: { success: false, code: 'RATE_LIMITED', message: 'طلبات كثيرة جداً، يرجى المحاولة لاحقاً', data: null },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -181,7 +181,7 @@ router.post('/resolve-phone', phoneLoginLimiter, async (req, res) => {
 const exchangeRateLimiter = rateLimit({ validate: { trustProxy: false },
   windowMs: 30 * 1000,
   max: 3,
-  message: { error: 'محاولات كثيرة جداً، يرجى المحاولة لاحقاً' },
+  message: { success: false, code: 'RATE_LIMITED', message: 'محاولات كثيرة جداً، يرجى المحاولة لاحقاً', data: null },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -194,10 +194,7 @@ router.post('/profile/sync', verifyUser, sensitiveWriteRateLimiter, async (req, 
     return res.json({ success: true, profile });
   } catch (err) {
     logger.error('Profile sync failed:', err.message);
-    return res.status(err.statusCode || 500).json({
-      success: false,
-      error: err.statusCode === 401 ? 'Unauthorized' : 'Unable to sync profile'
-    });
+    return apiError(res, err.statusCode || 500, err.statusCode === 401 ? 'Unauthorized' : 'Unable to sync profile', 'PROFILE_SYNC_FAILED');
   }
 });
 
@@ -208,10 +205,7 @@ router.post('/profile/mark-email-verified', verifyUser, sensitiveWriteRateLimite
     return res.json({ success: true, profile });
   } catch (err) {
     logger.error('Mark email verified failed:', err.message);
-    return res.status(err.statusCode || 500).json({
-      success: false,
-      error: err.statusCode === 401 ? 'Unauthorized' : 'Unable to update verification status'
-    });
+    return apiError(res, err.statusCode || 500, err.statusCode === 401 ? 'Unauthorized' : 'Unable to update verification status', 'EMAIL_VERIFICATION_UPDATE_FAILED');
   }
 });
 
@@ -253,12 +247,7 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, async (req,
       }
     });
     // [وثيقة الحل]: معالجة الخطأ رقم 409 القادم من الخدمة والذي يعني أن رقم الهاتف مكرر
-    return res.status(err.statusCode || 500).json({
-      success: false,
-      error: err.statusCode === 409 || err.statusCode === 403 || err.statusCode === 400
-        ? err.message
-        : 'Unable to update phone'
-    });
+    return apiError(res, err.statusCode || 500, err.statusCode === 409 || err.statusCode === 403 || err.statusCode === 400 ? err.message : 'Unable to update phone', err.code || 'PHONE_UPDATE_FAILED');
   }
 });
 
@@ -414,13 +403,7 @@ router.post('/verify-otp', optionalAuth, verifyRateLimiter, perPhoneVerifyLimite
       });
     } catch (verificationError) {
       logger.error('Central phone verification failed after valid OTP:', verificationError);
-      return res.status(verificationError.statusCode || 500).json({
-        success: false,
-        code: verificationError.code || 'PHONE_VERIFICATION_UNAVAILABLE',
-        error: verificationError.statusCode === 409
-          ? verificationError.message
-          : 'تم قبول الكود لكن تعذر تثبيت توثيق الرقم. حاول مرة أخرى.'
-      });
+      return apiError(res, verificationError.statusCode || 500, verificationError.statusCode === 409 ? verificationError.message : 'تم قبول الكود لكن تعذر تثبيت توثيق الرقم. حاول مرة أخرى.', verificationError.code || 'PHONE_VERIFICATION_UNAVAILABLE');
     }
   } else {
     apiError(res, 400, 'كود التحقق غير صحيح أو انتهت صلاحيته', `HTTP_400`);
@@ -447,11 +430,7 @@ router.post('/phone-verification/claim', verifyUser, sensitiveWriteRateLimiter, 
     return res.json({ success: true, verification });
   } catch (error) {
     logger.warn('Phone verification ticket claim failed:', error.message);
-    return res.status(error.statusCode || 500).json({
-      success: false,
-      code: error.code || 'PHONE_VERIFICATION_CLAIM_FAILED',
-      error: error.statusCode === 409 || error.statusCode === 400 ? error.message : 'تعذر تثبيت توثيق الرقم'
-    });
+    return apiError(res, error.statusCode || 500, error.statusCode === 409 || error.statusCode === 400 ? error.message : 'تعذر تثبيت توثيق الرقم', error.code || 'PHONE_VERIFICATION_CLAIM_FAILED');
   }
 });
 
@@ -510,13 +489,7 @@ router.post('/reset-password', sensitiveWriteRateLimiter, async (req, res) => {
       await phoneVerificationService.recordVerifiedPhone(profiles.user_id, normalizedPhone, 'whatsapp_otp');
     } catch (verificationError) {
       logger.error('Central phone verification failed during password reset:', verificationError);
-      return res.status(verificationError.statusCode || 500).json({
-        success: false,
-        code: verificationError.code || 'PHONE_VERIFICATION_UNAVAILABLE',
-        error: verificationError.statusCode === 409
-          ? verificationError.message
-          : 'تم التحقق من الكود لكن تعذر تثبيت توثيق الرقم. حاول مرة أخرى.'
-      });
+      return apiError(res, verificationError.statusCode || 500, verificationError.statusCode === 409 ? verificationError.message : 'تم التحقق من الكود لكن تعذر تثبيت توثيق الرقم. حاول مرة أخرى.', verificationError.code || 'PHONE_VERIFICATION_UNAVAILABLE');
     }
 
     // 4. Update password using Supabase Admin API (service role)

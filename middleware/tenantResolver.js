@@ -127,8 +127,7 @@ module.exports = async function tenantResolver(req, res, next) {
         return res.status(403).json({
           success: false,
           code: isExpired ? 'STORE_SUBSCRIPTION_EXPIRED' : 'STORE_SUSPENDED',
-          error: 'عذراً، هذا المتجر متوقف مؤقتاً لانتهاء فترة الاشتراك. يرجى التواصل مع الإدارة للتجديد.',
-          is_suspended: true
+          data: { is_suspended: true }
         });
       }
     }
