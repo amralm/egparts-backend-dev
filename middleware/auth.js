@@ -1,5 +1,5 @@
 const { apiError } = require('../utils/apiError');
-const { supabase } = require('../services/supabase');
+const { supabase, supabaseAuth } = require('../services/supabase');
 const tokenVerifier = require('../utils/tokenVerifier');
 const logger = require('../utils/logger');
 
@@ -145,7 +145,7 @@ async function verifyBearerToken(token) {
     // Supabase may issue tokens signed with a managed/JWKS key rather than the
     // legacy project JWT secret. Validate those through Auth instead of
     // treating a valid session as anonymous. Never log or return the token.
-    const { data, error } = await supabase.auth.getUser(token);
+    const { data, error } = await supabaseAuth.auth.getUser(token);
     if (error || !data?.user?.id) throw legacyError;
     return {
       sub: data.user.id,
