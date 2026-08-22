@@ -194,7 +194,21 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), vali
     const updatePayload = {};
     if (status) updatePayload.status = status;
     if (payment_status) updatePayload.payment_status = payment_status;
-    if (status === 'delivered' && oldPaymentMethod === 'cod') updatePayload.payment_status = 'paid';
+    if (status === 'delivered' && oldPaymentMethod === 'cod') {
+      // Settlement timestamp parity with wallet approvals and Paymob webhooks.
+      updatePayload.payment_status = 'paid';
+      updatePayload.paid_at = new Date().toISOString();
+    } else if (payment_status === 'paid' && oldPaymentMethod !== 'cod' && !updatePayload.paid_at) {
+      // Admin-forced paid on non-COD flows must still record settlement time.
+      const { data: gatewayIntent } = await supabase
+        .from('payment_intents')
+        .select('updated_at')
+        .eq('order_id', id)
+        .eq('status', 'captured')
+        .limit(1)
+        .maybeSingle();
+      updatePayload.paid_at = gatewayIntent?.updated_at || new Date().toISOString();
+    }
 
     const { data: order, error } = await supabase
       .from('orders')
