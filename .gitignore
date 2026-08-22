@@ -21,3 +21,7 @@ cleanup_*.js
 dist/
 recovery/
 supabase/.temp/
+
+# Never commit database exports or retired route copies.
+server/dump*.json
+routes/*.bak
