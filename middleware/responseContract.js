@@ -1,8 +1,25 @@
 'use strict';
 
-// Compatibility boundary for older routes. New handlers should return the
-// canonical shape directly, but this prevents legacy `{ error }` responses
-// from reaching clients with a different contract.
+/**
+ * ============================================================================
+ * ARCHITECTURAL CONTRACT: CANONICAL API ERROR & RESPONSE NORMALIZER
+ * ============================================================================
+ * STANDARD: EG-Parts Cloud Unified Contract Architecture (RFC 7807 Compliant)
+ * 
+ * PURPOSE:
+ * Enforces machine-readable error codes (`code`), standardized human messages
+ * (`message`), correlation tracking (`requestId`), and typed payload wrappers (`data`).
+ * 
+ * CANONICAL ERROR SHAPE:
+ * {
+ *   success: false,
+ *   code: string (e.g. 'INSUFFICIENT_STOCK', 'UNAUTHORIZED', 'HTTP_404'),
+ *   message: string (Human-readable Arabic text),
+ *   requestId: string ('req_uuid'),
+ *   data: null
+ * }
+ * ============================================================================
+ */
 module.exports = function responseContract(req, res, next) {
   const originalJson = res.json.bind(res);
   res.json = (payload) => {
