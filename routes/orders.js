@@ -528,9 +528,15 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
         p_coupon_code: couponCode || null,
         p_idempotency_key: idempotencyScope,
         p_auth_source: req.user?.app_metadata?.provider || 'otp',
-        p_metadata: { user_agent: req.headers['user-agent'], address_id: savedAddress?.id || null },
-        p_store_id: req.store.id,
-        p_location_url: location_url || null
+        // The Dev/Production RPC contract currently stores optional location
+        // data in metadata; do not send an undeclared RPC argument because
+        // PostgREST rejects the entire call before the transaction starts.
+        p_metadata: {
+          user_agent: req.headers['user-agent'],
+          address_id: savedAddress?.id || null,
+          location_url: location_url || null
+        },
+        p_store_id: req.store.id
     });
 
     if (error) {
