@@ -575,7 +575,7 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
 
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
     const order = Array.isArray(data) ? data[0] : data;
-    return sendSuccess(res, { orderId: order.id, total: order.total }, { status: 201 });
+    return sendSuccess(res, { id: order.id, orderId: order.id, order_number: order.order_number || '', total: order.total }, { status: 201 });
 
 
   } catch (error) {
