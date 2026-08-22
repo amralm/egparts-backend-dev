@@ -19,6 +19,8 @@ const { supabase } = require('../services/supabase');
 const { verifyPermission } = require('../middleware/auth');
 const { resolvePaymentMethods, assertPaymentMethodAvailable } = require('../services/paymentMethodPolicy');
 const { apiError } = require('../utils/apiError');
+const { validateBody } = require('../middleware/requestValidation');
+const { paymentToggleSchema } = require('../schemas/paymentSchemas');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -83,7 +85,7 @@ router.get('/:method/settings', verifyPermission('payments.view'), async (req, r
 
 // ─── Admin: POST /api/payments/methods/:method/toggle ────────────────────────
 
-router.post('/:method/toggle', verifyPermission('payments.configure'), async (req, res) => {
+router.post('/:method/toggle', verifyPermission('payments.configure'), validateBody(paymentToggleSchema), async (req, res) => {
   const { method } = req.params;
   const { is_active } = req.body;
   const storeId = req.store?.id;
