@@ -1080,14 +1080,10 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
       authUserId = newUser.user.id;
     }
 
-    // 2b. If user already existed without a phone, patch it now
-    if (formattedPhone) {
-      const { error: patchErr } = await supabase.auth.admin.updateUserById(authUserId, {
-        phone: formattedPhone,
-        user_metadata: { name, phone: invitation.phone }
-      });
-      if (patchErr) logger.warn('Could not update phone on auth user:', patchErr.message);
-    }
+    // Existing accounts keep their existing credentials and identity data.
+    // An invitation grants only the store membership created below; it must
+    // never silently replace a password, phone, or global Auth metadata.
+    // New accounts already received their invitation phone/name at creation.
 
     // 3. Clone template roles into the store (Idempotent)
     const { data: templateRoles } = await supabase
@@ -1269,7 +1265,10 @@ router.post('/invitation/accept', sensitiveWriteRateLimiter, async (req, res) =>
       .select('subdomain, custom_domain')
       .single();
 
-    sendSuccess(res, { message: 'تم تفعيل حساب صاحب المتجر وتهيئة البنية التحتية بنجاح',
+    sendSuccess(res, { message: existingUser
+      ? 'تم ربط حسابك الحالي بالمتجر. استخدم كلمة مرور حسابك الحالية.'
+      : 'تم تفعيل حساب صاحب المتجر وتهيئة البنية التحتية بنجاح',
+      account_reused: Boolean(existingUser),
       subdomain: store?.subdomain,
       custom_domain: store?.custom_domain });
   } catch (err) {
