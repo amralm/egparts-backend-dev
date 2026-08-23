@@ -28,44 +28,12 @@ BEGIN
       ADD COLUMN IF NOT EXISTS last_used_at timestamptz,
       ADD COLUMN IF NOT EXISTS revoked_at timestamptz;
 
-    -- Existing raw session credentials are not part of the canonical
-    -- contract. Revoking rows that cannot be mapped to the new hash-based
-    -- contract makes the transition fail closed before the raw column is
-    -- removed.
-    UPDATE public.impersonation_sessions
-       SET is_active = false,
-           revoked_at = COALESCE(revoked_at, now())
-     WHERE token_hash IS NULL
-        OR store_id IS NULL
-        OR admin_id IS NULL;
-    ALTER TABLE public.impersonation_sessions DROP COLUMN IF EXISTS session_token;
   END IF;
 END $$;
 
--- Existing rows are normalized before the canonical invariants are enforced.
--- Rows without an owning administrator were revoked above and cannot become
--- active again; valid legacy rows inherit their existing expiry as the
--- absolute boundary.
-UPDATE public.impersonation_sessions
-   SET absolute_expires_at = COALESCE(absolute_expires_at, expires_at),
-       is_active = COALESCE(is_active, false)
- WHERE absolute_expires_at IS NULL OR is_active IS NULL;
-
-ALTER TABLE public.impersonation_sessions
-  ALTER COLUMN absolute_expires_at SET NOT NULL,
-  ALTER COLUMN is_active SET NOT NULL;
-
--- Do not make a legacy nullable owner column fail the whole migration. New
--- rows are always written with both owners; once legacy null rows are
--- retired, the parity gate can promote these columns to NOT NULL safely.
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.impersonation_sessions WHERE store_id IS NULL)
-     THEN ALTER TABLE public.impersonation_sessions ALTER COLUMN store_id SET NOT NULL; END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.impersonation_sessions WHERE admin_id IS NULL)
-     THEN ALTER TABLE public.impersonation_sessions ALTER COLUMN admin_id SET NOT NULL; END IF;
-END $$;
-
+-- This migration is additive so the old production binary remains valid
+-- during the deploy window. Cleanup of raw credentials and legacy RPC grants
+-- happens in migration 87 after the canonical backend is live.
 ALTER TABLE public.impersonation_sessions
   ALTER COLUMN is_active SET DEFAULT true;
 
@@ -107,13 +75,7 @@ CREATE POLICY impersonation_handoff_codes_deny_browser
 REVOKE ALL ON public.impersonation_sessions FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.impersonation_handoff_codes FROM PUBLIC, anon, authenticated;
 
--- Retire the database-era impersonation API. The REST contract above is the
--- only runtime entry point; leaving these SECURITY DEFINER RPCs executable
--- would preserve a second authorization model.
-REVOKE EXECUTE ON FUNCTION public.start_impersonation(uuid, text, text) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.stop_impersonation(uuid) FROM PUBLIC, anon, authenticated;
-
 COMMENT ON TABLE public.impersonation_sessions IS
-  'Canonical platform-admin impersonation sessions; token_hash only, tenant scoped.';
+  'Canonical platform-admin impersonation sessions; hash-based credentials are used by the new runtime; raw legacy columns are removed by migration 87.';
 COMMENT ON TABLE public.impersonation_handoff_codes IS
   'Single-use short-lived handoff codes; never stores a bearer token.';
