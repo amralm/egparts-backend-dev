@@ -1242,27 +1242,62 @@ router.get('/tenants/metrics', verifyPlatformAdmin, async (req, res) => {
       .order('created_at', { ascending: false });
     if (storesError) throw storesError;
 
-    const metrics = [];
-    for (const store of stores || []) {
-      const [ordersRes, deliveredRes, productsRes, otpRes] = await Promise.all([
-        supabase.from('orders').select('total', { count: 'exact' }).eq('store_id', store.id).gte('created_at', monthStart.toISOString()),
-        supabase.from('orders').select('id', { count: 'exact', head: true }).eq('store_id', store.id).eq('status', 'delivered').gte('created_at', monthStart.toISOString()),
-        supabase.from('products').select('id', { count: 'exact', head: true }).eq('store_id', store.id),
-        supabase.from('feature_usage').select('usage_count').eq('store_id', store.id).eq('feature_key', 'otp_messages_month').gte('period_start', monthStart.toISOString())
-      ]);
+    // Do not issue one query per store. The old implementation performed four
+    // round-trips inside a loop (N+1), which made this platform page time out
+    // as soon as the tenant count grew. Fetch each dataset once, then group it
+    // deterministically in memory.
+    const storeIds = (stores || []).map((store) => store.id);
+    const [ordersRes, productsRes, otpRes] = await Promise.all([
+      storeIds.length
+        ? supabase.from('orders').select('store_id,total,status').in('store_id', storeIds).gte('created_at', monthStart.toISOString())
+        : Promise.resolve({ data: [], error: null }),
+      storeIds.length
+        ? supabase.from('products').select('store_id').in('store_id', storeIds)
+        : Promise.resolve({ data: [], error: null }),
+      storeIds.length
+        ? supabase.from('feature_usage').select('store_id,usage_count').in('store_id', storeIds).eq('feature_key', 'otp_messages_month').gte('period_start', monthStart.toISOString())
+        : Promise.resolve({ data: [], error: null })
+    ]);
+    if (ordersRes.error) throw ordersRes.error;
+    if (productsRes.error) throw productsRes.error;
+    if (otpRes.error) throw otpRes.error;
 
-      metrics.push({
-        ...store,
-        orders_this_month: ordersRes.count || 0,
-        delivered_this_month: deliveredRes.count || 0,
-        sales_this_month: (ordersRes.data || []).reduce((sum, order) => sum + Number(order.total || 0), 0),
-        products_count: productsRes.count || 0,
-        otp_usage_this_month: (otpRes.data || []).reduce((sum, row) => sum + Number(row.usage_count || 0), 0),
-        plan: store.store_subscriptions?.plans || null,
-        plan_id: store.store_subscriptions?.plan_id || null,
-        subscription_status: store.store_subscriptions?.status || null
-      });
+    const byStore = new Map(storeIds.map((id) => [id, {
+      orders_this_month: 0,
+      delivered_this_month: 0,
+      sales_this_month: 0,
+      products_count: 0,
+      otp_usage_this_month: 0
+    }]));
+    for (const order of ordersRes.data || []) {
+      const stats = byStore.get(order.store_id);
+      if (!stats) continue;
+      stats.orders_this_month += 1;
+      if (order.status === 'delivered') stats.delivered_this_month += 1;
+      stats.sales_this_month += Number(order.total || 0);
     }
+    for (const product of productsRes.data || []) {
+      const stats = byStore.get(product.store_id);
+      if (stats) stats.products_count += 1;
+    }
+    for (const usage of otpRes.data || []) {
+      const stats = byStore.get(usage.store_id);
+      if (stats) stats.otp_usage_this_month += Number(usage.usage_count || 0);
+    }
+
+    const metrics = (stores || []).map((store) => ({
+      ...store,
+      ...(byStore.get(store.id) || {
+        orders_this_month: 0,
+        delivered_this_month: 0,
+        sales_this_month: 0,
+        products_count: 0,
+        otp_usage_this_month: 0
+      }),
+      plan: store.store_subscriptions?.plans || null,
+      plan_id: store.store_subscriptions?.plan_id || null,
+      subscription_status: store.store_subscriptions?.status || null
+    }));
 
     sendSuccess(res, metrics);
   } catch (err) {
