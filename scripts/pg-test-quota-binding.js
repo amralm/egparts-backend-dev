@@ -13,12 +13,14 @@ const { Client } = require('pg');
 const FOREIGN_STORE = '00000000-0000-0000-0000-0000000000f1';
 
 async function main() {
-  if (!process.env.SUPA_DEV_DB_URL) {
+  if (!process.env.SUPA_DEV_DB_URL && !process.env.SUPA_PG_PASSWORD) {
     console.error('SUPA_DEV_DB_URL is required');
     process.exit(2);
   }
   const client = new Client({
     connectionString: process.env.SUPA_DEV_DB_URL,
+    host: process.env.SUPA_PG_HOST, port: process.env.SUPA_PG_PORT ? Number(process.env.SUPA_PG_PORT) : undefined,
+    user: process.env.SUPA_PG_USER, password: process.env.SUPA_PG_PASSWORD, database: process.env.SUPA_PG_DATABASE || 'postgres',
     ssl: { rejectUnauthorized: false }
   });
   await client.connect();

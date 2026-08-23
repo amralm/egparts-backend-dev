@@ -18,13 +18,15 @@ function extractIndexes(sql, file) {
 }
 
 async function main() {
-  if (!process.env.SUPA_DEV_DB_URL) throw new Error('SUPA_DEV_DB_URL required');
+  if (!process.env.SUPA_DEV_DB_URL && !process.env.SUPA_PG_PASSWORD) throw new Error('SUPA_DEV_DB_URL required');
   const files = fs.readdirSync(DIR).filter((f) => f.endsWith('.sql'));
   const declared = [];
   for (const f of files) {
     declared.push(...extractIndexes(fs.readFileSync(path.join(DIR, f), 'utf8'), f));
   }
-  const client = new Client({ connectionString: process.env.SUPA_DEV_DB_URL, ssl: { rejectUnauthorized: false } });
+  const client = new Client({ connectionString: process.env.SUPA_DEV_DB_URL,
+    host: process.env.SUPA_PG_HOST, port: process.env.SUPA_PG_PORT ? Number(process.env.SUPA_PG_PORT) : undefined,
+    user: process.env.SUPA_PG_USER, password: process.env.SUPA_PG_PASSWORD, database: process.env.SUPA_PG_DATABASE || 'postgres', ssl: { rejectUnauthorized: false } });
   await client.connect();
   const { rows } = await client.query("SELECT indexname FROM pg_indexes WHERE schemaname='public'");
   await client.end();
