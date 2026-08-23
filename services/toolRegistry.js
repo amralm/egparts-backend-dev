@@ -187,34 +187,32 @@ registry.registerTool({
   const [{ data: subscription, error: subscriptionError }, { data: usage, error: usageError }] = await Promise.all([
     supabase
       .from('store_subscriptions')
-      .select('id, status, current_period_start, current_period_end, trial_ends_at, plans(code, display_name, limits, features)')
+      .select('id, status, started_at, expires_at, plans(id, code, display_name, description)')
       .eq('store_id', storeId)
       .eq('status', 'active')
       .maybeSingle(),
     supabase
       .from('feature_usage')
-      .select('feature_key, usage, period_start, period_end, updated_at')
+      .select('feature_key, usage_count, period_start, period_end, updated_at')
       .eq('store_id', storeId)
   ]);
 
   if (subscriptionError) throw subscriptionError;
   if (usageError) throw usageError;
 
-  const limits = subscription?.plans?.limits || {};
   const usageRows = usage || [];
   const featureUsage = usageRows.map((row) => ({
     ...row,
-    limit: limits[row.feature_key] ?? null,
-    usagePct: percent(row.usage, limits[row.feature_key])
+    usage: row.usage_count || 0
   }));
 
   return {
     planCode: subscription?.plans?.code || 'starter',
     planName: subscription?.plans?.display_name || 'Starter',
-    status: subscription?.status || 'inactive',
-    currentPeriodEnd: subscription?.current_period_end || null,
-    trialEndsAt: subscription?.trial_ends_at || null,
-    features: subscription?.plans?.features || {},
+    status: subscription?.status || 'active',
+    currentPeriodEnd: subscription?.expires_at || null,
+    trialEndsAt: null,
+    features: {},
     featureUsage
   };
 });
@@ -298,7 +296,7 @@ registry.registerTool({
   const [productsRes, settingsRes] = await Promise.all([
     supabase
       .from('products')
-      .select('id, name, price, stock_quantity, low_stock_threshold, is_active, category, image, specs, description')
+      .select('id, name, price, stock_quantity, low_stock_threshold, is_active, category, image, specs')
       .eq('store_id', storeId)
       .eq('is_deleted', false),
     supabase
@@ -319,7 +317,7 @@ registry.registerTool({
     : [];
   const outOfStock = products.filter((p) => Number(p.stock_quantity || 0) === 0);
   const missingImages = products.filter((p) => !p.image);
-  const missingDescriptions = products.filter((p) => !p.description && (!p.specs || !p.specs.description));
+  const missingDescriptions = products.filter((p) => !p.specs || (!p.specs.description && !p.specs.details));
 
   return {
     totals: {
