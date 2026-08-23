@@ -40,6 +40,7 @@ const { banCheckMiddleware } = require('./middleware/banCheck');
 const { verifyAdminOrLocal } = require('./middleware/qrAuth');
 const cookieParser = require('cookie-parser');
 const tenantResolver = require('./middleware/tenantResolver');
+const impersonationMiddleware = require('./middleware/impersonation');
 const { supabase } = require('./services/supabase');
 
 const app = express();
@@ -394,6 +395,9 @@ app.use('/api/blocked', tenantResolver, blockedRoutes);
 
 // âœ… Resolve Tenant for all other API endpoints
 app.use('/api/', tenantResolver);
+// Canonical impersonation boundary. It runs after hostname resolution but
+// replaces the tenant with the signed-in platform session's store.
+app.use('/api/', impersonationMiddleware);
 
 // Public tenant telemetry is unauthenticated; keep it on a tight budget so it
 // cannot be used as a free DB fan-out or enumeration amplifier.

@@ -3,17 +3,18 @@ const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
 const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
 const { supabase } = require('../services/supabase');
 const { verifyPlatformAdmin, verifyPlatformPermission } = require('../middleware/platformAdmin');
 const logger = require('../utils/logger');
 const { z } = require('zod');
+const rateLimit = require('express-rate-limit');
 const { validateBody, validateParams } = require('../middleware/requestValidation');
 const { managerInviteCreateSchema, invitationIdParamSchema } = require('../schemas/platformSchemas');
 const { sanitizeIlikeTerm } = require('../utils/postgrest');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
 const whatsappPoolService = require('../services/whatsappPoolService');
+const { hashToken } = require('../middleware/impersonation');
 
 const SUPPORTED_PLAN_FEATURE_KEYS = new Set([
   'products', 'categories', 'brands', 'product_images', 'product_variants', 'attributes',
@@ -92,6 +93,15 @@ const { encryptCredentials, decryptCredentials, getEncryptionKeyForVersion } = r
 const { sanitizeThemeOverrides } = require('../services/themeSettingsService');
 const { tenantCache } = require('../utils/cache');
 
+const impersonationControlLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  validate: { trustProxy: false },
+  handler: (req, res) => apiError(res, 429, 'Too many impersonation requests. Try again later.', 'IMPERSONATION_RATE_LIMITED')
+});
+
 const s3Client = new S3Client({
   region: 'auto',
   endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -163,7 +173,21 @@ function buildStorageTree(objects, prefix) {
   return { folders: [...folders.values()].sort((a, b) => a.name.localeCompare(b.name)), files };
 }
 
-router.use(verifyPlatformPermission('platform.access'));
+router.use((req, res, next) => {
+  // Handoff redemption is authenticated by a single-use code, not by a
+  // browser session that cannot cross subdomains.
+  if (req.path === '/impersonation/redeem' || req.path === '/impersonation/session' || req.path === '/impersonation/end') return next();
+  return verifyPlatformPermission('platform.access')(req, res, next);
+});
+
+// A platform API request must never be combined with a tenant impersonation
+// session. Impersonation is exclusively for tenant-scoped APIs.
+router.use((req, res, next) => {
+  if (req.headers['x-impersonate-session']) {
+    return apiError(res, 403, 'Platform APIs cannot be called through an impersonation session.', 'IMPERSONATION_PLATFORM_SCOPE');
+  }
+  next();
+});
 
 function normalizeThemePayload(body = {}) {
   const name = typeof body.name === 'string' ? body.name.trim().slice(0, 120) : '';
@@ -1648,65 +1672,6 @@ router.delete('/users/:user_id', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
-// Impersonation Endpoints
-router.post('/impersonate/start', verifyPlatformAdmin, async (req, res) => {
-  const { store_id, reason } = req.body;
-  if (!store_id || !reason) {
-    return apiError(res, 400, 'store_id and reason are required', `HTTP_400`);
-  }
-
-  try {
-    const admin_id = req.user.sub;
-    const expires_at = new Date();
-    expires_at.setHours(expires_at.getHours() + 2); // 2 hour duration
-
-    const { data: session, error } = await supabase
-      .from('impersonation_sessions')
-      .insert([{
-        store_id,
-        admin_id,
-        reason,
-        expires_at: expires_at.toISOString(),
-        ip_address: req.ip,
-        user_agent: req.headers['user-agent']
-      }])
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    await auditPlatform(req, 'platform.impersonate.start', 'store', store_id, null, session, session.id);
-    sendSuccess(res, { session_token: session.session_token, store_id });
-  } catch (err) {
-    logger.error('Failed to start impersonation:', err.message);
-    apiError(res, 500, 'Failed to start impersonation', `HTTP_500`);
-  }
-});
-
-router.post('/impersonate/stop', verifyPlatformAdmin, async (req, res) => {
-  const { session_token } = req.body;
-  if (!session_token) {
-    return apiError(res, 400, 'session_token is required', `HTTP_400`);
-  }
-
-  try {
-    const { data: session, error } = await supabase
-      .from('impersonation_sessions')
-      .update({ ended_at: new Date().toISOString(), is_active: false })
-      .eq('session_token', session_token)
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    await auditPlatform(req, 'platform.impersonate.stop', 'store', session.store_id, null, session, session.id);
-    sendSuccess(res, { message: 'Impersonation ended successfully' });
-  } catch (err) {
-    logger.error('Failed to stop impersonation:', err.message);
-    apiError(res, 500, 'Failed to stop impersonation', `HTTP_500`);
-  }
-});
-
 // Scoped Ban Endpoints
 router.post('/users/ban', verifyPlatformAdmin, async (req, res) => {
   const { user_id, store_id, ban_scope, ban_type, reason, is_temporary, banned_until } = req.body;
@@ -1800,48 +1765,121 @@ router.post('/impersonation/start', verifyPlatformAdmin, async (req, res) => {
       .maybeSingle();
     if (error || !store) return apiError(res, 404, 'Store not found', `HTTP_404`);
 
-    const auditId = crypto.randomUUID();
-    const token = jwt.sign({
-      typ: 'platform_impersonation',
-      jti: auditId,
-      platform_user_id: req.user.sub,
-      store_id: store.id
-    }, process.env.DATABASE_ENCRYPTION_KEY, { expiresIn: IMPERSONATION_TTL_SECONDS });
+    const sessionToken = crypto.randomBytes(32).toString('base64url');
+    const handoffCode = crypto.randomBytes(32).toString('base64url');
+    const now = Date.now();
+    const expiresAt = new Date(now + 30 * 60 * 1000).toISOString();
+    const absoluteExpiresAt = new Date(now + 2 * 60 * 60 * 1000).toISOString();
+    const reason = typeof req.body.reason === 'string' && req.body.reason.trim()
+      ? req.body.reason.trim().slice(0, 500)
+      : 'Platform administrator store access';
 
-    await supabase.from('impersonation_logs').insert([{
-      id: auditId,
-      super_admin_id: req.user.sub,
-      store_id: store.id,
-      started_at: new Date().toISOString(),
-      ip_address: req.ip,
-      user_agent: req.headers['user-agent'] || null
-    }]);
+    const { data: session, error: sessionError } = await supabase
+      .from('impersonation_sessions')
+      .insert([{
+        store_id: store.id,
+        admin_id: req.user.sub,
+        reason,
+        token_hash: hashToken(sessionToken),
+        expires_at: expiresAt,
+        absolute_expires_at: absoluteExpiresAt,
+        is_active: true,
+        ip_address: req.ip,
+        user_agent: req.headers['user-agent'] || null
+      }])
+      .select('id, store_id, admin_id, expires_at, absolute_expires_at')
+      .single();
+    if (sessionError) throw sessionError;
 
-    await auditPlatform(req, 'platform.impersonation.start', 'store', store.id, {}, { store_id: store.id, audit_id: auditId }, store.id);
-    sendSuccess(res, { token, store, expires_in: IMPERSONATION_TTL_SECONDS, audit_id: auditId });
+    const { error: handoffError } = await supabase
+      .from('impersonation_handoff_codes')
+      .insert([{
+        session_id: session.id,
+        code_hash: hashToken(handoffCode),
+        created_by: req.user.sub,
+        expires_at: new Date(now + 120 * 1000).toISOString()
+      }]);
+    if (handoffError) throw handoffError;
+
+    await auditPlatform(req, 'platform.impersonation.start', 'store', store.id, {}, { store_id: store.id, session_id: session.id }, store.id);
+    sendSuccess(res, { handoff_code: handoffCode, store, expires_in: 1800, absolute_expires_in: 7200, session_id: session.id });
   } catch (err) {
     logger.error('Failed to start impersonation:', err.message);
     apiError(res, 500, 'Failed to start impersonation', `HTTP_500`);
   }
 });
 
-router.post('/impersonation/end', verifyPlatformAdmin, async (req, res) => {
+router.post('/impersonation/redeem', impersonationControlLimiter, async (req, res) => {
+  const code = typeof req.body?.handoff_code === 'string' ? req.body.handoff_code : '';
+  if (!code) return apiError(res, 400, 'handoff_code is required', 'HANDOFF_CODE_REQUIRED');
+
+  try {
+    const { data: handoff, error: handoffError } = await supabase
+      .from('impersonation_handoff_codes')
+      .select('id, session_id, created_by, expires_at, used_at')
+      .eq('code_hash', hashToken(code))
+      .maybeSingle();
+    if (handoffError) throw handoffError;
+    // The handoff code is the authentication factor for this cross-subdomain
+    // exchange. It is high-entropy, single-use, and expires after 120 seconds;
+    // requiring a browser JWT here would reintroduce the cross-subdomain auth
+    // failure this contract is designed to remove.
+    if (!handoff || handoff.used_at || new Date(handoff.expires_at).getTime() <= Date.now()) {
+      return apiError(res, 401, 'Invalid or expired handoff code', 'HANDOFF_CODE_INVALID');
+    }
+
+    const { data: session, error: sessionError } = await supabase
+      .from('impersonation_sessions')
+      .select('id, store_id, admin_id, token_hash, expires_at, absolute_expires_at, revoked_at, is_active')
+      .eq('id', handoff.session_id)
+      .maybeSingle();
+    if (sessionError) throw sessionError;
+    if (!session || !session.is_active || session.revoked_at || new Date(session.expires_at).getTime() <= Date.now()) {
+      return apiError(res, 401, 'Impersonation session is not active', 'IMPERSONATION_SESSION_INVALID');
+    }
+
+    const { data: usedCode, error: consumeError } = await supabase
+      .from('impersonation_handoff_codes')
+      .update({ used_at: new Date().toISOString() })
+      .eq('id', handoff.id)
+      .is('used_at', null)
+      .select('id')
+      .maybeSingle();
+    if (consumeError) throw consumeError;
+    if (!usedCode) return apiError(res, 409, 'Handoff code already used', 'HANDOFF_CODE_USED');
+
+    // The raw token is returned once over HTTPS and is never placed in a URL.
+    // Reconstructing it is impossible from token_hash, so issue a fresh token.
+    const sessionToken = crypto.randomBytes(32).toString('base64url');
+    const { error: rotateError } = await supabase
+      .from('impersonation_sessions')
+      .update({ token_hash: hashToken(sessionToken), last_used_at: new Date().toISOString() })
+      .eq('id', session.id);
+    if (rotateError) throw rotateError;
+    sendSuccess(res, { token: sessionToken, store_id: session.store_id, session_id: session.id, expires_at: session.expires_at });
+  } catch (err) {
+    logger.error('Failed to redeem impersonation handoff:', err.message);
+    apiError(res, 500, 'Failed to redeem impersonation handoff', 'HANDOFF_REDEEM_FAILED');
+  }
+});
+
+router.post('/impersonation/end', impersonationControlLimiter, async (req, res) => {
   const { token } = req.body;
   if (!token) return apiError(res, 400, 'token is required', `HTTP_400`);
 
   try {
-    const decoded = jwt.verify(token, process.env.DATABASE_ENCRYPTION_KEY);
-    if (decoded.typ !== 'platform_impersonation' || decoded.platform_user_id !== req.user.sub) {
-      return apiError(res, 403, 'Invalid impersonation token', `HTTP_403`);
+    const { data: session, error } = await supabase
+      .from('impersonation_sessions')
+      .update({ is_active: false, revoked_at: new Date().toISOString(), ended_at: new Date().toISOString() })
+      .eq('token_hash', hashToken(token))
+      .is('revoked_at', null)
+      .select('id, store_id')
+      .maybeSingle();
+    if (error) throw error;
+    if (!session) return apiError(res, 403, 'Invalid impersonation token', 'IMPERSONATION_TOKEN_INVALID');
+    if (req.user?.sub) {
+      await auditPlatform(req, 'platform.impersonation.end', 'store', session.store_id, {}, { session_id: session.id }, session.id);
     }
-
-    await supabase
-      .from('impersonation_logs')
-      .update({ ended_at: new Date().toISOString() })
-      .eq('id', decoded.jti)
-      .eq('super_admin_id', req.user.sub);
-
-    await auditPlatform(req, 'platform.impersonation.end', 'store', decoded.store_id, {}, { audit_id: decoded.jti }, decoded.store_id);
     sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to end impersonation:', err.message);
@@ -1849,24 +1887,25 @@ router.post('/impersonation/end', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
-router.post('/impersonation/session', async (req, res) => {
+router.post('/impersonation/session', impersonationControlLimiter, async (req, res) => {
   const { token } = req.body;
   if (!token) return apiError(res, 400, 'token is required', `HTTP_400`);
 
   try {
-    const decoded = jwt.verify(token, process.env.DATABASE_ENCRYPTION_KEY);
-    if (decoded.typ !== 'platform_impersonation') {
-      return apiError(res, 403, 'Invalid impersonation token', `HTTP_403`);
-    }
-
-    const { data: store, error } = await supabase
-      .from('stores')
-      .select('*')
-      .eq('id', decoded.store_id)
+    const { data: session, error: sessionError } = await supabase
+      .from('impersonation_sessions')
+      .select('id, store_id, admin_id, expires_at, absolute_expires_at, revoked_at, is_active')
+      .eq('token_hash', hashToken(token))
       .maybeSingle();
+    if (sessionError) throw sessionError;
+    if (!session || !session.is_active || session.revoked_at || new Date(session.expires_at).getTime() <= Date.now()) {
+      return apiError(res, 401, 'Invalid or expired impersonation token', 'IMPERSONATION_TOKEN_INVALID');
+    }
+    const { data: store, error } = await supabase
+      .from('stores').select('*').eq('id', session.store_id).maybeSingle();
     if (error || !store) return apiError(res, 404, 'Store not found', `HTTP_404`);
 
-    sendSuccess(res, { store, audit_id: decoded.jti });
+    sendSuccess(res, { store, session_id: session.id, expires_at: session.expires_at });
   } catch (err) {
     apiError(res, 400, 'Invalid or expired impersonation token', `HTTP_400`);
   }

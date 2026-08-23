@@ -34,7 +34,7 @@ const logger = require('../utils/logger');
  * @param {string} storeId - store UUID
  * @returns {Promise<string[]>} Array of granted permission names
  */
-async function resolveStorePermissions(userId, storeId) {
+async function resolveStorePermissions(userId, storeId, options = {}) {
   // Check if super_admin first (super admins have full capabilities across all stores)
   try {
     const { data: superAdmin } = await supabase
@@ -43,12 +43,26 @@ async function resolveStorePermissions(userId, storeId) {
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (superAdmin) {
+    if (superAdmin && options.impersonated !== true) {
       const { data: allPerms } = await supabase
         .from('permissions')
         .select('name')
         .eq('is_deprecated', false);
       return (allPerms || []).map((p) => p.name);
+    }
+
+    // An impersonated platform administrator is deliberately reduced to the
+    // tenant control plane. Do not require a matching user_roles row: the
+    // platform administrator is entering the selected store as an operator,
+    // not pretending to be a customer. Platform permissions are rejected in
+    // verifyPermission below, so this list cannot restore platform access.
+    if (superAdmin && options.impersonated === true) {
+      const { data: tenantPerms } = await supabase
+        .from('permissions')
+        .select('name')
+        .eq('is_deprecated', false)
+        .not('name', 'like', 'platform.%');
+      return (tenantPerms || []).map((p) => p.name);
     }
   } catch (saErr) {
     logger.warn('super_admin check in resolveStorePermissions failed:', saErr.message);
@@ -159,12 +173,14 @@ async function verifyBearerToken(token) {
 
 const verifyUser = async (req, res, next) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if ((!authHeader || !authHeader.startsWith('Bearer ')) && !(req.isImpersonated && req.user?.sub)) {
     return apiError(res, 401, 'Unauthorized: No token provided', `HTTP_401`);
   }
 
   try {
-    req.user = await verifyBearerToken(authHeader.split(' ')[1]);
+    if (!req.isImpersonated || !req.user?.sub) {
+      req.user = await verifyBearerToken(authHeader.split(' ')[1]);
+    }
     next();
   } catch (error) {
     logger.error('JWT verification error:', error.message);
@@ -242,18 +258,23 @@ const verifyAdmin = (req, res, next) => {
 const verifyPermission = (permissionName) => {
   return async (req, res, next) => {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if ((!authHeader || !authHeader.startsWith('Bearer ')) && !(req.isImpersonated && req.user?.sub)) {
       return apiError(res, 401, 'Unauthorized: No token provided', `HTTP_401`);
     }
 
     try {
-      const decoded = await verifyBearerToken(authHeader.split(' ')[1]);
+      const decoded = req.isImpersonated && req.user?.sub
+        ? req.user
+        : await verifyBearerToken(authHeader.split(' ')[1]);
       req.user = decoded;
 
       const userId = decoded.sub;
       const isPlatformPermission = permissionName.startsWith('platform.');
 
       if (isPlatformPermission) {
+        if (req.isImpersonated === true) {
+          return apiError(res, 403, 'Platform permissions are unavailable during tenant impersonation', 'IMPERSONATION_PLATFORM_SCOPE');
+        }
         const platformPermissions = await resolvePlatformPermissions(userId);
 
         if (platformPermissions === null) {
@@ -273,7 +294,9 @@ const verifyPermission = (permissionName) => {
         return apiError(res, 403, 'Forbidden: Tenant context required', `HTTP_403`);
       }
 
-      const storePermissions = await resolveStorePermissions(userId, storeId);
+      const storePermissions = await resolveStorePermissions(userId, storeId, {
+        impersonated: req.isImpersonated === true
+      });
 
       if (!storePermissions.includes(permissionName)) {
         return apiError(res, 403, `Forbidden: Missing permission '${permissionName}'`, `HTTP_403`);
@@ -300,7 +323,9 @@ const attachPermissions = async (req, res, next) => {
 
   try {
     if (storeId) {
-      req.permissions = await resolveStorePermissions(userId, storeId);
+      req.permissions = await resolveStorePermissions(userId, storeId, {
+        impersonated: req.isImpersonated === true
+      });
     } else {
       req.permissions = [];
     }
@@ -321,4 +346,5 @@ module.exports = {
   // Export resolvers for use in other services (e.g., SessionAssembler)
   resolveStorePermissions,
   resolvePlatformPermissions,
+  verifyBearerToken,
 };
