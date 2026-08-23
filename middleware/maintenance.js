@@ -59,8 +59,18 @@ module.exports = async function maintenanceMiddleware(req, res, next) {
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
         const token = authHeader.split(' ')[1];
-        const decoded = tokenVerifier.verify(token);
-        
+        // Fallback to the auth server so super admins holding newer
+        // asymmetric GoTrue sessions can still bypass maintenance.
+        let decoded;
+        try {
+          decoded = tokenVerifier.verify(token);
+        } catch (legacyError) {
+          const { supabaseAuth } = require('../services/supabase');
+          const { data, error } = await supabaseAuth.auth.getUser(token);
+          if (error || !data?.user?.id) throw legacyError;
+          decoded = { sub: data.user.id };
+        }
+
         if (decoded && decoded.sub) {
           const { data: superAdmin } = await supabase
             .from('super_admins')

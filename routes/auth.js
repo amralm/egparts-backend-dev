@@ -302,8 +302,7 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     try {
-      const tokenVerifier = require('../utils/tokenVerifier');
-      sessionUserId = tokenVerifier.verify(authHeader.split(' ')[1]).sub || null;
+      sessionUserId = (await verifyBearerToken(authHeader.split(' ')[1])).sub || null;
     } catch {
       sessionUserId = null; // anonymous or expired token → treated as public caller
     }
@@ -1296,9 +1295,10 @@ router.post('/validate-admin', async (req, res) => {
   const scopedStoreId = resolvedStoreId || requestedStoreId;
 
   try {
-    const tokenVerifier = require('../utils/tokenVerifier');
+    // verifyBearerToken covers legacy HS256 secrets and newer asymmetric
+    // GoTrue sessions; raw tokenVerifier.verify rejects the latter outright.
     const token = authHeader.split(' ')[1];
-    const decoded = tokenVerifier.verify(token);
+    const decoded = await verifyBearerToken(token);
     const userId = decoded.sub;
 
     const [{ data: superAdmin }, { data: storeAdmin }] = await Promise.all([
