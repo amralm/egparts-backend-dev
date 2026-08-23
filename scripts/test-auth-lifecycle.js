@@ -221,8 +221,13 @@ function totpNow(secretB32, offset = 0) {
       } else {
         skip('otp/verify roundtrip', 'code delivered to external WhatsApp inbox — not readable by automation');
       }
+    } else if (r.status === 503 && r.payload?.code === 'OTP_CHANNEL_UNAVAILABLE') {
+      // Graceful typed degradation when no WhatsApp account is provisioned:
+      // the CONTRACT is correct; the channel needs a paired device (manual).
+      ok('otp/send degrades gracefully (503 OTP_CHANNEL_UNAVAILABLE)', true);
+      skip('otp/verify roundtrip', 'requires a physically paired WhatsApp session on the dev pool');
     } else {
-      skip('otp/send', `status ${r.status}: ${JSON.stringify(r.payload).slice(0, 100)}`);
+      ok('otp/send fails with typed contract error', false, `status ${r.status}: ${JSON.stringify(r.payload).slice(0, 110)}`);
     }
   } finally {
     // ── cleanup dedicated user + bindings ──

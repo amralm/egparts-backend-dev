@@ -357,6 +357,11 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
       ip_address: req.ip,
       user_agent: req.headers['user-agent'] || null
     });
+    // Typed channel failures get a stable client-facing code; anything else
+    // remains an unexpected 500 handled by the global error handler.
+    if (err.code === 'OTP_CHANNEL_UNAVAILABLE') {
+      return apiError(res, err.statusCode || 503, err.message, err.code);
+    }
     throw err;
   }
   

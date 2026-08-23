@@ -127,7 +127,13 @@ class OTPService {
         logger.warn(`Failed to clean undelivered OTP: ${cleanupError.message}`);
       });
       logger.error(`Error sending OTP to WhatsApp: ${error.message}`);
-      throw new Error('فشل في إرسال الرسالة عبر واتساب، يرجى المحاولة لاحقاً');
+      // Typed channel failure so callers render an actionable state instead
+      // of an opaque 500 when no WhatsApp account is connected/provisioned.
+      const channelError = new Error('فشل في إرسال الرسالة عبر واتساب، يرجى المحاولة لاحقاً');
+      channelError.code = 'OTP_CHANNEL_UNAVAILABLE';
+      channelError.statusCode = 503;
+      channelError.cause = error && error.code ? error.code : undefined;
+      throw channelError;
     }
   }
 
