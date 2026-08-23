@@ -8,7 +8,7 @@ const whatsappService = require('../services/whatsappPoolService');
 const { supabase } = require('../services/supabase');
 const logger = require('../utils/logger');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
-const { verifyUser, optionalAuth } = require('../middleware/auth');
+const { verifyUser, optionalAuth, verifyBearerToken } = require('../middleware/auth');
 const userProfileService = require('../services/userProfileService');
 const twoFactorService = require('../services/twoFactorService');
 const phoneVerificationService = require('../services/phoneVerificationService');
@@ -244,7 +244,12 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, validateBod
 });
 
 router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) => {
-  const { phone, purpose, turnstileToken } = { ...req.body, ...sendOTPSchema.parse(req.body) };
+  const parsed = sendOTPSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return apiError(res, 400, 'بيانات الطلب غير صالحة', 'INVALID_PAYLOAD', { errors: parsed.error.issues });
+  }
+  const { phone, purpose, turnstileToken: rawTurnstileToken, turnstile_token: rawTurnstileTokenSnake } = parsed.data;
+  const turnstileToken = rawTurnstileToken || rawTurnstileTokenSnake;
   let normalizedPhone;
   try {
     normalizedPhone = normalizeEgyptianPhone(phone);
