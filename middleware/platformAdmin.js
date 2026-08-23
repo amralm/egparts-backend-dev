@@ -1,6 +1,6 @@
 const { apiError } = require('../utils/apiError');
 const { supabase } = require('../services/supabase');
-const tokenVerifier = require('../utils/tokenVerifier');
+const { verifyBearerToken } = require('./auth');
 const logger = require('../utils/logger');
 
 async function loadPlatformUser(req, res) {
@@ -14,7 +14,9 @@ async function loadPlatformUser(req, res) {
   }
 
   try {
-    const decoded = tokenVerifier.verify(authHeader.split(' ')[1]);
+    // verifyBearerToken validates legacy HS256 project secrets AND newer
+    // asymmetric GoTrue sessions through the auth fallback in one place.
+    const decoded = await verifyBearerToken(authHeader.split(' ')[1]);
     req.user = decoded;
 
     const { data: superAdmin, error } = await supabase

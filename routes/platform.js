@@ -306,8 +306,13 @@ function normalizeDomain(domain) {
 
 async function auditPlatform(req, action, entityType, entityId, oldValues = {}, newValues = {}, storeId = null) {
   try {
-    await supabase.from('audit_logs').insert([{
-      correlation_id: req.correlationId || crypto.randomUUID(),
+    // audit_logs.correlation_id is a uuid column; the correlation middleware
+    // emits "req_<uuid>" (and honors client-supplied ids), so sanitize here
+    // instead of silently dropping every platform audit row.
+    const rawCorrelation = String(req.correlationId || req.id || '');
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawCorrelation);
+    const { error } = await supabase.from('audit_logs').insert([{
+      correlation_id: isUuid ? rawCorrelation : crypto.randomUUID(),
       store_id: storeId,
       user_id: req.user?.sub || null,
       action,
@@ -318,6 +323,7 @@ async function auditPlatform(req, action, entityType, entityId, oldValues = {}, 
       ip_address: req.ip,
       user_agent: req.headers['user-agent'] || null
     }]);
+    if (error) { throw error; }
   } catch (err) {
     logger.warn(`Platform audit failed for ${action}: ${err.message}`);
   }
@@ -1877,9 +1883,10 @@ router.post('/impersonation/end', impersonationControlLimiter, async (req, res) 
       .maybeSingle();
     if (error) throw error;
     if (!session) return apiError(res, 403, 'Invalid impersonation token', 'IMPERSONATION_TOKEN_INVALID');
-    if (req.user?.sub) {
-      await auditPlatform(req, 'platform.impersonation.end', 'store', session.store_id, {}, { session_id: session.id }, session.id);
-    }
+    // This route authenticates by token possession (no Bearer required), so
+    // req.user may be absent; the revocation event must be recorded either way.
+    // store_id must reference the STORE (FK to stores), never the session id.
+    await auditPlatform(req, 'platform.impersonation.end', 'store', session.store_id, {}, { session_id: session.id, via_bearer: Boolean(req.user?.sub) }, session.store_id);
     sendSuccess(res, {});
   } catch (err) {
     logger.error('Failed to end impersonation:', err.message);
