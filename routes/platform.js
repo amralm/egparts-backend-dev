@@ -1794,7 +1794,7 @@ router.post('/users/unban', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
-router.post('/impersonation/start', verifyPlatformAdmin, async (req, res) => {
+router.post('/impersonation/start', verifyPlatformAdmin, impersonationControlLimiter, async (req, res) => {
   const { store_id } = req.body;
   if (!store_id) return apiError(res, 400, 'store_id is required', `HTTP_400`);
 
