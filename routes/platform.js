@@ -2437,6 +2437,19 @@ router.post('/domains', verifyPlatformAdmin, async (req, res) => {
     const { runDomainCheck } = require('../services/domainValidator');
     setTimeout(() => runDomainCheck(newDomain.id), 1000);
 
+    // Provision hosting + SSL on Cloudflare Pages (no dashboard visit needed).
+    // Failure is non-fatal: the DNS validator keeps working; CF sync can be
+    // retried by re-adding the domain after fixing configuration.
+    try {
+      const cloudflarePages = require('../services/cloudflarePagesService');
+      const cf = await cloudflarePages.addCustomDomain(newDomain.domain);
+      if (!cf.ok) {
+        logger.warn('[domains] Cloudflare Pages provisioning deferred:', cf.error);
+      }
+    } catch (cfErr) {
+      logger.warn('[domains] Cloudflare Pages provisioning error:', cfErr.message);
+    }
+
     await auditPlatform(req, 'platform.domain.create', 'custom_domain', newDomain.id, {}, newDomain, store_id);
     sendSuccess(res, { domain: newDomain });
   } catch (err) {
@@ -2531,6 +2544,18 @@ router.delete('/domains/:id', verifyPlatformAdmin, async (req, res) => {
       .eq('id', id);
 
     if (error) throw error;
+
+    // Detach from Cloudflare Pages (best-effort cleanup of SSL/hosting).
+    if (oldDomain?.domain) {
+      try {
+        const cloudflarePages = require('../services/cloudflarePagesService');
+        const cf = await cloudflarePages.deleteCustomDomain(oldDomain.domain);
+        if (!cf.ok) logger.warn('[domains] Cloudflare Pages detach skipped:', cf.error);
+      } catch (cfErr) {
+        logger.warn('[domains] Cloudflare Pages detach error:', cfErr.message);
+      }
+    }
+
     await auditPlatform(req, 'platform.domain.delete', 'custom_domain', id, oldDomain || {}, {}, oldDomain?.store_id || null);
     sendSuccess(res, {});
   } catch (err) {
