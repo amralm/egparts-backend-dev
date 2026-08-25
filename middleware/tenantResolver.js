@@ -9,8 +9,11 @@ const DEFAULT_STORE_SUBDOMAIN = (process.env.DEFAULT_STORE_SUBDOMAIN || 'egparts
 
 module.exports = async function tenantResolver(req, res, next) {
   try {
-    // Bypass tenant resolver for webhooks, payment redirects, and OAuth authentication flows
+    // Bypass tenant resolver for platform routes, webhooks, payment redirects, and OAuth authentication flows
     if (
+      req.path.startsWith('/api/platform') || 
+      req.path.startsWith('/api/platform-reports') ||
+      req.path.startsWith('/api/health') ||
       req.path.endsWith('/webhook') || 
       req.path.includes('/webhook') ||
       req.path.includes('/api/auth/oauth/') ||

@@ -84,6 +84,8 @@ const storefrontRoutes = require('./routes/storefront');
 const geocodeRoutes = require('./routes/geocode');
 const analyticsRoutes = require('./routes/analytics');
 const seoRoutes = require('./routes/seo');
+const supportRoutes = require('./routes/support');
+const platformReportsRoutes = require('./routes/platformReports');
 const healthCollector = require('./services/healthCollector');
 const whatsappService = require('./services/whatsappService');
 const whatsappPoolService = require('./services/whatsappPoolService');
@@ -325,6 +327,10 @@ app.use('/api', (req, res, next) => {
 
 // âœ… Platform Health Check Dashboard (bypasses tenantResolver for super-admin access)
 app.use('/api/health', healthRoutes);
+
+// ✅ Platform Abuse & Dispute Resolution Reports (bypasses tenantResolver)
+app.use('/api/platform/reports', platformReportsRoutes.publicReportsRouter || platformReportsRoutes);
+app.use('/api/platform/admin/reports', platformReportsRoutes.adminReportsRouter || platformReportsRoutes);
 
 // ✅ Platform SaaS Administration APIs (bypasses tenantResolver, verified via public.super_admins)
 app.use('/api/platform', platformRoutes);
@@ -673,6 +679,11 @@ app.use('/api/limits', limitsRoutes);
 app.use('/api/copilot', aiRoutes);
 app.use('/api/geocode', geocodeRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/support', supportRoutes.customerRouter || supportRoutes);
+app.use('/api/admin/support', supportRoutes.adminRouter || supportRoutes);
+app.use('/api/platform-reports', platformReportsRoutes.publicReportsRouter || platformReportsRoutes);
+app.use('/api/platform/reports', platformReportsRoutes.publicReportsRouter || platformReportsRoutes);
+app.use('/api/platform/admin/reports', platformReportsRoutes.adminReportsRouter || platformReportsRoutes);
 
 // âœ… WhatsApp Auth Routes
 app.post('/api/auth/qr-login', async (req, res) => {

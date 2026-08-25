@@ -88,6 +88,12 @@ Rules:
 | 85 | 85_plan_features_fk_index.sql | plan_features FK index on real column feature_id | ✅ 2026-08-22 | ❌ forbidden until verified |
 | 86 | 86_deny_all_policies_for_policyless_rls_tables.sql | Explicit deny_public_api_* policies for every RLS-on/no-policy table (33 on Dev; frontend verified zero direct table/rpc access) | ✅ 2026-08-22 | ❌ forbidden until verified |
 | 87 | 87_drop_duplicate_nonconstraint_indexes.sql | Drop two true duplicate btree twins (order_items.order_id, products store/active/deleted); seven unique-constraint pairs intentionally kept — dropping a constraint side alters ON CONFLICT semantics | ✅ 2026-08-22 | ❌ forbidden until verified |
+| 88 | 88_lock_order_rpc_to_service_role.sql | Lock order RPC to service role | ✅ | ✅ |
+| 89 | 89_explicit_deny_vehicle_catalog.sql | Explicit deny policies for vehicle catalog | ✅ | ✅ |
+| 90 | 90_fix_enforce_feature_limit_unlimited.sql | Fix enforce feature limit unlimited | ✅ | ✅ |
+| 91 | 91_add_telegram_group_link.sql | Add telegram group link setting | ✅ | ✅ |
+| 92 | 92_fix_check_feature_limit_unlimited_accounting.sql | Fix check feature limit unlimited accounting | ✅ | ✅ |
+| 93 | 93_dual_layer_support_and_platform_abuse_system.sql | Dual-layer support & platform abuse reporting system (`store_support_tickets`, `store_support_messages`, `platform_abuse_reports`, RLS isolation, FK indexes, seed permissions) | ✅ 2026-08-25 | ❌ pending prod promotion |
 
 ## Applied-late note (2026-08-22) — CRITICAL functional impact
 

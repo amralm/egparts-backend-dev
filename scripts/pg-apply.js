@@ -2,6 +2,8 @@
 // Apply a SQL migration file to the Dev database (session pooler).
 // Usage: SUPA_DEV_DB_URL=postgres://... node scripts/pg-apply.js --file supabase_tabled-and-rows/82_x.sql
 const fs = require('fs');
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const { Client } = require('pg');
 
 async function main() {

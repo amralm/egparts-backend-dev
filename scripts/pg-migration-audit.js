@@ -4,6 +4,7 @@
 // Usage: SUPA_DEV_DB_URL=postgres://... node scripts/pg-migration-audit.js
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const { Client } = require('pg');
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '..', 'supabase_tabled-and-rows');

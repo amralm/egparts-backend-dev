@@ -3,6 +3,7 @@
 // Usage: SUPA_DEV_DB_URL=postgres://... node scripts/pg-advisor-snapshot.js --out audit/advisors-before.json
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const { Client } = require('pg');
 
 const queries = {

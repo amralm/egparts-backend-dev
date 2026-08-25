@@ -102,6 +102,7 @@ async function probeUrl(url) {
   passed = runStep(4, 'Manual Wallet Order & Stock State Machine', 'node', ['scripts/e2e-manual-wallet-flow.js'], BACKEND_DIR) && passed;
   passed = runStep(4, 'Auth Lifecycle, Passwords, TOTP 2FA & Addresses', 'node', ['scripts/test-auth-lifecycle.js'], BACKEND_DIR) && passed;
   passed = runStep(4, 'Customer Commerce & Merchant Admin Suite', 'node', ['scripts/e2e-commerce-admin.js'], BACKEND_DIR) && passed;
+  passed = runStep(4, 'Store Support Tickets & Platform Abuse Reports Suite', 'node', ['scripts/e2e-support-and-reports.js'], BACKEND_DIR) && passed;
   if (!passed) {
     console.error('\n⛔ GATE 4 FAILED: Aborting verification pipeline.');
     process.exit(1);
