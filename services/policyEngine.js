@@ -63,7 +63,8 @@ class PolicyEngine {
         max_value: feature.limit,
         is_unlimited: feature.is_unlimited === true,
         limit_type: feature.limit_type,
-        limit_config: { max_value: feature.limit, period_type: feature.period_type },
+        limit_config: { max_value: feature.limit, period_type: feature.period_type, enabled: feature.allowed === true },
+        allowed: feature.allowed === true,
         usage: feature.usage
       }]));
     } catch (err) {

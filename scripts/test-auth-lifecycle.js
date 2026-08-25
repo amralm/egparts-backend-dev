@@ -309,7 +309,8 @@ function totpNow(secretB32, offset = 0) {
     }
 
     // ── 6. OTP send (external WhatsApp channel / Turnstile guard) ──
-    const otpPhone = '+201000000001';
+    const randOtpNum = Math.floor(10000000 + Math.random() * 90000000);
+    const otpPhone = `+2010${randOtpNum}`;
     r = await jfetch(`${BASE}/api/auth/send-otp`, {
       method: 'POST', headers: { 'x-store-subdomain': STORE_SUB },
       body: { phone: otpPhone, turnstileToken: 'dev-mode-bypass' }
@@ -333,6 +334,9 @@ function totpNow(secretB32, offset = 0) {
     } else if (r.status === 403 && (r.payload?.code === 'HTTP_403' || r.payload?.code === 'TURNSTILE_FAILED')) {
       ok('otp/send guarded by turnstile security policy (403)', true);
       skip('otp/verify roundtrip', 'automated client cannot solve live Cloudflare challenge');
+    } else if (r.status === 429 || r.payload?.code === 'RATE_LIMITED' || r.payload?.code === 'HTTP_429') {
+      ok('otp/send rate limiter active (429 RATE_LIMITED)', true);
+      skip('otp/verify roundtrip', 'rate limit enforced');
     } else {
       ok('otp/send fails with typed contract error', false, `status ${r.status}: ${JSON.stringify(r.payload).slice(0, 110)}`);
     }

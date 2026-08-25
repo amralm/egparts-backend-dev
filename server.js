@@ -530,7 +530,7 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
     const usagesMap = Object.fromEntries((usageResult.data || []).map(u => [u.feature_key, u.usage_count]));
     const entitlementState = await getFeatureStates(req.store.id, [
       'whatsapp_enabled', 'whatsapp_accounts_max', 'whatsapp_messages_month', 'whatsapp_concurrency',
-      'products', 'orders_per_month', 'custom_domains'
+      'products', 'orders_per_month', 'custom_domains', 'coupons', 'payment_gateways'
     ]);
 
     // Fetch OTP limits from otp_messages_month or fallback to whatsapp_notifications
@@ -576,7 +576,7 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
         coupons: {
           usage: couponsCountResult.count || 0,
           limit: limits['coupons']?.max_value ?? 0,
-          enabled: limits['coupons'] ? (limits['coupons'].limit_type === 'boolean' ? !!limits['coupons'].limit_config?.enabled : limits['coupons'].limit_type !== 'disabled') : false
+          enabled: entitlementState.features.coupons?.allowed === true
         },
         staff_users: {
           usage: staffCountResult.count || 0,
@@ -623,7 +623,7 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
           is_unlimited: entitlementState.features.whatsapp_messages_month?.is_unlimited === true
         },
         payment_gateways: {
-          enabled: limits['payment_gateways'] ? (limits['payment_gateways'].limit_type === 'boolean' ? !!limits['payment_gateways'].limit_config?.enabled : limits['payment_gateways'].limit_type !== 'disabled') : false
+          enabled: entitlementState.features.payment_gateways?.allowed === true
         },
         export_formats: {
           allowed: limits['export_formats']?.limit_config?.allowed_formats || 'csv'
