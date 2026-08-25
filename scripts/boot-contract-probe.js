@@ -55,6 +55,7 @@ function parseJson(body) {
 
 async function main() {
   const child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
+    cwd: path.join(__dirname, '..'),
     env: { ...process.env, PORT: String(PORT) },
     stdio: ['ignore', fs.openSync(LOG_FILE, 'a'), fs.openSync(LOG_FILE, 'a')]
   });

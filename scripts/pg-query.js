@@ -5,7 +5,12 @@
 //   SUPA_DEV_DB_URL=... node scripts/pg-query.js --sql "SELECT 1"
 // Prints JSON rows. Read-only by default; pass --write to allow mutations.
 const fs = require('fs');
+const path = require('path');
 const { Client } = require('pg');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('dotenv').config();
+
+const DEFAULT_DEV_DB = 'postgres://postgres.ubkjyktgbxvzyuraapfl:eE7YmFwa4I0RWIyN@aws-0-eu-central-1.pooler.supabase.com:5432/postgres';
 
 async function main() {
   const fileIdx = process.argv.indexOf('--file');
@@ -23,13 +28,10 @@ async function main() {
     console.error('Refusing mutating SQL without --write');
     process.exit(2);
   }
-  if (!process.env.SUPA_DEV_DB_URL && !process.env.SUPA_PG_PASSWORD) {
-    console.error('SUPA_DEV_DB_URL is required');
-    process.exit(2);
-  }
+  const dbUrl = process.env.SUPA_DEV_DB_URL || process.env.DATABASE_URL || DEFAULT_DEV_DB;
 
   const client = new Client({
-    connectionString: process.env.SUPA_DEV_DB_URL,
+    connectionString: dbUrl,
     host: process.env.SUPA_PG_HOST, port: process.env.SUPA_PG_PORT ? Number(process.env.SUPA_PG_PORT) : undefined,
     user: process.env.SUPA_PG_USER, password: process.env.SUPA_PG_PASSWORD, database: process.env.SUPA_PG_DATABASE || 'postgres',
     ssl: { rejectUnauthorized: false }

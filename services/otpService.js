@@ -55,7 +55,7 @@ class OTPService {
       .select('*')
       .eq('phone', phone)
       .eq('store_id', store.id)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       const now = new Date();
@@ -99,7 +99,7 @@ class OTPService {
           .from('site_settings')
           .select('brand_name')
           .eq('store_id', store.id)
-          .single();
+          .maybeSingle();
         storeName = settings?.brand_name || store.name || 'EG-PARTS';
       } catch (err) {
         storeName = store.name || 'EG-PARTS';

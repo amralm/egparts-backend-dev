@@ -7,18 +7,17 @@
 //   3. rollback_feature_usage with the OWNER store succeeds and removes the row
 //   4. Legacy call shape (no expected store) keeps working (backward compat)
 //
-// Usage: SUPA_DEV_DB_URL=postgres://... node scripts/pg-test-quota-binding.js
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+require('dotenv').config();
 const { Client } = require('pg');
 
 const FOREIGN_STORE = '00000000-0000-0000-0000-0000000000f1';
+const DB_URL = process.env.SUPA_DEV_DB_URL || process.env.DATABASE_URL || 'postgres://postgres.ubkjyktgbxvzyuraapfl:eE7YmFwa4I0RWIyN@aws-0-eu-central-1.pooler.supabase.com:5432/postgres';
 
 async function main() {
-  if (!process.env.SUPA_DEV_DB_URL && !process.env.SUPA_PG_PASSWORD) {
-    console.error('SUPA_DEV_DB_URL is required');
-    process.exit(2);
-  }
   const client = new Client({
-    connectionString: process.env.SUPA_DEV_DB_URL,
+    connectionString: DB_URL,
     host: process.env.SUPA_PG_HOST, port: process.env.SUPA_PG_PORT ? Number(process.env.SUPA_PG_PORT) : undefined,
     user: process.env.SUPA_PG_USER, password: process.env.SUPA_PG_PASSWORD, database: process.env.SUPA_PG_DATABASE || 'postgres',
     ssl: { rejectUnauthorized: false }

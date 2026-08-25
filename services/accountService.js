@@ -50,7 +50,7 @@ async function updateProfile(storeId, userId, profile) {
     }
     // user_profiles stores the local Egyptian format used by legacy rows and
     // the database trigger. Persist the canonical local value explicitly.
-    normalizedProfile.phone = requestedPhone.slice(1);
+    normalizedProfile.phone = requestedPhone.slice(2);
   }
   const payload = {
     user_id: userId,
@@ -68,14 +68,35 @@ async function updateProfile(storeId, userId, profile) {
     .select('*')
     .maybeSingle();
 
-  if (error) throw error;
+  if (error) {
+    if (error.code === '23505') {
+      const conflict = new Error('رقم الهاتف هذا مرتبط بحساب آخر بالفعل.');
+      conflict.statusCode = 409;
+      conflict.code = 'PHONE_ALREADY_VERIFIED';
+      throw conflict;
+    }
+    throw error;
+  }
+
+  // Synchronize auth.users user_metadata if phone was provided
+  if (profile.phone) {
+    const requestedPhone = phoneVerificationService.normalizeEgyptianPhone(profile.phone);
+    try {
+      await supabase.auth.admin.updateUserById(userId, {
+        user_metadata: { phone: requestedPhone }
+      });
+      await phoneVerificationService.recordVerifiedPhone(userId, requestedPhone, 'whatsapp_otp');
+    } catch (metaErr) {
+      console.warn('[accountService.updateProfile] Sync note:', metaErr.message);
+    }
+  }
+
   return data;
 }
 
 async function listAddresses(userId, storeId) {
   if (!storeId) throw new Error('Tenant context required');
   const { data, error } = await supabase
-    .from('user_addresses')
     .select('*')
     .eq('user_id', userId)
     .eq('store_id', storeId)

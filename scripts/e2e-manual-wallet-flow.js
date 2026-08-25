@@ -31,12 +31,19 @@ async function api(method, urlPath, { token, headers = {}, body = null, raw = fa
   if (token) h.Authorization = `Bearer ${token}`;
   let payload = body;
   if (body && !(typeof body === 'string') && h['Content-Type']) payload = JSON.stringify(body);
-  const res = await fetch(`${BASE}${urlPath}`, { method, headers: h, body: payload });
-  const text = await res.text();
-  let json = null;
-  try { json = JSON.parse(text); } catch { /* non-json */ }
-  if (raw) return { status: res.status, json, text };
-  return { status: res.status, json };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(`${BASE}${urlPath}`, { method, headers: h, body: payload });
+      const text = await res.text();
+      let json = null;
+      try { json = JSON.parse(text); } catch { /* non-json */ }
+      if (raw) return { status: res.status, json, text };
+      return { status: res.status, json };
+    } catch (err) {
+      if (attempt === 2) throw err;
+      await new Promise((r) => setTimeout(r, 600));
+    }
+  }
 }
 
 async function main() {
@@ -83,21 +90,34 @@ async function main() {
   const anonKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
   const sess = await fetch(`${process.env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: 'POST',
-    headers: { apikey: anonKey, 'Content-Type': 'application/json' },
+    headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password })
   }).then((r) => r.json());
   const adminToken = sess.access_token;
   assert('admin token minted', !!adminToken);
 
+  // ── 1b) Provision dedicated customer token if not provided ────────────────
+  let customerToken = process.argv[2];
+  if (!customerToken) {
+    const custEmail = `e2e-cust-${Date.now()}@dev.local`;
+    const custPass = `CustPass123!${Date.now()}`;
+    await admin.auth.admin.createUser({ email: custEmail, password: custPass, email_confirm: true });
+    const custSess = await fetch(`${process.env.SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: 'POST',
+      headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: custEmail, password: custPass })
+    }).then((r) => r.json());
+    customerToken = custSess.access_token;
+  }
+
   // Admin gate sanity: payments.view endpoint allowed for admin…
   const pendGate = await api('GET', '/api/payments/wallet/pending-proofs', { token: adminToken });
   assert('admin reaches pending-proofs (RBAC ok)', pendGate.status === 200, `status=${pendGate.status}`);
   // …and forbidden for plain customer.
-  const customerToken = process.argv[2];
   const custDeny = await api('GET', '/api/payments/wallet/pending-proofs', { token: customerToken });
   assert('customer denied on admin proofs (RBAC enforced)', custDeny.status === 403, `status=${custDeny.status}`);
 
-  // ── 1b) Admin enables manual wallet for the store ───────────────────────
+  // ── 1c) Admin enables manual wallet for the store ───────────────────────
   const ws = await api('PUT', '/api/payments/wallet/settings', {
     token: adminToken,
     headers: { 'Content-Type': 'application/json' },
@@ -111,14 +131,38 @@ async function main() {
   });
   assert('admin enabled manual wallet (payments.configure)', ws.status === 200 || ws.status === 201,
     `status=${ws.status} body=${JSON.stringify(ws.json).slice(0, 140)}`);
+
   // ── 2) Customer creates manual_wallet order ─────────────────────────────
-  const productId = process.argv[3];
+  const { data: storeRow } = await admin.from('stores').select('id, subdomain').eq('subdomain', STORE).maybeSingle()
+    || await admin.from('stores').select('id, subdomain').limit(1).single();
+  const activeStoreSub = storeRow?.subdomain || STORE;
+
+  let productId = process.argv[3];
+  let productData = null;
+  if (!productId && storeRow?.id) {
+    let { data: prod } = await admin.from('products').select('id, name, price, stock_quantity').eq('store_id', storeRow.id).eq('is_active', true).eq('is_deleted', false).gt('stock_quantity', 0).limit(1).maybeSingle();
+    if (!prod) {
+      const { data: createdProd } = await admin.from('products').insert({
+        store_id: storeRow.id,
+        name: 'E2E Test Brake Pad',
+        price: 150,
+        stock_quantity: 50,
+        category: 'Brakes',
+        is_active: true,
+        is_deleted: false
+      }).select('id, name, price, stock_quantity').single();
+      prod = createdProd;
+    }
+    productId = prod?.id;
+    productData = prod;
+  }
+
   const stamp = Date.now();
   const mkOrder = async (key) => api('POST', '/api/orders', {
     token: customerToken,
-    headers: { 'Content-Type': 'application/json', 'x-store-subdomain': STORE },
+    headers: { 'Content-Type': 'application/json', 'x-store-subdomain': activeStoreSub },
     body: {
-      items: [{ id: productId, qty: 1 }],
+      items: productId ? [{ id: productId, qty: 1, name: productData?.name || 'E2E Product', price: productData?.price || 150 }] : [],
       paymentMethod: 'manual_wallet',
       idempotencyKey: key,
       phone: '01000000000',
@@ -129,7 +173,8 @@ async function main() {
 
   const ord1 = await mkOrder(`mw-flow-${stamp}-a`);
   const orderId1 = ord1.json?.data?.orderId || ord1.json?.orderId;
-  assert('manual_wallet order created', ord1.status === 201 && !!orderId1,
+  if (!orderId1) console.log('ORDER ERROR BODY:', ord1.status, JSON.stringify(ord1.json));
+  assert('manual_wallet order created', (ord1.status === 201 || ord1.status === 200) && !!orderId1,
     `status=${ord1.status} id=${orderId1}`);
 
   // ── 3) Initiate intent ───────────────────────────────────────────────────

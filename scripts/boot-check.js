@@ -2,6 +2,11 @@
 // Boot check: require() every active runtime file so require-time ReferenceErrors,
 // bad imports, and circular-dependency crashes surface BEFORE deploy.
 // node --check (lint) cannot catch these; a real boot does.
+require('dotenv').config();
+process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://placeholder.supabase.co';
+process.env.SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'placeholder-service-key';
+process.env.SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET || 'placeholder-jwt-secret-placeholder-32b';
+
 const path = require('path');
 const fs = require('fs');
 
@@ -33,3 +38,4 @@ if (failures) {
   process.exit(1);
 }
 console.log(`Boot check passed (${files.length} runtime files required cleanly).`);
+process.exit(0);

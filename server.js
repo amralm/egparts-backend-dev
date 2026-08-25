@@ -1,4 +1,6 @@
 const { apiError } = require('./utils/apiError');
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config();
 
 // ─── Global Crash Guards ──────────────────────────────────────────────────────
@@ -90,7 +92,6 @@ const whatsappPoolRoutes = require('./routes/whatsappPool');
 const domainValidator = require('./services/domainValidator');
 const { startPaymentExpiryJob, stopPaymentExpiryJob } = require('./services/paymentJobs');
 const { stopProofRetentionJob } = require('./services/proofRetentionJob');
-const path = require('path');
 const { clientErrorSchema, validateBody } = require('./middleware/requestValidation');
 const { getFeatureStates } = require('./services/subscriptionLimitService');
 

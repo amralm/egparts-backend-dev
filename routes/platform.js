@@ -1794,6 +1794,41 @@ router.post('/users/unban', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
+// POST /platform/phones/release — super-admin support tool: releases a phone
+// number from the global registry when it is squatting on an abandoned or
+// test identity, unblocking the legitimate owner's phone change. Audited.
+router.post('/phones/release', verifyPlatformAdmin, impersonationControlLimiter, async (req, res) => {
+  const raw = String(req.body?.phone || '').trim();
+  // Normalize to the registry's stored representation (digits, no country
+  // code, no leading zero) so lookups match what the sync trigger wrote.
+  const digits = raw.replace(/\D/g, '');
+  let phone = digits;
+  if (digits.startsWith('20') && digits.length === 12) phone = digits.slice(2);
+  else if (digits.startsWith('0') && digits.length === 11) phone = digits.slice(1);
+  if (!/^1[0-9]{9}$/.test(phone) && !/^[0-9]{7,14}$/.test(phone)) {
+    return apiError(res, 400, 'صيغة رقم الهاتف غير صالحة', `HTTP_400`);
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('user_global_phones')
+      .delete()
+      .eq('phone', phone)
+      .select('phone, user_id');
+
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      return apiError(res, 404, 'الرقم غير مسجل في سجل الهواتف العالمي.', 'PHONE_NOT_REGISTERED');
+    }
+
+    await auditPlatform(req, 'platform.phones.release', 'phone', phone, { owner: data[0].user_id }, { released: true }, null);
+    sendSuccess(res, { released: data[0].phone, previous_owner: data[0].user_id });
+  } catch (err) {
+    logger.error('Phone release failed:', err.message);
+    apiError(res, 500, 'تعذر تحرير رقم الهاتف.', `HTTP_500`);
+  }
+});
+
 router.post('/impersonation/start', verifyPlatformAdmin, impersonationControlLimiter, async (req, res) => {
   const { store_id } = req.body;
   if (!store_id) return apiError(res, 400, 'store_id is required', `HTTP_400`);

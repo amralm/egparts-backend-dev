@@ -110,14 +110,22 @@ async function buildPlan({ storeId, userId, message, currentRoute, context = {} 
       return rec;
     });
 
+  // Plan-aware tool gating: when the store's plan does not include coupons,
+  // the agent must never draft create_coupon actions at all.
+  const couponsDisabled = couponLimit.allowed === false;
+  const availableTools = registry
+    .getAvailableTools(bootstrap.business_type || 'general')
+    .filter((tool) => !(couponsDisabled && tool.name === 'create_coupon'));
+
   return {
     blocked: false,
     facts: {
       ...facts,
-      couponLimit
+      couponLimit,
+      couponsDisabled
     },
     toolErrors: errors,
-    availableTools: registry.getAvailableTools(bootstrap.business_type || 'general'),
+    availableTools,
     deterministic: {
       recommendations,
       upgrade

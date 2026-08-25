@@ -8,7 +8,8 @@ const sendOTPSchema = z.object({
   phone: phone.max(15),
   user_id: z.string().uuid().optional(),
   purpose: z.string().max(40).optional(),
-  turnstileToken: z.string().max(4096).optional()
+  turnstileToken: z.string().max(4096).optional(),
+  turnstile_token: z.string().max(4096).optional()
 }).strict();
 const verifyOTPSchema = z.object({ phone, code: z.string().regex(/^\d{6}$/, 'كود التحقق يجب أن يكون 6 أرقام'), purpose: z.string().max(40).optional() }).strict();
 const resolvePhoneSchema = z.object({ phone: phone.max(15), password: z.string().min(1).max(256) }).strict();

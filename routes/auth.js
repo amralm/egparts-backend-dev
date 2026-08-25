@@ -238,7 +238,12 @@ router.post('/profile/phone', verifyUser, sensitiveWriteRateLimiter, validateBod
         hint: err?.hint
       }
     });
-    // [وثيقة الحل]: معالجة الخطأ رقم 409 القادم من الخدمة والذي يعني أن رقم الهاتف مكرر
+    // [وثيقة الحل]: قيود مشغلات قاعدة البيانات (P0001) هي قواعد عمل وليست أعطال —
+    // مثل 'رقم الهاتف هذا مرتبط بحساب آخر بالفعل' من sync_and_validate_user_phone.
+    // تُرجع 409 بالسبب الحقيقي بدل 500 عام يخفي السبب عن المستخدم.
+    if (err?.code === 'P0001' && err.message) {
+      return apiError(res, 409, err.message, 'PHONE_RULE_REJECTED');
+    }
     return apiError(res, err.statusCode || 500, err.statusCode === 409 || err.statusCode === 403 || err.statusCode === 400 ? err.message : 'Unable to update phone', err.code || 'PHONE_UPDATE_FAILED');
   }
 });

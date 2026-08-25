@@ -56,9 +56,6 @@ async function syncUserProfile(decodedUser, storeId) {
   }
 
   const userId = decodedUser.sub;
-  // The platform's primary store uses DEFAULT_STORE_ID. It is a valid
-  // profile scope for the authenticated platform user, even though it is
-  // not a normal tenant scope for store data operations.
   if (!storeId) {
     const err = new Error('Tenant context is required');
     err.statusCode = 400;
@@ -71,16 +68,33 @@ async function syncUserProfile(decodedUser, storeId) {
   const googleAvatar = metadata.avatar_url || metadata.picture || '';
 
   if (!existingProfile) {
-    const masterProfile = null;
+    // Check if there is a verified phone for this user in account_phone_verifications
+    let initialPhone = null;
+    try {
+      const { data: verif } = await supabase
+        .from('account_phone_verifications')
+        .select('phone_e164')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (verif?.phone_e164) {
+        initialPhone = verif.phone_e164.startsWith('20') ? verif.phone_e164.slice(2) : verif.phone_e164;
+      } else if (metadata.phone) {
+        const norm = phoneVerificationService.normalizeEgyptianPhone(metadata.phone);
+        initialPhone = norm.startsWith('20') ? norm.slice(2) : norm;
+      }
+    } catch {
+      initialPhone = null;
+    }
 
     const insertPayload = {
       user_id: userId,
       store_id: targetStoreId,
-      full_name: masterProfile?.full_name || metadata.full_name || metadata.name || '',
+      full_name: metadata.full_name || metadata.name || '',
       email: authUser.email || metadata.email || null,
-      phone: masterProfile?.phone || metadata.phone || null,
-      city: masterProfile?.city || null,
-      address: masterProfile?.address || null,
+      phone: initialPhone,
+      city: metadata.city || null,
+      address: metadata.address || null,
       role: 'user',
       is_email_verified: isEmailVerified(authUser),
       created_at: new Date().toISOString()
@@ -88,7 +102,7 @@ async function syncUserProfile(decodedUser, storeId) {
 
     if (googleAvatar) insertPayload.avatar_url = googleAvatar;
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('user_profiles')
       .insert(insertPayload)
       .select()
@@ -101,8 +115,21 @@ async function syncUserProfile(decodedUser, storeId) {
         .insert(insertPayload)
         .select()
         .maybeSingle();
-      if (retry.error) throw retry.error;
-      return retry.data;
+      data = retry.data;
+      error = retry.error;
+    }
+
+    // If initialPhone causes a duplicate/conflict error (23505),
+    // retry profile creation with phone = null so user profile creation never crashes.
+    if (error && error.code === '23505' && insertPayload.phone) {
+      insertPayload.phone = null;
+      const retryWithoutPhone = await supabase
+        .from('user_profiles')
+        .insert(insertPayload)
+        .select()
+        .maybeSingle();
+      if (retryWithoutPhone.error) throw retryWithoutPhone.error;
+      return retryWithoutPhone.data;
     }
 
     if (error) throw error;
@@ -130,8 +157,6 @@ async function markEmailVerified(decodedUser, storeId) {
     throw err;
   }
 
-  // Keep platform-admin profiles in the primary store scope. Authorization
-  // remains bound to decodedUser.sub, so this does not grant cross-user access.
   if (!storeId) {
     const err = new Error('Tenant context is required');
     err.statusCode = 400;
@@ -169,32 +194,97 @@ async function updateProfilePhone(decodedUser, storeId, phone) {
     err.statusCode = 400;
     throw err;
   }
-  // user_profiles stores the local Egyptian representation. Normalize here
-  // instead of relying on a database trigger so every API path writes the
-  // same value and unique-phone checks see the canonical representation.
-  const normalizedPhone = phoneVerificationService.normalizeEgyptianPhone(phone).slice(1);
+
+  const phoneE164 = phoneVerificationService.normalizeEgyptianPhone(phone);
+  const localPhone = phoneE164.startsWith('20') ? phoneE164.slice(2) : phoneE164;
   const targetStoreId = storeId;
-  await syncUserProfile(decodedUser, targetStoreId);
+  const userId = decodedUser.sub;
 
-  const { data, error } = await supabase
-    .from('user_profiles')
-    .update({ phone: normalizedPhone })
-    .eq('user_id', decodedUser.sub)
-    .eq('store_id', targetStoreId)
-    .select()
-    .maybeSingle();
+  const authUser = await loadAuthUser(decodedUser);
+  const metadata = getMetadata(authUser);
+  const existingProfile = await fetchProfile(userId, targetStoreId);
 
-  if (error) {
-    // [وثيقة الحل]: التعامل مع خطأ تكرار البيانات (Unique Constraint) في PostgreSQL
-    // الخطأ رقم 23505 يعني أن رقم الهاتف موجود مسبقاً في نفس المتجر (حسب إعدادات قاعدة البيانات)
-    if (error.code === '23505') {
-      const err = new Error('رقم الهاتف هذا مرتبط بحساب آخر بالفعل.');
-      err.statusCode = 409; // Conflict
-      throw err;
+  let updatedProfile;
+  if (!existingProfile) {
+    const insertPayload = {
+      user_id: userId,
+      store_id: targetStoreId,
+      full_name: metadata.full_name || metadata.name || '',
+      email: authUser.email || metadata.email || null,
+      phone: localPhone,
+      city: metadata.city || null,
+      address: metadata.address || null,
+      role: 'user',
+      is_email_verified: isEmailVerified(authUser),
+      created_at: new Date().toISOString()
+    };
+    const googleAvatar = metadata.avatar_url || metadata.picture || '';
+    if (googleAvatar) insertPayload.avatar_url = googleAvatar;
+
+    let { data, error } = await supabase
+      .from('user_profiles')
+      .insert(insertPayload)
+      .select()
+      .maybeSingle();
+
+    if (error && (error.code === 'PGRST204' || error.message?.includes('avatar_url'))) {
+      delete insertPayload.avatar_url;
+      const retry = await supabase
+        .from('user_profiles')
+        .insert(insertPayload)
+        .select()
+        .maybeSingle();
+      data = retry.data;
+      error = retry.error;
     }
-    throw error;
+
+    if (error) {
+      if (error.code === '23505') {
+        const err = new Error('رقم الهاتف هذا مرتبط بحساب آخر بالفعل.');
+        err.statusCode = 409;
+        throw err;
+      }
+      throw error;
+    }
+    updatedProfile = data;
+  } else {
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .update({ phone: localPhone })
+      .eq('id', existingProfile.id)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === '23505') {
+        const err = new Error('رقم الهاتف هذا مرتبط بحساب آخر بالفعل.');
+        err.statusCode = 409;
+        throw err;
+      }
+      throw error;
+    }
+    updatedProfile = data;
   }
-  return data;
+
+  // Keep auth.users metadata and phone verifications updated
+  try {
+    await supabase.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        ...(metadata || {}),
+        phone: phoneE164
+      }
+    });
+  } catch (metaErr) {
+    console.warn('[updateProfilePhone] Failed to update auth metadata:', metaErr.message);
+  }
+
+  try {
+    await phoneVerificationService.recordVerifiedPhone(userId, phoneE164, 'whatsapp_otp');
+  } catch (verifErr) {
+    console.warn('[updateProfilePhone] recordVerifiedPhone note:', verifErr.message);
+  }
+
+  return updatedProfile;
 }
 
 module.exports = {

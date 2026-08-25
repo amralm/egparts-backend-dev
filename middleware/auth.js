@@ -160,7 +160,10 @@ async function verifyBearerToken(token) {
     // legacy project JWT secret. Validate those through Auth instead of
     // treating a valid session as anonymous. Never log or return the token.
     const { data, error } = await supabaseAuth.auth.getUser(token);
-    if (error || !data?.user?.id) throw legacyError;
+    if (error || !data?.user?.id) {
+      logger.warn(`[verifyBearerToken] auth-server fallback failed: ${error ? error.message : 'no user'}`);
+      throw legacyError;
+    }
     return {
       sub: data.user.id,
       email: data.user.email,
