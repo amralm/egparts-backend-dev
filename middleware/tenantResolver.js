@@ -43,6 +43,15 @@ module.exports = async function tenantResolver(req, res, next) {
       }
     }
 
+    // Normalized full host (port + www stripped) — keeps the complete domain
+    // so custom domains inside the primary zone resolve by their full name.
+    function getCleanHost(host) {
+      if (!host) return null;
+      let cleanHost = String(host).toLowerCase().trim().split(':')[0];
+      if (cleanHost.startsWith('www.')) cleanHost = cleanHost.substring(4);
+      return cleanHost || null;
+    }
+
     let subdomain = req.headers['x-store-subdomain'] || req.query.store_subdomain;
 
     if (!subdomain) {
@@ -105,18 +114,35 @@ module.exports = async function tenantResolver(req, res, next) {
         .from('stores').select('*').eq('subdomain', subdomain).maybeSingle();
       let data = subdomainStore;
       let error = subdomainError;
+      let resolvedKey = subdomain;
       if (!data && !error) {
         const customResult = await supabase.from('stores').select('*').eq('custom_domain', subdomain).maybeSingle();
         data = customResult.data;
         error = customResult.error;
       }
 
+      // Custom domains INSIDE the primary zone (e.g. client.egparts.store)
+      // arrive with x-store-subdomain reduced to the first label ('client').
+      // When both lookups above miss, retry using the FULL original host so
+      // registered custom domains inside the platform zone resolve too.
+      const rawHost = getCleanHost(
+        req.headers['x-original-host'] || req.headers['x-forwarded-host'] || req.headers.host
+      );
+      if (!data && !error && rawHost && rawHost !== subdomain) {
+        const hostResult = await supabase
+          .from('stores').select('*').eq('custom_domain', rawHost).maybeSingle();
+        if (!hostResult.error && hostResult.data) {
+          data = hostResult.data;
+          resolvedKey = rawHost;
+        }
+      }
+
       if (error || !data) {
         return apiError(res, 404, 'المتجر غير موجود', `HTTP_404`);
       }
-      
+
       store = data;
-      tenantCache.set(subdomain, store);
+      tenantCache.set(resolvedKey, store);
     }
 
     // Check subscription status
