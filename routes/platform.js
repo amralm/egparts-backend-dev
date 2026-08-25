@@ -2433,6 +2433,14 @@ router.post('/domains', verifyPlatformAdmin, async (req, res) => {
 
     if (error) throw error;
 
+    // Keep stores.custom_domain in sync — it is the column tenantResolver
+    // uses for custom-domain resolution (custom_domains table is the
+    // lifecycle/verification tracker; the column is the runtime source).
+    await supabase
+      .from('stores')
+      .update({ custom_domain: cleanDomain })
+      .eq('id', store_id);
+
     // Trigger immediate background validation
     const { runDomainCheck } = require('../services/domainValidator');
     setTimeout(() => runDomainCheck(newDomain.id), 1000);
@@ -2487,6 +2495,16 @@ router.patch('/domains/:id/primary', verifyPlatformAdmin, async (req, res) => {
       .eq('id', id);
 
     if (error) throw error;
+
+    // Keep stores.custom_domain pointing at the primary domain.
+    if (is_primary) {
+      const { data: primaryRow } = await supabase
+        .from('custom_domains').select('domain').eq('id', id).single();
+      if (primaryRow?.domain) {
+        await supabase
+          .from('stores').update({ custom_domain: primaryRow.domain }).eq('id', domain.store_id);
+      }
+    }
     
     await auditPlatform(req, 'platform.domain.update_primary', 'custom_domain', id, { is_primary: !is_primary }, { is_primary: !!is_primary }, domain.store_id);
     sendSuccess(res, {});
@@ -2554,6 +2572,12 @@ router.delete('/domains/:id', verifyPlatformAdmin, async (req, res) => {
       } catch (cfErr) {
         logger.warn('[domains] Cloudflare Pages detach error:', cfErr.message);
       }
+      // Clear the resolver column only if it still points at the deleted domain.
+      await supabase
+        .from('stores')
+        .update({ custom_domain: null })
+        .eq('id', oldDomain.store_id)
+        .eq('custom_domain', oldDomain.domain);
     }
 
     await auditPlatform(req, 'platform.domain.delete', 'custom_domain', id, oldDomain || {}, {}, oldDomain?.store_id || null);
