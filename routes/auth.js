@@ -318,16 +318,17 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
     }
   }
 
-  const { data: existing } = await supabase
-    .from('user_profiles')
-    .select('user_id')
-    .eq('phone', localPhone)
-    .eq('store_id', req.store.id)
-    .maybeSingle();
-  if (existing && purpose !== 'forgot') {
-    const isOwnPhone = sessionUserId && existing.user_id === sessionUserId;
-    if (!isOwnPhone) {
-      return apiError(res, 409, 'هذا الرقم مسجل بحساب آخر من قبل. برجاء تسجيل الدخول أو استخدام رقم آخر.', `HTTP_409`);
+  if (purpose !== 'forgot') {
+    const [{ data: globalOwner }, { data: existingProfile }] = await Promise.all([
+      supabase.from('account_phone_verifications').select('user_id').eq('phone_e164', normalizedPhone).maybeSingle(),
+      supabase.from('user_profiles').select('user_id').eq('phone', localPhone).eq('store_id', req.store.id).maybeSingle()
+    ]);
+
+    const isDifferentOwner = (globalOwner && (!sessionUserId || globalOwner.user_id !== sessionUserId)) ||
+      (existingProfile && (!sessionUserId || existingProfile.user_id !== sessionUserId));
+
+    if (isDifferentOwner) {
+      return apiError(res, 409, 'هذا الرقم موثق بالفعل لحساب آخر. برجاء تسجيل الدخول بذلك الحساب أو استخدام رقم آخر.', 'PHONE_ALREADY_VERIFIED');
     }
   }
 
