@@ -97,6 +97,7 @@ async function updateProfile(storeId, userId, profile) {
 async function listAddresses(userId, storeId) {
   if (!storeId) throw new Error('Tenant context required');
   const { data, error } = await supabase
+    .from('user_addresses')
     .select('*')
     .eq('user_id', userId)
     .eq('store_id', storeId)
