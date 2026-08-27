@@ -51,11 +51,25 @@ router.get('/usage', verifyUser, async (req, res) => {
       subscriptionLimitService.checkFeatureLimit(req.store.id, 'copilot_messages_day', 0),
       subscriptionLimitService.checkFeatureLimit(req.store.id, 'ai_requests_month', 0),
     ]);
-    return sendSuccess(res, { usage: {
+
+    const dailyUsed = Number(daily.usage || 0);
+    const monthlyUsed = Number(monthly.usage || 0);
+    const isDailyUnlimited = daily.is_unlimited === true || daily.limit === null || daily.limit === -1;
+    const isMonthlyUnlimited = monthly.is_unlimited === true || monthly.limit === null || monthly.limit === -1;
+
+    return sendSuccess(res, {
+      usage: {
         enabled: daily.allowed === true && monthly.allowed === true,
-        daily: { used: daily.usage || 0, limit: daily.limit, remaining: daily.remaining, unlimited: daily.is_unlimited === true },
-        monthly: { used: monthly.usage || 0, limit: monthly.limit, remaining: monthly.remaining, unlimited: monthly.is_unlimited === true },
-      }, });
+        daily: { used: dailyUsed, limit: daily.limit, remaining: daily.remaining, unlimited: isDailyUnlimited },
+        monthly: { used: monthlyUsed, limit: monthly.limit, remaining: monthly.remaining, unlimited: isMonthlyUnlimited },
+        daily_usage: dailyUsed,
+        monthly_usage: monthlyUsed,
+        remaining: isDailyUnlimited ? '∞' : daily.remaining,
+        used_today: dailyUsed,
+        daily_limit: daily.limit,
+        is_unlimited: isDailyUnlimited
+      }
+    });
   } catch (error) {
     logger.error('[copilot/usage] Failed to load usage:', error.message);
     return apiError(res, 500, 'Failed to load Copilot usage', `HTTP_500`);

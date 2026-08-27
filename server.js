@@ -530,7 +530,9 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
     const usagesMap = Object.fromEntries((usageResult.data || []).map(u => [u.feature_key, u.usage_count]));
     const entitlementState = await getFeatureStates(req.store.id, [
       'whatsapp_enabled', 'whatsapp_accounts_max', 'whatsapp_messages_month', 'whatsapp_concurrency',
-      'products', 'orders_per_month', 'custom_domains', 'coupons', 'payment_gateways'
+      'products', 'orders_per_month', 'custom_domains', 'coupons', 'payment_gateways',
+      'copilot_messages_day', 'ai_requests_month', 'api_requests_day', 'otp_messages_month',
+      'storage_bytes', 'uploaded_images', 'banner_images', 'branches', 'staff_users'
     ]);
 
     // Fetch OTP limits from otp_messages_month or fallback to whatsapp_notifications
@@ -587,24 +589,35 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
           enabled: entitlementState.features.custom_domains?.allowed === true
         },
         storage_bytes: {
-          usage: usagesMap['storage_bytes'] || 0,
+          usage: Number(entitlementState.features.storage_bytes?.usage ?? (usagesMap['storage_bytes'] || 0)),
           limit: limits['storage_bytes']?.max_value ?? null,
           is_unlimited: !limits['storage_bytes'] || limits['storage_bytes'].max_value === null
         },
         uploaded_images: {
-          usage: usagesMap['uploaded_images'] || 0,
+          usage: Number(entitlementState.features.uploaded_images?.usage ?? (usagesMap['uploaded_images'] || 0)),
           limit: limits['uploaded_images']?.max_value ?? null,
           is_unlimited: !limits['uploaded_images'] || limits['uploaded_images'].max_value === null
         },
         api_requests_day: {
-          usage: usagesMap['api_requests_day'] || 0,
+          usage: Number(entitlementState.features.api_requests_day?.usage ?? (usagesMap['api_requests_day'] || 0)),
           limit: limits['api_requests_day']?.max_value ?? 0,
-          enabled: limits['api_requests_day'] ? limits['api_requests_day'].limit_type !== 'disabled' : false
+          remaining: entitlementState.features.api_requests_day?.remaining ?? null,
+          is_unlimited: limits['api_requests_day']?.is_unlimited === true || limits['api_requests_day']?.max_value === -1,
+          enabled: entitlementState.features.api_requests_day?.allowed === true
         },
         ai_requests_month: {
-          usage: usagesMap['ai_requests_month'] || 0,
+          usage: Number(entitlementState.features.ai_requests_month?.usage ?? (usagesMap['ai_requests_month'] || 0)),
           limit: limits['ai_requests_month']?.max_value ?? null,
-          is_unlimited: !limits['ai_requests_month'] || limits['ai_requests_month'].max_value === null
+          remaining: entitlementState.features.ai_requests_month?.remaining ?? null,
+          is_unlimited: limits['ai_requests_month']?.is_unlimited === true || limits['ai_requests_month']?.max_value === null || limits['ai_requests_month']?.max_value === -1,
+          enabled: entitlementState.features.ai_requests_month?.allowed === true
+        },
+        copilot_messages_day: {
+          usage: Number(entitlementState.features.copilot_messages_day?.usage ?? (usagesMap['copilot_messages_day'] || 0)),
+          limit: limits['copilot_messages_day']?.max_value ?? null,
+          remaining: entitlementState.features.copilot_messages_day?.remaining ?? null,
+          is_unlimited: limits['copilot_messages_day']?.is_unlimited === true || limits['copilot_messages_day']?.max_value === null || limits['copilot_messages_day']?.max_value === -1,
+          enabled: entitlementState.features.copilot_messages_day?.allowed === true
         },
         orders_per_month: {
           usage: ordersCountResult.count || 0,
@@ -619,8 +632,13 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
         whatsapp_notifications: {
           enabled: entitlementState.features.whatsapp_enabled?.allowed === true,
           limit: entitlementState.features.whatsapp_messages_month?.limit,
-          usage: entitlementState.features.whatsapp_messages_month?.usage,
+          usage: entitlementState.features.whatsapp_messages_month?.usage || 0,
           is_unlimited: entitlementState.features.whatsapp_messages_month?.is_unlimited === true
+        },
+        otp_messages_month: {
+          usage: monthOtp.count || Number(entitlementState.features.otp_messages_month?.usage || 0),
+          limit: otpLimit,
+          is_unlimited: otpLimit === null || otpLimit === -1
         },
         payment_gateways: {
           enabled: entitlementState.features.payment_gateways?.allowed === true
