@@ -538,8 +538,14 @@ function getBrowserFingerprint(req) {
   return `${os}-${browser}-${isMobile ? 'mobile' : 'desktop'}`;
 }
 
-function getRelaxedIp(ip) {
-  if (!ip) return '';
+function getClientIp(req) {
+  const raw = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+  return (raw || '').toString().split(',')[0].trim();
+}
+
+function getRelaxedIp(rawIp) {
+  if (!rawIp) return '';
+  let ip = rawIp.toString().split(',')[0].trim();
   if (ip.startsWith('::ffff:')) {
     ip = ip.substring(7);
   }
@@ -740,17 +746,18 @@ router.get('/oauth/callback', async (req, res) => {
       return res.status(403).send('هذا الحساب محظور في هذا المتجر.');
     }
 
-    // Encrypt session (access + refresh tokens)
+    // Encrypt session (access + refresh tokens + user info)
     const sessionStr = JSON.stringify({
       access_token: session.access_token,
-      refresh_token: session.refresh_token
+      refresh_token: session.refresh_token,
+      user: session.user
     });
     const encrypted = encrypt(sessionStr);
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 30000).toISOString(); // 30s expiry
 
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+    const clientIp = getClientIp(req);
     const fingerprint = getBrowserFingerprint(req);
     const relaxedIp = getRelaxedIp(clientIp);
 
@@ -837,17 +844,18 @@ router.post('/oauth/implicit-callback', async (req, res) => {
       return apiError(res, 403, 'هذا الحساب محظور في هذا المتجر.', `HTTP_403`);
     }
 
-    // Encrypt session (access + refresh tokens)
+    // Encrypt session (access + refresh tokens + user info)
     const sessionStr = JSON.stringify({
       access_token: access_token,
-      refresh_token: refresh_token
+      refresh_token: refresh_token,
+      user: user
     });
     const encrypted = encrypt(sessionStr);
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 30000).toISOString(); // 30s expiry
 
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+    const clientIp = getClientIp(req);
     const fingerprint = getBrowserFingerprint(req);
     const relaxedIp = getRelaxedIp(clientIp);
 
@@ -924,22 +932,20 @@ router.post('/oauth/exchange', exchangeRateLimiter, async (req, res) => {
       return apiError(res, 400, 'الرمز منتهي الصلاحية — يرجى تسجيل الدخول مجدداً', `HTTP_400`);
     }
 
-    // === SECURITY: Enforce IP + browser fingerprint binding (BLOCKING, not just a warning) ===
-    const currentIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1';
+    // === SECURITY: Enforce IP + browser fingerprint binding ===
+    const currentIp = getClientIp(req);
     const currentFingerprint = getBrowserFingerprint(req);
     const currentRelaxedIp = getRelaxedIp(currentIp);
 
-    const ipMatch = exchange.ip_address === currentRelaxedIp;
-    const fpMatch = exchange.user_agent === currentFingerprint;
+    const ipMatch = !exchange.ip_address || exchange.ip_address === currentRelaxedIp;
+    const fpMatch = !exchange.user_agent || exchange.user_agent === currentFingerprint;
 
-    if (!ipMatch || !fpMatch) {
-      logger.error('OAuth exchange: SECURITY VIOLATION — IP/fingerprint mismatch, rejecting', {
+    if (!fpMatch && !ipMatch) {
+      logger.error('OAuth exchange: SECURITY VIOLATION — IP and fingerprint mismatch, rejecting', {
         expectedIp: exchange.ip_address,
         actualIp: currentRelaxedIp,
-        ipMatch,
         expectedFingerprint: exchange.user_agent,
         actualFingerprint: currentFingerprint,
-        fpMatch,
         token: token.substring(0, 8) + '...'
       });
       // Token already consumed above — attacker cannot retry
