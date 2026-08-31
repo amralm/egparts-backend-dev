@@ -129,10 +129,27 @@ async function restoreProduct(storeId, productId) {
   return data;
 }
 
+async function bulkUnpriceProducts(storeId, { productIds, all } = {}) {
+  let query = supabase
+    .from('products')
+    .update({ price: null, old_price: null })
+    .eq('store_id', storeId)
+    .eq('is_deleted', false);
+
+  if (!all && Array.isArray(productIds) && productIds.length > 0) {
+    query = query.in('id', productIds);
+  }
+
+  const { data, error } = await query.select('id');
+  if (error) throw error;
+  return { updatedCount: data?.length || 0 };
+}
+
 module.exports = {
   listProducts,
   saveProduct,
   softDeleteProduct,
   hardDeleteProduct,
-  restoreProduct
+  restoreProduct,
+  bulkUnpriceProducts
 };

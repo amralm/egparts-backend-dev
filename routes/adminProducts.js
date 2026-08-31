@@ -99,4 +99,17 @@ router.post('/:id/restore', verifyPermission('products.update'), async (req, res
   }
 });
 
+router.post('/bulk-unprice', verifyPermission('products.update'), async (req, res) => {
+  const storeId = requireStore(req, res);
+  if (!storeId) return;
+  try {
+    const { product_ids, all } = req.body || {};
+    const result = await productAdminService.bulkUnpriceProducts(storeId, { productIds: product_ids, all: !!all });
+    sendSuccess(res, result);
+  } catch (err) {
+    logger.error('[admin-products] bulk-unprice failed:', err.message);
+    apiError(res, 500, 'Unable to update product prices.', 'BULK_UPDATE_FAILED');
+  }
+});
+
 module.exports = router;
