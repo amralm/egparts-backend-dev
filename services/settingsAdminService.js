@@ -74,10 +74,16 @@ async function saveSettings(storeId, settings, businessType, guaranteeProductIds
   }
   if (error) throw error;
 
-  if (businessType) {
+  const storeUpdates = {};
+  if (businessType) storeUpdates.business_type = businessType;
+  if (updatePayload.brand_name && typeof updatePayload.brand_name === 'string' && updatePayload.brand_name.trim()) {
+    storeUpdates.name = updatePayload.brand_name.trim();
+  }
+  if (Object.keys(storeUpdates).length > 0) {
+    storeUpdates.updated_at = new Date().toISOString();
     const { error: storeErr } = await supabase
       .from('stores')
-      .update({ business_type: businessType })
+      .update(storeUpdates)
       .eq('id', storeId);
     if (storeErr) throw storeErr;
   }
