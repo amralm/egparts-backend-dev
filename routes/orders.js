@@ -501,14 +501,15 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
       return apiError(res, 400, `عذراً، الكمية المتاحة من "${dbProduct.name}" غير كافية لإتمام طلبك`, 'INSUFFICIENT_STOCK');
       }
 
-      calculatedSubtotal += dbProduct.price * item.qty;
+      const itemPrice = Number(dbProduct.price) || 0;
+      calculatedSubtotal += itemPrice * item.qty;
       itemsWithPrices.push({
         id: dbProduct.id,
         title: dbProduct.name,
         qty: item.qty,
-        price: dbProduct.price,
+        price: itemPrice,
         unit_cost_snapshot: dbProduct.cost_price || 0,
-        gross_profit: ((dbProduct.price || 0) - (dbProduct.cost_price || 0)) * item.qty
+        gross_profit: (itemPrice - (dbProduct.cost_price || 0)) * item.qty
       });
     }
 

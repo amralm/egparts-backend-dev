@@ -74,6 +74,7 @@ const platformStoreCreateSchema = z.object({
   custom_domain: z.string().trim().max(253).nullable().optional(),
   subscription_expires_at: z.string().datetime({ offset: true }),
   is_active: z.boolean().optional().default(true),
+  allow_unpriced_products: z.boolean().optional().default(false),
   plan_id: z.string().uuid().nullable().optional()
 }).strict();
 
@@ -82,6 +83,7 @@ const platformStoreUpdateSchema = z.object({
   custom_domain: z.string().trim().max(253).nullable().optional(),
   subscription_expires_at: z.string().datetime({ offset: true }).optional(),
   is_active: z.boolean().optional(),
+  allow_unpriced_products: z.boolean().optional(),
   plan_id: z.string().uuid().nullable().optional(),
   status: z.string().trim().min(1).max(40).optional()
 }).strict().refine((value) => Object.keys(value).length > 0, 'At least one store field is required');
@@ -823,7 +825,7 @@ router.get('/stores', verifyPlatformAdmin, async (req, res) => {
     const { data: stores, error } = await supabase
       .from('stores')
       .select(`
-        id, name, subdomain, custom_domain, is_active, status, subscription_expires_at, created_at, updated_at,
+        id, name, subdomain, custom_domain, is_active, status, allow_unpriced_products, subscription_expires_at, created_at, updated_at,
         store_subscriptions (
           plan_id,
           status
@@ -847,7 +849,7 @@ router.get('/stores', verifyPlatformAdmin, async (req, res) => {
 });
 
 router.post('/stores', verifyPlatformAdmin, validateBody(platformStoreCreateSchema), async (req, res) => {
-  const { name, subdomain, custom_domain, subscription_expires_at, is_active = true, plan_id } = req.body;
+  const { name, subdomain, custom_domain, subscription_expires_at, is_active = true, allow_unpriced_products = false, plan_id } = req.body;
   const cleanSubdomain = (subdomain || '').trim().toLowerCase();
   const cleanDomain = normalizeDomain(custom_domain);
 
@@ -891,6 +893,7 @@ router.post('/stores', verifyPlatformAdmin, validateBody(platformStoreCreateSche
         custom_domain: cleanDomain || null,
         subscription_expires_at: expiryIso,
         is_active: !!is_active,
+        allow_unpriced_products: !!allow_unpriced_products,
         status: is_active ? 'active' : 'suspended'
       }])
       .select()
@@ -958,7 +961,7 @@ router.post('/stores', verifyPlatformAdmin, validateBody(platformStoreCreateSche
 
 router.patch('/stores/:id', verifyPlatformAdmin, validateBody(platformStoreUpdateSchema), async (req, res) => {
   const { id } = req.params;
-  const { name, custom_domain, subscription_expires_at, is_active, plan_id, status } = req.body;
+  const { name, custom_domain, subscription_expires_at, is_active, allow_unpriced_products, plan_id, status } = req.body;
   const cleanDomain = normalizeDomain(custom_domain);
 
   try {
@@ -988,6 +991,9 @@ router.patch('/stores/:id', verifyPlatformAdmin, validateBody(platformStoreUpdat
     if (is_active !== undefined) {
       payload.is_active = !!is_active;
       payload.status = is_active ? 'active' : 'suspended';
+    }
+    if (allow_unpriced_products !== undefined) {
+      payload.allow_unpriced_products = !!allow_unpriced_products;
     }
 
     const { data: store, error } = await supabase
@@ -1232,7 +1238,7 @@ router.get('/tenants/metrics', verifyPlatformAdmin, async (req, res) => {
     const { data: stores, error: storesError } = await supabase
       .from('stores')
       .select(`
-        id, name, subdomain, custom_domain, is_active, status, subscription_expires_at,
+        id, name, subdomain, custom_domain, is_active, status, allow_unpriced_products, subscription_expires_at,
         store_subscriptions (
           status,
           plan_id,

@@ -4,7 +4,7 @@ const mediaKey = z.string().trim().max(2000);
 
 const productSchema = z.object({
   name: z.string().trim().min(1).max(240),
-  price: z.coerce.number().finite().min(0).max(1_000_000_000),
+  price: z.preprocess((value) => value === '' || value === null || value === undefined ? null : value, z.coerce.number().finite().min(0).max(1_000_000_000).nullable()).optional().default(null),
   stock_quantity: z.coerce.number().int().min(0).max(100_000_000),
   category: z.string().trim().min(1).max(160),
   image: mediaKey.optional().default(''),
