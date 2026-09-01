@@ -1253,7 +1253,7 @@ router.get('/tenants/metrics', verifyPlatformAdmin, async (req, res) => {
     // as soon as the tenant count grew. Fetch each dataset once, then group it
     // deterministically in memory.
     const storeIds = (stores || []).map((store) => store.id);
-    const [ordersRes, productsRes, otpRes] = await Promise.all([
+    const [ordersRes, productsRes, otpRes, planLimitsRes] = await Promise.all([
       storeIds.length
         ? supabase.from('orders').select('store_id,total,status').in('store_id', storeIds).gte('created_at', monthStart.toISOString())
         : Promise.resolve({ data: [], error: null }),
@@ -1262,11 +1262,54 @@ router.get('/tenants/metrics', verifyPlatformAdmin, async (req, res) => {
         : Promise.resolve({ data: [], error: null }),
       storeIds.length
         ? supabase.from('feature_usage').select('store_id,usage_count').in('store_id', storeIds).eq('feature_key', 'otp_messages_month').gte('period_start', monthStart.toISOString())
-        : Promise.resolve({ data: [], error: null })
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from('plans').select(`
+        id, code, display_name,
+        plan_features (
+          feature_id,
+          features ( key ),
+          feature_limits ( limit_type, limit_config )
+        )
+      `)
     ]);
     if (ordersRes.error) throw ordersRes.error;
     if (productsRes.error) throw productsRes.error;
     if (otpRes.error) throw otpRes.error;
+
+    const planLimitsMap = new Map();
+    for (const p of planLimitsRes.data || []) {
+      let ordersLimit = null;
+      for (const pf of p.plan_features || []) {
+        if (pf.features?.key === 'orders_per_month' || pf.features?.key === 'orders') {
+          const fl = Array.isArray(pf.feature_limits) ? pf.feature_limits[0] : pf.feature_limits;
+          if (fl?.limit_config?.max_value !== undefined) {
+            ordersLimit = Number(fl.limit_config.max_value);
+          }
+        }
+      }
+      planLimitsMap.set(p.id, {
+        code: p.code,
+        display_name: p.display_name,
+        orders_limit: ordersLimit
+      });
+    }
+
+    const PLAN_NAMES = {
+      free: 'الخطة المجانية',
+      basic: 'الباقة الأساسية (Basic)',
+      starter: 'باقة Starter',
+      growth: 'باقة Growth',
+      scale: 'باقة Scale',
+      enterprise: 'باقة Enterprise (المؤسسات)'
+    };
+
+    const PLAN_NEXT = {
+      free: 'basic',
+      basic: 'starter',
+      starter: 'growth',
+      growth: 'scale',
+      scale: 'enterprise'
+    };
 
     const byStore = new Map(storeIds.map((id) => [id, {
       orders_this_month: 0,
@@ -1291,19 +1334,48 @@ router.get('/tenants/metrics', verifyPlatformAdmin, async (req, res) => {
       if (stats) stats.otp_usage_this_month += Number(usage.usage_count || 0);
     }
 
-    const metrics = (stores || []).map((store) => ({
-      ...store,
-      ...(byStore.get(store.id) || {
+    const metrics = (stores || []).map((store) => {
+      const stats = byStore.get(store.id) || {
         orders_this_month: 0,
         delivered_this_month: 0,
         sales_this_month: 0,
         products_count: 0,
         otp_usage_this_month: 0
-      }),
-      plan: store.store_subscriptions?.plans || null,
-      plan_id: store.store_subscriptions?.plan_id || null,
-      subscription_status: store.store_subscriptions?.status || null
-    }));
+      };
+
+      const planInfo = planLimitsMap.get(store.store_subscriptions?.plan_id) || {
+        code: store.store_subscriptions?.plans?.code || 'free',
+        display_name: store.store_subscriptions?.plans?.display_name || 'مجانية',
+        orders_limit: 50
+      };
+
+      const planCode = String(planInfo.code || 'free').toLowerCase();
+      const ordersLimit = planInfo.orders_limit ?? (planCode === 'free' ? 50 : 300);
+      const isUnlimited = ordersLimit === -1;
+      const ordersCount = stats.orders_this_month;
+      const isOverQuota = !isUnlimited && ordersLimit > 0 && ordersCount >= ordersLimit;
+      const isApproaching = !isUnlimited && !isOverQuota && ordersLimit > 0 && ordersCount >= (ordersLimit * 0.8);
+      const suggestedCode = PLAN_NEXT[planCode] || 'enterprise';
+
+      return {
+        ...store,
+        ...stats,
+        plan: store.store_subscriptions?.plans || null,
+        plan_id: store.store_subscriptions?.plan_id || null,
+        subscription_status: store.store_subscriptions?.status || null,
+        quota_health: {
+          orders_this_month: ordersCount,
+          orders_limit_month: ordersLimit,
+          is_unlimited: isUnlimited,
+          is_free_plan: planCode === 'free',
+          is_over_quota: isOverQuota,
+          is_approaching: isApproaching,
+          status: isOverQuota ? 'over_quota' : isApproaching ? 'approaching' : 'normal',
+          suggested_plan_code: suggestedCode,
+          suggested_plan_name: PLAN_NAMES[suggestedCode] || suggestedCode
+        }
+      };
+    });
 
     sendSuccess(res, metrics);
   } catch (err) {

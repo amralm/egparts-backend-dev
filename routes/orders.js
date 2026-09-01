@@ -11,6 +11,66 @@ const { assertPaymentMethodAvailable } = require('../services/paymentMethodPolic
 const { validateBody } = require('../middleware/requestValidation');
 const { createOrderSchema, whatsappOrderSchema, orderStatusSchema } = require('../schemas/orderSchemas');
 const { normalizePaymentMethod } = require('../schemas/canonicalSchemas');
+const logger = require('../utils/logger');
+
+const PLAN_UPGRADE_CHAIN = {
+  free: 'basic',
+  basic: 'starter',
+  starter: 'growth',
+  growth: 'scale',
+  scale: 'enterprise'
+};
+
+async function processOrderQuotaReservation(storeId, reservationKey) {
+  const activeSub = await subscriptionLimitService.getActiveStoreSubscription(storeId);
+  const planCode = String(activeSub?.plans?.code || 'free').toLowerCase();
+  const isFreePlan = planCode === 'free';
+
+  // Check quota for orders_per_month
+  const limitState = await subscriptionLimitService.checkFeatureLimit(storeId, 'orders_per_month', 1);
+
+  if (isFreePlan) {
+    // 1. FREE PLAN: Hard Cap.
+    // Merchants on Free tier (0 EGP) cannot exceed their 50 orders/month allowance without upgrading.
+    if (!limitState.allowed && !limitState.is_unlimited) {
+      return {
+        allowed: false,
+        error: 'عذراً، لقد استنفد المتجر الحد الأقصى للطلبات المسموحة في الخطة المجانية لهذا الشهر (50 طلب). يرجى ترقية باقة المتجر للاستمرار في استقبال طلبات جديدة.',
+        code: 'FREE_PLAN_ORDER_LIMIT_REACHED'
+      };
+    }
+    await subscriptionLimitService.reserveFeatureUsage(storeId, 'orders', 1, reservationKey).catch((e) => {
+      logger.warn(`[Orders] Free plan quota reservation warning: ${e.message}`);
+    });
+    return { allowed: true, isFreePlan: true };
+  }
+
+  // 2. PAID PLANS: Soft Limit with Grace Overage.
+  // Paying subscribers are NEVER blocked from accepting customer orders.
+  // When they cross their plan limit, we mark the store with an overage flag for upcoming billing cycle upgrade.
+  const isOverLimit = !limitState.is_unlimited && limitState.limit > 0 && (Number(limitState.usage || 0) + 1 >= Number(limitState.limit));
+  if (isOverLimit) {
+    const suggestedCode = PLAN_UPGRADE_CHAIN[planCode] || 'enterprise';
+    Promise.all([
+      supabase.from('stores').update({
+        is_over_quota: true,
+        quota_overage_detected_at: new Date().toISOString(),
+        suggested_plan_code: suggestedCode
+      }).eq('id', storeId),
+      supabase.from('store_subscriptions').update({
+        is_over_quota: true,
+        quota_overage_detected_at: new Date().toISOString(),
+        suggested_plan_code: suggestedCode
+      }).eq('store_id', storeId)
+    ]).catch(err => logger.warn(`[Orders] Failed to flag store overage: ${err.message}`));
+  }
+
+  await subscriptionLimitService.reserveFeatureUsage(storeId, 'orders', 1, reservationKey).catch((e) => {
+    logger.warn(`[Orders] Paid plan quota reservation warning: ${e.message}`);
+  });
+
+  return { allowed: true, isFreePlan: false, isOverLimit };
+}
 
 // Rate limiting for order creation (10 requests per minute per IP)
 const orderRateLimiter = rateLimit({
@@ -27,7 +87,6 @@ router.get('/my', verifyUser, async (req, res) => {
       .from('orders')
       .select('*, payment_intents(id, status, metadata)')
       .eq('store_id', req.store.id)
-      .eq('user_id', req.user.sub)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -334,9 +393,9 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
   } catch (err) {
     return apiError(res, err.status || 409, 'وسيلة الدفع غير متاحة', err.code || 'PAYMENT_METHOD_UNAVAILABLE', { reason: err.message });
   }
-  const isAllowed = await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'orders', 1, reservationKey);
-  if (!isAllowed) {
-    return apiError(res, 403, 'عذراً، المتجر استنفد الحد الأقصى من الطلبات المسموحة في باقته الحالية', `HTTP_403`);
+  const quotaCheck = await processOrderQuotaReservation(req.store.id, reservationKey);
+  if (!quotaCheck.allowed) {
+    return apiError(res, 403, quotaCheck.error, quotaCheck.code || 'HTTP_403');
   }
 
   try {
@@ -469,11 +528,10 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
     }
 
     const reservationKey = `order-${req.store.id}-${idempotencyScope}`;
-    // Soft Limit Policy: Track order usage reservation, but never block customer checkout.
-    // Over-quota stores will receive a friendly upgrade notice in their dashboard.
-    await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'orders', 1, reservationKey).catch((e) => {
-      logger.warn(`[Orders] Feature limit reservation warning: ${e.message}`);
-    });
+    const quotaCheck = await processOrderQuotaReservation(req.store.id, reservationKey);
+    if (!quotaCheck.allowed) {
+      return apiError(res, 403, quotaCheck.error, quotaCheck.code || 'HTTP_403');
+    }
 
     // 3. Server-Side Calculations
     let calculatedSubtotal = 0;
