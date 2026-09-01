@@ -283,6 +283,36 @@ async function cleanupStaleImpersonationSessions() {
 }
 
 /**
+ * Purge orphaned WhatsApp sessions belonging to removed or inactive accounts.
+ */
+async function cleanupOrphanedWhatsAppSessions() {
+  try {
+    const { data: validAccounts } = await supabase
+      .from('whatsapp_accounts')
+      .select('id');
+
+    const validIds = (validAccounts || []).map((a) => a.id).filter(Boolean);
+    if (validIds.length > 0) {
+      const { data: deletedSessions, error } = await supabase
+        .from('whatsapp_sessions')
+        .delete()
+        .not('whatsapp_account_id', 'in', `(${validIds.join(',')})`)
+        .select('id');
+
+      if (error) {
+        logger.warn(`[RetentionService] WhatsApp sessions cleanup error: ${error.message}`);
+        return { purgedOrphanSessions: 0 };
+      }
+      return { purgedOrphanSessions: deletedSessions?.length || 0 };
+    }
+    return { purgedOrphanSessions: 0 };
+  } catch (err) {
+    logger.warn(`[RetentionService] WhatsApp sessions cleanup exception: ${err.message}`);
+    return { purgedOrphanSessions: 0 };
+  }
+}
+
+/**
  * Master entrypoint: runs all retention and garbage collection routines in parallel.
  */
 async function runMasterRetentionCleanup() {
@@ -298,6 +328,7 @@ async function runMasterRetentionCleanup() {
     notificationsResult,
     loginLogsResult,
     impersonationResult,
+    whatsappSessionsResult,
   ] = await Promise.all([
     runProofRetentionCleanup().catch((err) => ({ error: err.message })),
     cleanupResolvedSupportTickets().catch((err) => ({ error: err.message })),
@@ -307,6 +338,7 @@ async function runMasterRetentionCleanup() {
     cleanupNotificationQueue().catch((err) => ({ error: err.message })),
     cleanupUserLoginLogs().catch((err) => ({ error: err.message })),
     cleanupStaleImpersonationSessions().catch((err) => ({ error: err.message })),
+    cleanupOrphanedWhatsAppSessions().catch((err) => ({ error: err.message })),
   ]);
 
   const durationMs = Date.now() - startTime;
@@ -324,6 +356,7 @@ async function runMasterRetentionCleanup() {
     notifications: notificationsResult,
     loginLogs: loginLogsResult,
     impersonation: impersonationResult,
+    whatsappSessions: whatsappSessionsResult,
   };
 }
 
@@ -336,4 +369,5 @@ module.exports = {
   cleanupNotificationQueue,
   cleanupUserLoginLogs,
   cleanupStaleImpersonationSessions,
+  cleanupOrphanedWhatsAppSessions,
 };

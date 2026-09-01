@@ -1,5 +1,9 @@
+'use strict';
+
 const { supabase } = require('./supabase');
 const { normalizeThemeSettings } = require('./themeSettingsService');
+const { safeDeleteR2Objects, extractR2Key } = require('../utils/r2Helper');
+const logger = require('../utils/logger');
 
 const SUPPORTED_BUSINESS_TYPES = new Set([
   'general', 'automotive', 'fashion', 'electronics', 'grocery', 'health',
@@ -64,15 +68,51 @@ async function saveSettings(storeId, settings, businessType, guaranteeProductIds
   }
   const safePayload = normalizeThemeSettings(updatePayload);
 
-  const { data, error } = await supabase.from('site_settings').update(safePayload).eq('store_id', storeId).select().maybeSingle();
+  // 1. Fetch current settings to detect replaced media
+  const { data: currentSettings } = await supabase
+    .from('site_settings')
+    .select('logo_url, brand_logo, hero_image, about_image, favicon_url')
+    .eq('store_id', storeId)
+    .maybeSingle();
+
+  const { data, error } = await supabase
+    .from('site_settings')
+    .update(safePayload)
+    .eq('store_id', storeId)
+    .select()
+    .maybeSingle();
+
   if (error) throw error;
   let finalData = data;
   if (!data) {
-    const { data: upsertData, error: upsertError } = await supabase.from('site_settings').upsert({ store_id: storeId, ...safePayload }, { onConflict: 'store_id' }).select().maybeSingle();
+    const { data: upsertData, error: upsertError } = await supabase
+      .from('site_settings')
+      .upsert({ store_id: storeId, ...safePayload }, { onConflict: 'store_id' })
+      .select()
+      .maybeSingle();
     if (upsertError) throw upsertError;
     finalData = upsertData;
   }
-  if (error) throw error;
+
+  // 2. Clean up replaced images from Cloudflare R2
+  if (currentSettings) {
+    const mediaKeysToDelete = [];
+    const checkFields = ['logo_url', 'brand_logo', 'hero_image', 'about_image', 'favicon_url'];
+
+    for (const field of checkFields) {
+      const oldVal = currentSettings[field];
+      const newVal = safePayload[field];
+      if (oldVal && newVal && oldVal !== newVal) {
+        mediaKeysToDelete.push(oldVal);
+      }
+    }
+
+    if (mediaKeysToDelete.length > 0) {
+      safeDeleteR2Objects(mediaKeysToDelete).catch((delErr) => {
+        logger.warn(`[settingsAdminService] Failed to delete replaced settings media: ${delErr.message}`);
+      });
+    }
+  }
 
   const storeUpdates = {};
   if (businessType) storeUpdates.business_type = businessType;
@@ -98,33 +138,8 @@ async function saveSettings(storeId, settings, businessType, guaranteeProductIds
   return finalData;
 }
 
-async function applyPublishedTheme(storeId, themeId) {
-  const { data: theme, error: themeError } = await supabase
-    .from('platform_themes')
-    .select('id')
-    .eq('id', themeId)
-    .eq('is_published', true)
-    .maybeSingle();
-  if (themeError) throw themeError;
-  if (!theme) {
-    const error = new Error('Theme is not available.');
-    error.statusCode = 404;
-    throw error;
-  }
-
-  const { data, error } = await supabase
-    .from('site_settings')
-    .update({ theme_id: theme.id, theme_overrides: {} })
-    .eq('store_id', storeId)
-    .select()
-    .maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
 module.exports = {
-  findProducts,
   getSettings,
   saveSettings,
-  applyPublishedTheme
+  findProducts
 };

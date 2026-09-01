@@ -52,12 +52,21 @@ async function updateProfile(storeId, userId, profile) {
     // the database trigger. Persist the canonical local value explicitly.
     normalizedProfile.phone = requestedPhone.slice(2);
   }
+
+  // Fetch current avatar to detect replacement
+  const { data: currentProfile } = await supabase
+    .from('user_profiles')
+    .select('avatar_url')
+    .eq('user_id', userId)
+    .eq('store_id', targetStoreId)
+    .maybeSingle();
+
   const payload = {
     user_id: userId,
     store_id: targetStoreId,
     updated_at: new Date().toISOString()
   };
-  for (const key of ['phone', 'name', 'city', 'address']) {
+  for (const key of ['phone', 'name', 'city', 'address', 'avatar_url']) {
     if (normalizedProfile[key] !== undefined) {
       payload[key === 'name' ? 'full_name' : key] = normalizedProfile[key];
     }
@@ -76,6 +85,14 @@ async function updateProfile(storeId, userId, profile) {
       throw conflict;
     }
     throw error;
+  }
+
+  // Clean up replaced avatar from R2
+  if (currentProfile?.avatar_url && payload.avatar_url && currentProfile.avatar_url !== payload.avatar_url) {
+    const { safeDeleteR2Object } = require('../utils/r2Helper');
+    safeDeleteR2Object(currentProfile.avatar_url).catch((delErr) => {
+      console.warn('[accountService.updateProfile] Avatar cleanup note:', delErr.message);
+    });
   }
 
   // Synchronize auth.users user_metadata if phone was provided

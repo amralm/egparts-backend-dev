@@ -11,9 +11,12 @@ const {
   cleanupNotificationQueue,
   cleanupUserLoginLogs,
   cleanupStaleImpersonationSessions,
+  cleanupOrphanedWhatsAppSessions,
 } = require('../services/retentionService');
 const productAdminService = require('../services/productAdminService');
 const bannerAdminService = require('../services/bannerAdminService');
+const settingsAdminService = require('../services/settingsAdminService');
+const accountService = require('../services/accountService');
 const { supabase } = require('../services/supabase');
 
 async function runTests() {
@@ -32,7 +35,7 @@ async function runTests() {
   }
 
   // ── 1. Test R2 Key Extraction Helper ─────────────────────────────
-  console.log('\n📌 [1/5] Testing R2 Key Extraction Helper:');
+  console.log('\n📌 [1/6] Testing R2 Key Extraction Helper:');
   const key1 = extractR2Key('https://media.egparts.store/products/store-123/prod-456.webp');
   assert(key1 === 'products/store-123/prod-456.webp', `Extracted CDN URL key correctly: ${key1}`);
 
@@ -46,7 +49,7 @@ async function runTests() {
   assert(key4 === null, `Handled null gracefully: ${key4}`);
 
   // ── 2. Test Safe R2 Deletion (Null/Malformed & Batch) ───────────
-  console.log('\n📌 [2/5] Testing Safe R2 Deletion:');
+  console.log('\n📌 [2/6] Testing Safe R2 Deletion:');
   const delNull = await safeDeleteR2Object(null);
   assert(delNull === false, 'Safe delete on null returns false without throwing');
 
@@ -57,29 +60,27 @@ async function runTests() {
   assert(batchDel.attempted === 2, `Batch deletion attempted 2 objects without error`);
 
   // ── 3. Test Product & Banner Image Deletion Hooks ────────────────
-  console.log('\n📌 [3/5] Testing Product & Banner Deletion Hooks:');
+  console.log('\n📌 [3/6] Testing Product, Banner & Settings Media Hooks:');
   const { data: testStore } = await supabase.from('stores').select('id').limit(1).single();
   const storeId = testStore?.id;
 
   if (storeId) {
-    // Create a temporary test banner
+    // 3a. Banner Media Hook
     const banner = await bannerAdminService.createBanner(storeId, {
       title: 'Retention Test Banner',
       image_url: 'banners/test/retention-banner-mock.webp'
     });
     assert(banner && banner.id, `Created test banner: ${banner.id}`);
 
-    // Update banner with new image
     const updatedBanner = await bannerAdminService.updateBanner(storeId, banner.id, {
       image_url: 'banners/test/retention-banner-mock-updated.webp'
     });
     assert(updatedBanner.image_url.includes('updated'), 'Updated banner with new image triggers old cleanup');
 
-    // Delete test banner
     const delBannerRes = await bannerAdminService.deleteBanner(storeId, banner.id);
     assert(delBannerRes.deleted === true, 'Deleted test banner and triggered R2 cleanup');
 
-    // Create a temporary test product
+    // 3b. Product Media Hook
     const product = await productAdminService.saveProduct(storeId, {
       name: 'Retention Test Product',
       price: 100,
@@ -88,13 +89,28 @@ async function runTests() {
     });
     assert(product && product.id, `Created test product: ${product.id}`);
 
-    // Hard delete test product
     const delProdRes = await productAdminService.hardDeleteProduct(storeId, product.id);
     assert(delProdRes.mediaKeys && delProdRes.mediaKeys.length === 3, 'Hard deleted product and collected 3 media keys for R2 cleanup');
+
+    // 3c. Settings Media Hook
+    const savedSettings = await settingsAdminService.saveSettings(storeId, {
+      logo_url: 'logos/test/mock-logo-new.webp'
+    });
+    assert(savedSettings !== null, 'Updated store settings logo with R2 cleanup trigger');
   }
 
-  // ── 4. Test Individual Retention Routines ─────────────────────────
-  console.log('\n📌 [4/5] Testing Individual Retention Routines:');
+  // ── 4. Test User Avatar Media Hook ──────────────────────────────
+  console.log('\n📌 [4/6] Testing User Avatar Media Hook:');
+  const { data: testUser } = await supabase.from('users').select('id').limit(1).single();
+  if (testUser?.id && storeId) {
+    const updatedProfile = await accountService.updateProfile(storeId, testUser.id, {
+      avatar_url: 'avatars/test/mock-avatar-updated.webp'
+    });
+    assert(updatedProfile !== null, 'Updated user avatar with R2 cleanup trigger');
+  }
+
+  // ── 5. Test Individual Retention Routines ─────────────────────────
+  console.log('\n📌 [5/6] Testing Individual Retention Routines:');
   const ticketsRes = await cleanupResolvedSupportTickets();
   assert(typeof ticketsRes.purgedTickets === 'number', `Tickets cleanup executed (Purged: ${ticketsRes.purgedTickets}, AutoClosed: ${ticketsRes.autoClosed})`);
 
@@ -116,13 +132,17 @@ async function runTests() {
   const impersonationRes = await cleanupStaleImpersonationSessions();
   assert(typeof impersonationRes.purgedCodes === 'number', `Impersonation cleanup executed (Purged codes: ${impersonationRes.purgedCodes})`);
 
-  // ── 5. Test Master Retention Execution ───────────────────────────
-  console.log('\n📌 [5/5] Testing Master Retention Execution:');
+  const waSessionsRes = await cleanupOrphanedWhatsAppSessions();
+  assert(typeof waSessionsRes.purgedOrphanSessions === 'number', `WhatsApp orphaned sessions cleanup executed (Purged: ${waSessionsRes.purgedOrphanSessions})`);
+
+  // ── 6. Test Master Retention Execution ───────────────────────────
+  console.log('\n📌 [6/6] Testing Master Retention Execution:');
   const masterRes = await runMasterRetentionCleanup();
   assert(masterRes.success === true, `Master retention completed successfully in ${masterRes.durationMs}ms`);
   assert(masterRes.paymentProofs !== undefined, 'Payment proofs retention ran');
   assert(masterRes.supportTickets !== undefined, 'Support tickets retention ran');
   assert(masterRes.clientErrorLogs !== undefined, 'Client error logs retention ran');
+  assert(masterRes.whatsappSessions !== undefined, 'WhatsApp sessions retention ran');
 
   console.log(`\n🏁 Test Results: ${passed} Passed, ${failed} Failed`);
   if (failed > 0) {

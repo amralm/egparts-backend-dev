@@ -1207,10 +1207,19 @@ router.delete('/stores/:id', verifyPlatformAdmin, async (req, res) => {
       return apiError(res, 409, 'Type the exact store name to confirm permanent deletion.', 'DELETE_CONFIRMATION_REQUIRED');
     }
 
-    // 1. Wipe all files associated with the store from R2
+    // 1. Wipe all files associated with the store from R2 across all prefixes
     let storageResult = { deletedCount: 0, deletedBytes: 0 };
     if (process.env.R2_BUCKET_NAME) {
-      storageResult = await emptyS3Directory(process.env.R2_BUCKET_NAME, `stores/${id}/`);
+      const dirsToWipe = [`stores/${id}/`, `payment-proofs/${id}/`, `support/${id}/`, `abuse-reports/${id}/`];
+      for (const dir of dirsToWipe) {
+        try {
+          const resDir = await emptyS3Directory(process.env.R2_BUCKET_NAME, dir);
+          storageResult.deletedCount += resDir.deletedCount || 0;
+          storageResult.deletedBytes += resDir.deletedBytes || 0;
+        } catch (dirErr) {
+          logger.warn(`Failed to wipe R2 directory ${dir}:`, dirErr.message);
+        }
+      }
     }
 
     // 2. Hard delete the store from database (Cascades to products, orders, etc.)
