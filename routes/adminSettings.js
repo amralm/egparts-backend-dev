@@ -64,7 +64,7 @@ router.put('/', verifyPermission('settings.update'), validateBody(storeSettingsS
     sendSuccess(res, { settings });
   } catch (err) {
     logger.error('[admin-settings] save failed:', err.message);
-    apiError(res, err.statusCode || 500, 'Unable to save settings.', 'SETTINGS_SAVE_FAILED');
+    apiError(res, err.statusCode || 500, err.statusCode ? err.message : 'Unable to save settings.', err.code || 'SETTINGS_SAVE_FAILED');
   }
 });
 
@@ -82,7 +82,7 @@ router.patch('/theme', verifyPermission('settings.update'), async (req, res) => 
     sendSuccess(res, { settings });
   } catch (err) {
     logger.error('[admin-settings] apply theme failed:', err.message);
-    apiError(res, err.statusCode || 500, 'Unable to apply theme.', 'THEME_APPLY_FAILED');
+    apiError(res, err.statusCode || 500, err.statusCode ? err.message : 'Unable to apply theme.', err.code || 'THEME_APPLY_FAILED');
   }
 });
 

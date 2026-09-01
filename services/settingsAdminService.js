@@ -138,8 +138,71 @@ async function saveSettings(storeId, settings, businessType, guaranteeProductIds
   return finalData;
 }
 
+async function applyPublishedTheme(storeId, themeId) {
+  if (!themeId || typeof themeId !== 'string') {
+    const error = new Error('Valid theme_id is required.');
+    error.statusCode = 400;
+    error.code = 'INVALID_THEME_ID';
+    throw error;
+  }
+
+  const trimmedId = themeId.trim();
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmedId);
+
+  if (isUuid) {
+    // Check that the platform theme exists and is published
+    const { data: dbTheme, error: themeError } = await supabase
+      .from('platform_themes')
+      .select('id, name, is_published')
+      .eq('id', trimmedId)
+      .maybeSingle();
+
+    if (themeError) throw themeError;
+    if (!dbTheme) {
+      const error = new Error('Theme not found.');
+      error.statusCode = 404;
+      error.code = 'THEME_NOT_FOUND';
+      throw error;
+    }
+    if (!dbTheme.is_published) {
+      const error = new Error('Theme is not published.');
+      error.statusCode = 400;
+      error.code = 'THEME_NOT_PUBLISHED';
+      throw error;
+    }
+  }
+
+  const updatePayload = {
+    theme_id: trimmedId,
+    theme_overrides: {}
+  };
+
+  const { data: updated, error: updateError } = await supabase
+    .from('site_settings')
+    .update(updatePayload)
+    .eq('store_id', storeId)
+    .select()
+    .maybeSingle();
+
+  if (updateError) throw updateError;
+  let finalData = updated;
+
+  if (!updated) {
+    const { data: upserted, error: upsertError } = await supabase
+      .from('site_settings')
+      .upsert({ store_id: storeId, ...updatePayload }, { onConflict: 'store_id' })
+      .select()
+      .maybeSingle();
+    if (upsertError) throw upsertError;
+    finalData = upserted;
+  }
+
+  return finalData;
+}
+
 module.exports = {
   getSettings,
   saveSettings,
-  findProducts
+  findProducts,
+  applyPublishedTheme
 };
