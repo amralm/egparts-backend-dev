@@ -1,5 +1,9 @@
+'use strict';
+
 const { z } = require('zod');
 const { supabase } = require('./supabase');
+const { safeDeleteR2Object, extractR2Key } = require('../utils/r2Helper');
+const logger = require('../utils/logger');
 
 const bannerSchema = z.object({
   title: z.string().trim().max(160).optional().default(''),
@@ -41,6 +45,15 @@ async function createBanner(storeId, payload) {
 
 async function updateBanner(storeId, bannerId, payload) {
   const parsed = parseBanner(payload);
+
+  // Fetch current banner to see if image_url is replaced
+  const { data: currentBanner } = await supabase
+    .from('banners')
+    .select('id, image_url')
+    .eq('id', bannerId)
+    .eq('store_id', storeId)
+    .maybeSingle();
+
   const { data, error } = await supabase
     .from('banners')
     .update(parsed)
@@ -56,6 +69,14 @@ async function updateBanner(storeId, bannerId, payload) {
     err.code = 'BANNER_NOT_FOUND';
     throw err;
   }
+
+  // If image_url changed, delete old image from R2
+  if (currentBanner?.image_url && parsed.image_url && currentBanner.image_url !== parsed.image_url) {
+    safeDeleteR2Object(currentBanner.image_url).catch((delErr) => {
+      logger.warn(`[bannerAdminService] Failed to delete old banner image: ${delErr.message}`);
+    });
+  }
+
   return data;
 }
 
@@ -95,6 +116,14 @@ async function deleteBanner(storeId, bannerId) {
     .eq('store_id', storeId);
 
   if (error) throw error;
+
+  // Delete banner image from Cloudflare R2
+  if (banner?.image_url) {
+    safeDeleteR2Object(banner.image_url).catch((delErr) => {
+      logger.warn(`[bannerAdminService] Failed to delete banner image on delete: ${delErr.message}`);
+    });
+  }
+
   return { deleted: true, image_url: banner?.image_url || null };
 }
 

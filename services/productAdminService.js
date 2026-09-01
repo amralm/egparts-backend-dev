@@ -1,4 +1,8 @@
+'use strict';
+
 const { supabase } = require('./supabase');
+const { safeDeleteR2Objects, extractR2Key } = require('../utils/r2Helper');
+const logger = require('../utils/logger');
 
 async function listProducts(storeId, viewMode = 'active') {
   let query = supabase
@@ -20,9 +24,6 @@ async function listProducts(storeId, viewMode = 'active') {
     .eq('orders.store_id', storeId)
     .in('orders.status', ['pending', 'confirmed', 'processing']);
 
-  // Active-order counts are supplemental UI metadata. A malformed relation,
-  // stale PostgREST schema cache, or temporary query failure must not hide all
-  // products from the admin list.
   if (orderErr) {
     console.warn('[admin-products] active order counts unavailable:', orderErr.message);
   }
@@ -40,8 +41,18 @@ async function listProducts(storeId, viewMode = 'active') {
 
 async function saveProduct(storeId, payload, productId = null) {
   const productPayload = { ...payload, store_id: storeId };
+
   if (productId) {
     delete productPayload.store_id;
+
+    // 1. Fetch current product to check if media is being replaced or removed
+    const { data: currentProduct } = await supabase
+      .from('products')
+      .select('image, gallery')
+      .eq('id', productId)
+      .eq('store_id', storeId)
+      .maybeSingle();
+
     const { data, error } = await supabase
       .from('products')
       .update(productPayload)
@@ -49,7 +60,36 @@ async function saveProduct(storeId, payload, productId = null) {
       .eq('store_id', storeId)
       .select('*')
       .maybeSingle();
+
     if (error) throw error;
+
+    // 2. Compute removed media files and safely delete from R2 (non-blocking)
+    if (currentProduct) {
+      const removedKeys = [];
+
+      // Check if main image changed
+      if (productPayload.image !== undefined && currentProduct.image && productPayload.image !== currentProduct.image) {
+        removedKeys.push(currentProduct.image);
+      }
+
+      // Check if gallery images removed
+      if (Array.isArray(productPayload.gallery) && Array.isArray(currentProduct.gallery)) {
+        const newGallerySet = new Set(productPayload.gallery.map(extractR2Key).filter(Boolean));
+        currentProduct.gallery.forEach((oldImg) => {
+          const oldKey = extractR2Key(oldImg);
+          if (oldKey && !newGallerySet.has(oldKey)) {
+            removedKeys.push(oldImg);
+          }
+        });
+      }
+
+      if (removedKeys.length > 0) {
+        safeDeleteR2Objects(removedKeys).catch((err) => {
+          logger.warn(`[productAdminService] Background R2 media cleanup warning: ${err.message}`);
+        });
+      }
+    }
+
     return data;
   }
 
@@ -58,6 +98,7 @@ async function saveProduct(storeId, payload, productId = null) {
     .insert([productPayload])
     .select('*')
     .maybeSingle();
+
   if (error) throw error;
   return data;
 }
@@ -102,13 +143,22 @@ async function hardDeleteProduct(storeId, productId) {
     .delete()
     .eq('id', productId)
     .eq('store_id', storeId);
+
   if (error) throw error;
 
+  // Collect all media keys to delete from Cloudflare R2
   const mediaKeys = [];
-  if (product?.image && !/^https?:\/\//.test(product.image)) mediaKeys.push(product.image);
+  if (product?.image) mediaKeys.push(product.image);
   if (Array.isArray(product?.gallery)) {
     product.gallery.forEach((key) => {
-      if (key && !/^https?:\/\//.test(key)) mediaKeys.push(key);
+      if (key) mediaKeys.push(key);
+    });
+  }
+
+  // Delete all product media from Cloudflare R2
+  if (mediaKeys.length > 0) {
+    safeDeleteR2Objects(mediaKeys).catch((err) => {
+      logger.warn(`[productAdminService] R2 media deletion warning on hard delete: ${err.message}`);
     });
   }
 

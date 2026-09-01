@@ -1,12 +1,13 @@
 'use strict';
 
-// Render Cron Job entrypoint. Configure it to run every 15 minutes with the
-// same environment variables as the backend Web Service.
+// Master Render Cron Job entrypoint.
+// Runs every 15 minutes to execute all database retention policies,
+// delete expired media from Cloudflare R2, and keep storage bloat at 0.
 require('dotenv').config();
 
-const { runProofRetentionCleanup } = require('../services/proofRetentionJob');
+const { runMasterRetentionCleanup } = require('../services/retentionService');
 
-runProofRetentionCleanup()
+runMasterRetentionCleanup()
   .then((result) => {
     process.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
     process.exitCode = 0;
