@@ -93,7 +93,18 @@ async function listCatalogProducts(storeId, filters = {}) {
   }
   if (filters.category && filters.category !== 'All') query = query.eq('category', filters.category);
   if (filters.brand && filters.brand !== 'All') query = query.eq('brand', filters.brand);
-  query = query.gte('price', Number(filters.min) || 0).lte('price', Number(filters.max) || 100000);
+  const minPrice = Number(filters.min);
+  const maxPrice = Number(filters.max);
+  const hasCustomMin = Number.isFinite(minPrice) && minPrice > 0;
+  const hasCustomMax = Number.isFinite(maxPrice) && maxPrice > 0 && maxPrice < 100000;
+
+  if (hasCustomMin && hasCustomMax) {
+    query = query.gte('price', minPrice).lte('price', maxPrice);
+  } else if (hasCustomMin) {
+    query = query.gte('price', minPrice);
+  } else if (hasCustomMax) {
+    query = query.or(`price.lte.${maxPrice},price.is.null`);
+  }
 
   if (filters.sort === 'price-asc') query = query.order('price', { ascending: true, nullsFirst: false });
   else if (filters.sort === 'price-desc') query = query.order('price', { ascending: false, nullsFirst: false });

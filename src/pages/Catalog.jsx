@@ -158,8 +158,14 @@ export default function Catalog() {
         if (cat !== 'All') query = query.eq('category', cat);
         if (brand !== 'All') query = query.eq('brand', brand);
         
-        // Use the native numeric price field directly
-        query = query.gte('price', min).lte('price', max);
+        // Apply price range filter only when custom range is requested
+        if (min > 0 && max < 100000) {
+          query = query.gte('price', min).lte('price', max);
+        } else if (min > 0) {
+          query = query.gte('price', min);
+        } else if (max < 100000) {
+          query = query.or(`price.lte.${max},price.is.null`);
+        }
 
         // Sorting
         if (sort === 'price-asc') query = query.order('price', { ascending: true, nullsFirst: false });
