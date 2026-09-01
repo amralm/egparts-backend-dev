@@ -306,9 +306,6 @@ async function clearStoreCache(storeId) {
   // To keep it simple, we could flush all or specific keys. In distributed env, tag based flush is better.
   // For now, we clear the states cache.
   await cacheProvider.del(`feature_states:${storeId}:${DEFAULT_FEATURE_KEYS.join(',')}`);
-  if (typeof cacheProvider.flushAll === 'function') {
-    await cacheProvider.flushAll();
-  }
 }
 
 async function decrementFeatureUsage(storeId, featureKey, amount = 1) {
@@ -350,6 +347,9 @@ async function decrementFeatureUsage(storeId, featureKey, amount = 1) {
 
 module.exports = {
   DEFAULT_FEATURE_KEYS,
+  getActiveStoreSubscription,
+  normalizeFeatureKey,
+  inferPeriodType,
   checkFeatureLimit,
   reserveFeatureUsage,
   commitFeatureUsage,

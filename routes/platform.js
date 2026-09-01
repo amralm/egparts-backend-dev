@@ -1198,13 +1198,20 @@ router.delete('/storage/folder', verifyPlatformAdmin, async (req, res) => {
 
 router.delete('/stores/:id', verifyPlatformAdmin, async (req, res) => {
   const { id } = req.params;
+  if (id === '00000000-0000-0000-0000-000000000000') {
+    return apiError(res, 400, 'لا يمكن حذف المتجر الأساسي للمنصة.', 'PLATFORM_STORE_PROTECTED');
+  }
   try {
     const { data: oldStore } = await supabase.from('stores').select('*').eq('id', id).maybeSingle();
-    if (!oldStore) return apiError(res, 404, 'Store not found', `HTTP_404`);
+    if (!oldStore) return apiError(res, 404, 'المتجر غير موجود', `STORE_NOT_FOUND`);
+
+    if (oldStore.subdomain === 'egparts') {
+      return apiError(res, 400, 'لا يمكن حذف المتجر الأساسي للمنصة.', 'PLATFORM_STORE_PROTECTED');
+    }
 
     const confirmation = typeof req.body?.confirmation === 'string' ? req.body.confirmation.trim() : '';
-    if (!confirmation || confirmation !== oldStore.name) {
-      return apiError(res, 409, 'Type the exact store name to confirm permanent deletion.', 'DELETE_CONFIRMATION_REQUIRED');
+    if (!confirmation || confirmation !== oldStore.name.trim()) {
+      return apiError(res, 409, 'يرجى كتابة اسم المتجر بدقة لتأكيد الحذف النهائي.', 'DELETE_CONFIRMATION_REQUIRED');
     }
 
     // 1. Wipe all files associated with the store from R2 across all prefixes
@@ -1230,11 +1237,16 @@ router.delete('/stores/:id', verifyPlatformAdmin, async (req, res) => {
 
     if (error) throw error;
 
+    // Clear tenant cache
+    const { tenantCache } = require('../utils/cache');
+    if (oldStore.subdomain) tenantCache.delete(oldStore.subdomain);
+    if (oldStore.custom_domain) tenantCache.delete(oldStore.custom_domain);
+
     await auditPlatform(req, 'platform.store.delete_hard', 'store', id, oldStore, { storageResult }, id);
-    sendSuccess(res, { message: 'Store completely deleted.', storage: storageResult });
+    sendSuccess(res, { message: 'تم حذف المتجر وبياناته بالكامل بنجاح.', storage: storageResult });
   } catch (err) {
     logger.error('Failed to hard delete store:', err.message);
-    apiError(res, 500, 'Failed to delete store', `HTTP_500`);
+    apiError(res, 500, 'تعذر حذف المتجر.', `STORE_DELETE_FAILED`);
   }
 });
 
