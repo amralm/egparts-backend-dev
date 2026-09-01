@@ -1,6 +1,7 @@
 const express = require('express');
 const platformReportService = require('../services/platformReportService');
-const { optionalAuth, verifyPermission } = require('../middleware/auth');
+const { optionalAuth } = require('../middleware/auth');
+const { verifyPlatformAdmin } = require('../middleware/platformAdmin');
 const { sendSuccess } = require('../utils/apiResponse');
 const { apiError } = require('../utils/apiError');
 const rateLimit = require('express-rate-limit');
@@ -98,16 +99,16 @@ publicReportsRouter.post(['/submit', '/'], optionalAuth, reportLimiter, handleSu
 
 // ── Super Admin Reports Router (Mounted at /api/platform/admin/reports) 
 const adminReportsRouter = express.Router();
-adminReportsRouter.get(['/', '/reports'], verifyPermission('platform.stores.manage'), handleListReports);
-adminReportsRouter.get(['/:id', '/reports/:id'], verifyPermission('platform.stores.manage'), handleGetReportDetails);
-adminReportsRouter.patch(['/:id/action', '/reports/:id/action'], verifyPermission('platform.stores.manage'), handleUpdateReportAction);
+adminReportsRouter.get(['/', '/reports'], verifyPlatformAdmin, handleListReports);
+adminReportsRouter.get(['/:id', '/reports/:id'], verifyPlatformAdmin, handleGetReportDetails);
+adminReportsRouter.patch(['/:id/action', '/reports/:id/action'], verifyPlatformAdmin, handleUpdateReportAction);
 
 // ── Combined Root Router ──────────────────────────────────────────────
 const rootRouter = express.Router();
 rootRouter.post(['/submit', '/reports/submit', '/'], optionalAuth, reportLimiter, handleSubmitReport);
-rootRouter.get(['/', '/reports', '/admin/reports'], verifyPermission('platform.stores.manage'), handleListReports);
-rootRouter.get(['/:id', '/reports/:id', '/admin/reports/:id'], verifyPermission('platform.stores.manage'), handleGetReportDetails);
-rootRouter.patch(['/:id/action', '/reports/:id/action', '/admin/reports/:id/action'], verifyPermission('platform.stores.manage'), handleUpdateReportAction);
+rootRouter.get(['/', '/reports', '/admin/reports'], verifyPlatformAdmin, handleListReports);
+rootRouter.get(['/:id', '/reports/:id', '/admin/reports/:id'], verifyPlatformAdmin, handleGetReportDetails);
+rootRouter.patch(['/:id/action', '/reports/:id/action', '/admin/reports/:id/action'], verifyPlatformAdmin, handleUpdateReportAction);
 
 rootRouter.publicReportsRouter = publicReportsRouter;
 rootRouter.adminReportsRouter = adminReportsRouter;
