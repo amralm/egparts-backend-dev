@@ -174,7 +174,8 @@ async function applyPublishedTheme(storeId, themeId) {
 
   const updatePayload = {
     theme_id: trimmedId,
-    theme_overrides: {}
+    theme_overrides: {},
+    theme_colors: {}
   };
 
   const { data: updated, error: updateError } = await supabase

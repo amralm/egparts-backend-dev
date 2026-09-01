@@ -33,18 +33,18 @@ async function getHome(storeId) {
     supabase.from('banners').select('*').eq('is_active', true).eq('store_id', storeId).order('order_index', { ascending: true }),
     supabase.from('products').select('*').eq('is_active', true).eq('is_deleted', false).eq('store_id', storeId).gt('stock_quantity', 0).order('created_at', { ascending: false }).limit(4),
     supabase.from('products').select('*').eq('is_active', true).eq('is_deleted', false).eq('store_id', storeId).gt('stock_quantity', 0).order('stock_quantity', { ascending: true }).limit(4),
-    supabase.from('site_settings').select('*').eq('store_id', storeId).maybeSingle()
+    getSettings(storeId)
   ]);
 
-  [banners, latest, trending, settings].forEach((result) => {
-    if (result.error) throw result.error;
-  });
+  if (banners.error) throw banners.error;
+  if (latest.error) throw latest.error;
+  if (trending.error) throw trending.error;
 
   return {
     banners: banners.data || [],
     latest_products: latest.data || [],
     trending_products: trending.data || [],
-    settings: normalizeTenantSettings(settings.data || null)
+    settings: settings || {}
   };
 }
 
