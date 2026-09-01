@@ -469,10 +469,11 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
     }
 
     const reservationKey = `order-${req.store.id}-${idempotencyScope}`;
-    const isAllowed = await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'orders', 1, reservationKey);
-    if (!isAllowed) {
-      return apiError(res, 403, 'عذراً، المتجر استنفد الحد الأقصى من الطلبات المسموحة في باقته الحالية', `HTTP_403`);
-    }
+    // Soft Limit Policy: Track order usage reservation, but never block customer checkout.
+    // Over-quota stores will receive a friendly upgrade notice in their dashboard.
+    await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'orders', 1, reservationKey).catch((e) => {
+      logger.warn(`[Orders] Feature limit reservation warning: ${e.message}`);
+    });
 
     // 3. Server-Side Calculations
     let calculatedSubtotal = 0;
