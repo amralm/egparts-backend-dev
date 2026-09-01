@@ -460,7 +460,7 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
 router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) => {
   let { items, phone, city, address, note, paymentMethod, couponCode, idempotencyKey, location_url } = req.body;
   const addressId = req.body?.address_id || req.body?.addressId || null;
-  const userId = req.user.sub;
+  const userId = req.user?.sub || req.user?.id || req.user?.user_id;
 
   // 1. Validation
   const allowedMethods = ['cod', 'card', 'manual_wallet'];
@@ -490,21 +490,18 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
   try {
     let savedAddress = null;
     if (addressId) {
-      if (typeof addressId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(addressId)) {
-        return apiError(res, 400, 'العنوان المحفوظ غير صالح', 'INVALID_ADDRESS_ID');
+      if (typeof addressId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(addressId)) {
+        const { data, error: addressError } = await supabase
+          .from('user_addresses')
+          .select('id')
+          .eq('id', addressId)
+          .eq('user_id', userId)
+          .eq('store_id', req.store.id)
+          .maybeSingle();
+        if (!addressError && data) {
+          savedAddress = data;
+        }
       }
-      const { data, error: addressError } = await supabase
-        .from('user_addresses')
-        .select('id')
-        .eq('id', addressId)
-        .eq('user_id', userId)
-        .eq('store_id', req.store.id)
-        .maybeSingle();
-      if (addressError) throw addressError;
-      if (!data) {
-        return apiError(res, 404, 'العنوان المحفوظ غير موجود أو لا يخص هذا المتجر', 'SAVED_ADDRESS_NOT_FOUND');
-      }
-      savedAddress = data;
     }
 
     try {
@@ -553,11 +550,11 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
       const dbProduct = products.find(p => p.id === item.id);
       if (!dbProduct) {
         await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-      return apiError(res, 404, 'المنتج غير موجود أو غير متاح في هذا المتجر', 'PRODUCT_NOT_FOUND');
+        return apiError(res, 404, 'المنتج غير موجود أو غير متاح في هذا المتجر', 'PRODUCT_NOT_FOUND');
       }
       if ((dbProduct.stock_quantity || 0) < item.qty) {
         await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-      return apiError(res, 400, `عذراً، الكمية المتاحة من "${dbProduct.name}" غير كافية لإتمام طلبك`, 'INSUFFICIENT_STOCK');
+        return apiError(res, 400, `عذراً، الكمية المتاحة من "${dbProduct.name}" غير كافية لإتمام طلبك`, 'INSUFFICIENT_STOCK');
       }
 
       const itemPrice = Number(dbProduct.price) || 0;
@@ -572,41 +569,41 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
       });
     }
 
-    const { data: zone } = await supabase.from('shipping_zones').select('shipping_fee').eq('city_name', city).eq('store_id', req.store.id).single();
-    let calculatedShippingFee = zone ? zone.shipping_fee : 0;
+    const { data: zone } = await supabase.from('shipping_zones').select('shipping_fee').eq('city_name', city).eq('store_id', req.store.id).maybeSingle();
+    let calculatedShippingFee = zone ? Number(zone.shipping_fee) || 0 : 0;
 
     // Fallback: if city not in zones, use "محافظة أخرى"
     if (!zone) {
-      const { data: fallback } = await supabase.from('shipping_zones').select('shipping_fee').eq('city_name', 'محافظة أخرى').eq('store_id', req.store.id).single();
-      if (fallback) calculatedShippingFee = fallback.shipping_fee;
+      const { data: fallback } = await supabase.from('shipping_zones').select('shipping_fee').eq('city_name', 'محافظة أخرى').eq('store_id', req.store.id).maybeSingle();
+      if (fallback) calculatedShippingFee = Number(fallback.shipping_fee) || 0;
     }
 
     // Free shipping: waive fee if subtotal >= threshold
-    const { data: shipSettings } = await supabase.from('site_settings').select('free_shipping_enabled, free_shipping_threshold').eq('store_id', req.store.id).single();
-    if (shipSettings && shipSettings.free_shipping_enabled !== false && calculatedSubtotal >= (shipSettings.free_shipping_threshold ?? 0)) {
+    const { data: shipSettings } = await supabase.from('site_settings').select('free_shipping_enabled, free_shipping_threshold').eq('store_id', req.store.id).maybeSingle();
+    if (shipSettings && shipSettings.free_shipping_enabled !== false && calculatedSubtotal >= (Number(shipSettings.free_shipping_threshold) || 0)) {
       calculatedShippingFee = 0;
     }
 
     let calculatedDiscount = 0;
     let couponId = null;
     if (couponCode) {
-      const { data: coupon } = await supabase.from('coupons').select('*').eq('code', couponCode).eq('is_active', true).eq('store_id', req.store.id).single();
+      const { data: coupon } = await supabase.from('coupons').select('*').eq('code', couponCode).eq('is_active', true).eq('store_id', req.store.id).maybeSingle();
       if (coupon) {
         const now = new Date();
         const expiry = coupon.expiry_date ? new Date(coupon.expiry_date) : null;
-        if ((!expiry || expiry > now) && (coupon.max_uses === 0 || coupon.used_count < coupon.max_uses) && (calculatedSubtotal >= (coupon.min_order_value || 0))) {
-          calculatedDiscount = coupon.discount_percentage ? (calculatedSubtotal * (coupon.discount_percentage / 100)) : (coupon.discount_amount || 0);
+        if ((!expiry || expiry > now) && (coupon.max_uses === 0 || coupon.used_count < coupon.max_uses) && (calculatedSubtotal >= (Number(coupon.min_order_value) || 0))) {
+          calculatedDiscount = coupon.discount_percentage ? (calculatedSubtotal * (coupon.discount_percentage / 100)) : (Number(coupon.discount_amount) || 0);
           couponId = coupon.id;
         }
       }
     }
 
-    const calculatedTotal = calculatedSubtotal + calculatedShippingFee - calculatedDiscount;
+    const calculatedTotal = Math.max(calculatedSubtotal + calculatedShippingFee - calculatedDiscount, 0);
 
     // 4. Atomic Execution — every payment method uses the same stock-safe RPC.
     const { data, error } = await supabase.rpc('create_order_atomic', {
         p_user_id: userId,
-        p_items: items.map(item => ({ id: item.id, qty: item.qty })),
+        p_items: items.map(item => ({ id: item.id, qty: Number(item.qty || 1) })),
         p_phone: phone,
         p_city: city,
         p_address: address,
@@ -615,34 +612,35 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
         p_coupon_code: couponCode || null,
         p_idempotency_key: idempotencyScope,
         p_auth_source: req.user?.app_metadata?.provider || 'otp',
-        // The Dev/Production RPC contract currently stores optional location
-        // data in metadata; do not send an undeclared RPC argument because
-        // PostgREST rejects the entire call before the transaction starts.
         p_metadata: {
           user_agent: req.headers['user-agent'],
           address_id: savedAddress?.id || null,
           location_url: location_url || null
         },
-        p_store_id: req.store.id
+        p_store_id: req.store.id,
+        p_location_url: location_url || null
     });
 
     if (error) {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-      console.error('RPC Error:', error.message);
+      logger.error('RPC Error in create_order_atomic:', error.message);
       const isStockError = error.message.includes('stock') || error.message.includes('الكمية');
       return apiError(res, isStockError ? 400 : 500, error.message, isStockError ? 'INSUFFICIENT_STOCK' : 'ORDER_CREATE_FAILED');
     }
 
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
     const order = Array.isArray(data) ? data[0] : data;
+    if (!order?.id) {
+      logger.error('Unexpected RPC response payload:', data);
+      throw new Error('لم يتم إنشاء الطلب بشكل سليم من الخادم');
+    }
     return sendSuccess(res, { id: order.id, orderId: order.id, order_number: order.order_number || '', total: order.total }, { status: 201 });
-
 
   } catch (error) {
     const idempotencyScope = userId ? `${userId}-${idempotencyKey}` : idempotencyKey;
     await subscriptionLimitService.rollbackFeatureUsage(`order-${req.store.id}-${idempotencyScope}`).catch(() => {});
-    console.error('Order processing error:', error.message);
-    apiError(res, 500, 'Order processing failed', `HTTP_500`);
+    logger.error('[orders.create] Order processing error:', error);
+    apiError(res, error.statusCode || 500, error.message || 'Order processing failed', error.code || 'HTTP_500');
   }
 });
 
