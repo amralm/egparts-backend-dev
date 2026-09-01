@@ -2466,6 +2466,19 @@ router.delete('/invitations/cleanup', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
+// POST /api/platform/retention/run - Execute Master Retention & Media Cleanup on-demand
+router.post('/retention/run', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { runMasterRetentionCleanup } = require('../services/retentionService');
+    const result = await runMasterRetentionCleanup();
+    await auditPlatform(req, 'platform.retention.run', 'retention_job', 'manual', null, result);
+    sendSuccess(res, result);
+  } catch (err) {
+    logger.error('Manual retention run failed:', err.message);
+    apiError(res, 500, 'Failed to execute retention cleanup', 'RETENTION_RUN_FAILED');
+  }
+});
+
 // DELETE /api/platform/invitations/:id - Delete invitation completely
 router.delete('/invitations/:id', verifyPlatformAdmin, validateParams(invitationIdParamSchema), async (req, res) => {
   const { id } = req.params;

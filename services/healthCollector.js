@@ -159,6 +159,7 @@ async function collectHealth() {
       smtp: 'unknown',
       whatsapp: 'unknown',
       cron_jobs: 'unknown',
+      cron_stats: null,
       last_collection_duration: '0ms',
       collector: {
         last_success_time: collectorStats.last_success_time,
@@ -224,10 +225,6 @@ async function collectHealth() {
           snapshot.smtp = 'unhealthy';
         }
       } catch (err) {
-        // A health probe must not turn a configuration/network problem into a
-        // one-minute application error storm. Keep the diagnostic in the
-        // snapshot and rate-limit the sanitized warning; notification jobs
-        // still report their own delivery result.
         const code = err?.code || err?.responseCode || 'SMTP_CHECK_FAILED';
         const signature = `${code}:${err?.command || 'unknown'}`;
         snapshot.smtp = code === 'EAUTH' || code === '535' ? 'misconfigured' : 'unhealthy';
@@ -259,7 +256,6 @@ async function collectHealth() {
           body: JSON.stringify({ secret: 'test_health_secret', response: 'test_health_response' }),
           signal: AbortSignal.timeout(3000)
         });
-        // Turnstile returns HTTP 200/400 status if reachable
         snapshot.turnstile = tsRes.ok || tsRes.status === 400 ? 'healthy' : 'unhealthy';
       } catch (err) {
         snapshot.turnstile = 'unhealthy';
@@ -298,8 +294,6 @@ async function collectHealth() {
         });
 
         const probe = await r2Client.send(new ListObjectsV2Command({ Bucket: process.env.R2_BUCKET_NAME, MaxKeys: 1 }));
-        // Listing one object only proves connectivity and falsely rendered the
-        // dashboard as "0 files". Keep a cached, paginated inventory instead.
         if (!r2Inventory.scannedAt || Date.now() - new Date(r2Inventory.scannedAt).getTime() > R2_INVENTORY_REFRESH_MS) {
           refreshR2Inventory(r2Client).catch((error) => logger.error('HealthCollector: R2 inventory refresh failed', error.message));
         }
@@ -334,12 +328,42 @@ async function collectHealth() {
       snapshot.r2 = 'not_configured';
     }
 
-    // 8. Cron Jobs Check (last executed time check)
-    if (lastCronRunTime) {
-      const elapsed = Date.now() - new Date(lastCronRunTime).getTime();
-      snapshot.cron_jobs = elapsed < 30 * 60 * 1000 ? 'healthy' : 'warning'; // Warning if pruner hasn't run in 30 mins
-    } else {
+    // 8. Cron Jobs Check (Reads persistent retention run from database)
+    try {
+      const { data: cronSetting } = await supabase
+        .from('system_settings')
+        .select('value, updated_at')
+        .eq('key', 'last_retention_cron_run')
+        .maybeSingle();
+
+      if (cronSetting?.value) {
+        const parsed = typeof cronSetting.value === 'string' ? JSON.parse(cronSetting.value) : cronSetting.value;
+        const lastRunTime = parsed.timestamp || cronSetting.updated_at;
+        const elapsed = Date.now() - new Date(lastRunTime).getTime();
+
+        snapshot.cron_jobs = elapsed < 35 * 60 * 1000 ? 'healthy' : 'warning';
+        snapshot.cron_stats = {
+          lastRunAt: lastRunTime,
+          durationMs: parsed.durationMs || 0,
+          elapsedMinutes: Math.round(elapsed / (60 * 1000)),
+          details: parsed
+        };
+      } else if (lastCronRunTime) {
+        const elapsed = Date.now() - new Date(lastCronRunTime).getTime();
+        snapshot.cron_jobs = elapsed < 35 * 60 * 1000 ? 'healthy' : 'warning';
+        snapshot.cron_stats = {
+          lastRunAt: lastCronRunTime,
+          durationMs: 0,
+          elapsedMinutes: Math.round(elapsed / (60 * 1000)),
+          details: null
+        };
+      } else {
+        snapshot.cron_jobs = 'idle';
+        snapshot.cron_stats = null;
+      }
+    } catch (cronErr) {
       snapshot.cron_jobs = 'warning';
+      snapshot.cron_stats = null;
     }
 
     // 9. Queues Status (Database notification queue)
@@ -350,7 +374,7 @@ async function collectHealth() {
         pending: pending?.length || 0,
         failed: failed?.length || 0
       };
-      
+
       if (failed?.length > 50) {
         snapshot.queues = 'unhealthy';
       } else if (failed?.length > 10) {
@@ -423,4 +447,3 @@ async function getSnapshot() {
 }
 
 module.exports = { startCollector, stopCollector, getSnapshot, registerCronRun, recordR2Upload, recordR2Delete };
-

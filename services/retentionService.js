@@ -344,7 +344,7 @@ async function runMasterRetentionCleanup() {
   const durationMs = Date.now() - startTime;
   logger.info(`✅ [MasterRetention] Platform garbage collection completed in ${durationMs}ms`);
 
-  return {
+  const summary = {
     success: true,
     timestamp: new Date().toISOString(),
     durationMs,
@@ -358,6 +358,18 @@ async function runMasterRetentionCleanup() {
     impersonation: impersonationResult,
     whatsappSessions: whatsappSessionsResult,
   };
+
+  // Persist run metrics to system_settings for Platform Health monitoring
+  try {
+    await supabase.from('system_settings').upsert({
+      key: 'last_retention_cron_run',
+      value: JSON.stringify(summary),
+    }, { onConflict: 'key' });
+  } catch (saveErr) {
+    logger.warn('[MasterRetention] Failed to record run in system_settings:', saveErr.message);
+  }
+
+  return summary;
 }
 
 module.exports = {
