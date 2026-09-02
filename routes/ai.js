@@ -338,18 +338,57 @@ router.post('/action-queue/approve', verifyPermission('settings.manage'), async 
         }
       }
     } else if (actionType === 'send_whatsapp_campaign') {
-      console.log(`[WhatsApp Mock] Sending to ${payload.segment}. Msg: ${payload.message}`);
+      const messageText = payload.message || payload.text;
+      if (messageText) {
+        try {
+          const { data: customers } = await supabase
+            .from('user_profiles')
+            .select('phone')
+            .eq('store_id', storeId)
+            .not('phone', 'is', null)
+            .limit(100);
+
+          if (customers && customers.length > 0) {
+            const queueItems = customers.filter(c => c.phone).map(c => ({
+              store_id: storeId,
+              phone: c.phone,
+              message: messageText,
+              status: 'pending',
+              metadata: { type: 'ai_campaign', segment: payload.segment || 'all' },
+              created_at: new Date().toISOString()
+            }));
+            await supabase.from('notification_queue').insert(queueItems);
+            logger.info(`[AI Campaign] Queued ${queueItems.length} WhatsApp messages for store ${storeId}`);
+          }
+        } catch (campaignErr) {
+          logger.error('[AI Campaign] Failed to queue messages:', campaignErr.message);
+        }
+      }
     } else if (actionType === 'issue_refund') {
       if (payload.orderId) {
-        const { error: updateErr } = await supabase
-          .from('orders')
-          .update({ payment_status: 'refunded' })
-          .eq('id', payload.orderId)
-          .eq('store_id', storeId);
+        try {
+          const { error: updateErr } = await supabase
+            .from('orders')
+            .update({ 
+              status: 'cancelled',
+              payment_status: 'refunded',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', payload.orderId)
+            .eq('store_id', storeId);
 
-        if (updateErr) {
-          await supabase.from('ai_action_queue').update({ status: 'failed' }).eq('id', actionRow.id);
-          return apiError(res, 400, updateErr.message, `HTTP_400`);
+          if (updateErr) {
+            await supabase.from('ai_action_queue').update({ status: 'failed' }).eq('id', actionRow.id);
+            return apiError(res, 400, updateErr.message, `HTTP_400`);
+          }
+
+          // Atomically restore product stock into inventory
+          await supabase.rpc('restore_order_stock', { p_order_id: payload.orderId }).catch((stockErr) => {
+            logger.warn(`[AI Refund] Stock restore notice for order ${payload.orderId}:`, stockErr.message);
+          });
+        } catch (refundErr) {
+          logger.error('[AI Refund] Error processing refund:', refundErr.message);
+          return apiError(res, 500, 'Failed to process refund', 'HTTP_500');
         }
       }
     } else if (actionType === 'create_product') {
