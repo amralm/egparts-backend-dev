@@ -14,30 +14,39 @@ router.get('/products', verifyPermission('orders.create'), async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   try {
-    const { q, category_id } = req.query;
+    const { q, category_id, category } = req.query;
+    const catFilter = category || category_id;
+
     let query = supabase
       .from('products')
-      .select('id, name, price, stock_quantity, image, category_id, barcode, sku, is_active, is_deleted')
+      .select('id, name, price, stock_quantity, stock, image, category, part_number, is_active, is_deleted, specs')
       .eq('store_id', req.store.id)
       .eq('is_active', true)
       .eq('is_deleted', false)
       .order('name', { ascending: true })
-      .limit(100);
+      .limit(200);
 
-    if (category_id && category_id !== 'all') {
-      query = query.eq('category_id', category_id);
+    if (catFilter && catFilter !== 'all') {
+      query = query.eq('category', catFilter);
     }
 
     if (q && q.trim()) {
       const searchTerm = q.trim();
-      // Search by name, barcode, or sku
-      query = query.or(`name.ilike.%${searchTerm}%,barcode.ilike.%${searchTerm}%,sku.ilike.%${searchTerm}%`);
+      // Search by name, part_number (SKU / barcode / code), or category
+      query = query.or(`name.ilike.%${searchTerm}%,part_number.ilike.%${searchTerm}%,category.ilike.%${searchTerm}%`);
     }
 
     const { data: products, error } = await query;
     if (error) throw error;
 
-    sendSuccess(res, { products: products || [] });
+    const normalized = (products || []).map(p => ({
+      ...p,
+      stock_quantity: p.stock_quantity !== null && p.stock_quantity !== undefined ? p.stock_quantity : (p.stock || 0),
+      sku: p.part_number || '',
+      barcode: p.specs?.barcode || p.part_number || ''
+    }));
+
+    sendSuccess(res, { products: normalized });
   } catch (err) {
     logger.error('[pos] products lookup failed:', err.message);
     apiError(res, 500, 'Failed to fetch POS products', 'HTTP_500');
@@ -50,15 +59,22 @@ router.get('/categories', verifyPermission('orders.create'), async (req, res) =>
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   try {
-    const { data: categories, error } = await supabase
-      .from('categories')
-      .select('id, name, image')
+    const { data, error } = await supabase
+      .from('products')
+      .select('category')
       .eq('store_id', req.store.id)
-      .order('name', { ascending: true });
+      .eq('is_deleted', false)
+      .eq('is_active', true)
+      .not('category', 'is', null);
 
     if (error) throw error;
 
-    sendSuccess(res, { categories: categories || [] });
+    const uniqueCategories = [...new Set((data || []).map(p => p.category?.trim()).filter(Boolean))].map(cat => ({
+      id: cat,
+      name: cat
+    }));
+
+    sendSuccess(res, { categories: uniqueCategories });
   } catch (err) {
     logger.error('[pos] categories lookup failed:', err.message);
     apiError(res, 500, 'Failed to fetch categories', 'HTTP_500');
