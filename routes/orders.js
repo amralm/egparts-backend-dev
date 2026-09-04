@@ -593,6 +593,9 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
         const expiry = coupon.expiry_date ? new Date(coupon.expiry_date) : null;
         if ((!expiry || expiry > now) && (coupon.max_uses === 0 || coupon.used_count < coupon.max_uses) && (calculatedSubtotal >= (Number(coupon.min_order_value) || 0))) {
           calculatedDiscount = coupon.discount_percentage ? (calculatedSubtotal * (coupon.discount_percentage / 100)) : (Number(coupon.discount_amount) || 0);
+          if (coupon.max_discount_cap && Number(coupon.max_discount_cap) > 0 && calculatedDiscount > Number(coupon.max_discount_cap)) {
+            calculatedDiscount = Number(coupon.max_discount_cap);
+          }
           couponId = coupon.id;
         }
       }
@@ -634,7 +637,24 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
       logger.error('Unexpected RPC response payload:', data);
       throw new Error('لم يتم إنشاء الطلب بشكل سليم من الخادم');
     }
-    return sendSuccess(res, { id: order.id, orderId: order.id, order_number: order.order_number || '', total: order.total }, { status: 201 });
+
+    // Retrieve store customized invoice/order prefix (defaults to 'EG-')
+    const { data: storeSettings } = await supabase
+      .from('site_settings')
+      .select('order_prefix')
+      .eq('store_id', req.store.id)
+      .maybeSingle();
+    const orderPrefix = storeSettings?.order_prefix || 'EG-';
+    const orderRef = order.order_number ? `${orderPrefix}${order.order_number}` : `#${order.id?.split('-')[0]}`;
+
+    return sendSuccess(res, { 
+      id: order.id, 
+      orderId: order.id, 
+      order_number: order.order_number || '', 
+      order_prefix: orderPrefix,
+      order_reference: orderRef,
+      total: order.total 
+    }, { status: 201 });
 
   } catch (error) {
     const idempotencyScope = userId ? `${userId}-${idempotencyKey}` : idempotencyKey;

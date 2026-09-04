@@ -86,6 +86,8 @@ const analyticsRoutes = require('./routes/analytics');
 const seoRoutes = require('./routes/seo');
 const supportRoutes = require('./routes/support');
 const platformReportsRoutes = require('./routes/platformReports');
+const posRoutes = require('./routes/pos');
+const billingRoutes = require('./routes/billing');
 const healthCollector = require('./services/healthCollector');
 const whatsappService = require('./services/whatsappService');
 const whatsappPoolService = require('./services/whatsappPoolService');
@@ -689,6 +691,7 @@ app.use('/api/admin/settings', adminSettingsRoutes);
 app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/storefront', storefrontRoutes);
 app.use('/api/seo', seoRoutes);
+app.use('/', seoRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/account', accountRoutes);
 app.use('/api/products', productRoutes);
@@ -703,6 +706,8 @@ app.use('/api/admin/support', supportRoutes.adminRouter || supportRoutes);
 app.use('/api/platform-reports', platformReportsRoutes.publicReportsRouter || platformReportsRoutes);
 app.use('/api/platform/reports', platformReportsRoutes.publicReportsRouter || platformReportsRoutes);
 app.use('/api/platform/admin/reports', platformReportsRoutes.adminReportsRouter || platformReportsRoutes);
+app.use('/api/pos', posRoutes);
+app.use('/api/billing', billingRoutes);
 
 // âœ… WhatsApp Auth Routes
 app.post('/api/auth/qr-login', async (req, res) => {

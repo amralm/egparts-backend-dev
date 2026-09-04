@@ -39,6 +39,7 @@ const couponSchema = z.object({
   discount_percentage: z.coerce.number().finite().min(0).max(100).optional().default(0),
   discount_amount: z.coerce.number().finite().min(0).max(1_000_000_000).optional().default(0),
   min_order_value: z.coerce.number().finite().min(0).max(1_000_000_000).optional().default(0),
+  max_discount_cap: z.preprocess((v) => v === '' || v === null || v === undefined ? null : v, z.coerce.number().finite().min(0).max(1_000_000_000).nullable().optional().default(null)),
   max_uses: z.coerce.number().int().min(1).max(100000).optional().default(100),
   is_active: z.boolean().optional().default(true)
 }).strip().refine((value) => value.discount_percentage > 0 || value.discount_amount > 0, {

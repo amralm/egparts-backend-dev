@@ -7,6 +7,7 @@ const couponSchema = z.object({
   discount_percentage: z.coerce.number().min(0).max(100).default(0),
   discount_amount: z.coerce.number().min(0).default(0),
   min_order_value: z.coerce.number().min(0).default(0),
+  max_discount_cap: z.preprocess((v) => v === '' || v === null || v === undefined ? null : v, z.coerce.number().min(0).nullable().optional().default(null)),
   max_uses: z.coerce.number().int().min(1).max(100000).default(100),
   is_active: z.boolean().default(true)
 }).refine((value) => value.discount_percentage > 0 || value.discount_amount > 0, {
@@ -24,6 +25,7 @@ function normalizePayload(payload) {
     discount_percentage: parsed.discount_percentage,
     discount_amount: parsed.discount_amount,
     min_order_value: parsed.min_order_value,
+    max_discount_cap: parsed.max_discount_cap ?? null,
     max_uses: parsed.max_uses,
     is_active: parsed.is_active
   };
@@ -95,7 +97,20 @@ async function validateCoupon(storeId, code, subtotal) {
     throw err;
   }
 
-  return data;
+  let calculatedDiscount = 0;
+  if (data.discount_percentage > 0) {
+    calculatedDiscount = (orderSubtotal * Number(data.discount_percentage)) / 100;
+    if (data.max_discount_cap && Number(data.max_discount_cap) > 0 && calculatedDiscount > Number(data.max_discount_cap)) {
+      calculatedDiscount = Number(data.max_discount_cap);
+    }
+  } else if (data.discount_amount > 0) {
+    calculatedDiscount = Math.min(Number(data.discount_amount), orderSubtotal);
+  }
+
+  return {
+    ...data,
+    calculated_discount: calculatedDiscount
+  };
 }
 
 async function createCoupon(storeId, payload) {
