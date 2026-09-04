@@ -16,6 +16,21 @@ const { validateUpload } = require('../middleware/uploadValidator');
 
 const ROOT_PLATFORM_STORE_ID = '00000000-0000-0000-0000-000000000000';
 
+function isRealPaymobCredential(val) {
+  if (!val || typeof val !== 'string') return false;
+  const trimmed = val.trim();
+  if (trimmed.length < 15) return false;
+  if (trimmed.startsWith('your_') || trimmed.includes('placeholder') || trimmed.includes('change_me')) return false;
+  return true;
+}
+
+function hasValidPaymobConfig(apiKey, integrationId, iframeId) {
+  if (!isRealPaymobCredential(apiKey)) return false;
+  if (!integrationId || String(integrationId).startsWith('your_')) return false;
+  if (!iframeId || String(iframeId).startsWith('your_')) return false;
+  return true;
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -175,7 +190,7 @@ router.get('/current', verifyUser, async (req, res) => {
 // Payment gateways configured on root platform store (Paymob + Manual Wallets)
 router.get('/gateways', async (req, res) => {
   try {
-    let paymobAvailable = Boolean(process.env.PAYMOB_API_KEY && process.env.PAYMOB_INTEGRATION_ID && process.env.PAYMOB_IFRAME_ID);
+    let paymobAvailable = hasValidPaymobConfig(process.env.PAYMOB_API_KEY, process.env.PAYMOB_INTEGRATION_ID, process.env.PAYMOB_IFRAME_ID);
     const wallets = [];
     let instructions = 'يرجى تحويل المبلغ عبر فودافون كاش أو إنستاباي ثم رفع إيصال التحويل لتفعيل الاشتراك فوراً.';
 
@@ -191,7 +206,7 @@ router.get('/gateways', async (req, res) => {
         if (gw.provider_name === 'paymob' && gw.credentials) {
           const key = getEncryptionKeyForVersion(gw.key_version);
           const creds = decryptCredentials(gw.credentials, key) || {};
-          if (creds.api_key && creds.integration_id) {
+          if (hasValidPaymobConfig(creds.api_key, creds.integration_id, creds.iframe_id)) {
             paymobAvailable = true;
           }
         }
@@ -363,58 +378,73 @@ router.post('/subscribe', verifyUser, async (req, res) => {
         if (creds.iframe_id) iframeId = creds.iframe_id;
       }
 
-      if (!apiKey || !integrationId || !iframeId) {
-        return apiError(res, 400, 'بوابة الدفع الإلكتروني غير مهيأة للمنصة حالياً، يرجى الدفع بالمحفظة الإلكترونية.', 'PAYMOB_UNCONFIGURED');
+      if (!hasValidPaymobConfig(apiKey, integrationId, iframeId)) {
+        return apiError(
+          res,
+          400,
+          'بوابة الدفع الإلكتروني (Paymob) غير مهيأة للمنصة حالياً، يرجى الدفع بالمحفظة الإلكترونية (فودافون كاش / إنستاباي).',
+          'PAYMOB_UNCONFIGURED'
+        );
       }
 
-      const amountCents = Math.round(amount * 100);
-      const authRes = await axios.post('https://accept.paymob.com/api/auth/tokens', { api_key: apiKey }, { timeout: 10000 });
-      const token = authRes.data.token;
+      try {
+        const amountCents = Math.round(amount * 100);
+        const authRes = await axios.post('https://accept.paymob.com/api/auth/tokens', { api_key: apiKey }, { timeout: 10000 });
+        const token = authRes.data.token;
 
-      const orderRes = await axios.post('https://accept.paymob.com/api/ecommerce/orders', {
-        auth_token: token,
-        delivery_needed: false,
-        amount_cents: amountCents,
-        currency: 'EGP',
-        items: []
-      }, { timeout: 10000 });
+        const orderRes = await axios.post('https://accept.paymob.com/api/ecommerce/orders', {
+          auth_token: token,
+          delivery_needed: false,
+          amount_cents: amountCents,
+          currency: 'EGP',
+          items: []
+        }, { timeout: 10000 });
 
-      const paymentKeyRes = await axios.post('https://accept.paymob.com/api/acceptance/payment_keys', {
-        auth_token: token,
-        amount_cents: amountCents,
-        expiration: 3600,
-        order_id: orderRes.data.id,
-        billing_data: {
-          first_name: req.user?.user_metadata?.name?.split(' ')[0] || 'Merchant',
-          last_name: req.user?.user_metadata?.name?.split(' ')[1] || 'Store',
-          email: req.user?.email || 'admin@egparts.store',
-          phone_number: '01000000000',
-          apartment: 'NA', floor: 'NA', street: 'Platform', building: 'NA',
-          shipping_method: 'NA', postal_code: 'NA', city: 'Cairo', country: 'EG', state: 'NA'
-        },
-        currency: 'EGP',
-        integration_id: integrationId
-      }, { timeout: 10000 });
+        const paymentKeyRes = await axios.post('https://accept.paymob.com/api/acceptance/payment_keys', {
+          auth_token: token,
+          amount_cents: amountCents,
+          expiration: 3600,
+          order_id: orderRes.data.id,
+          billing_data: {
+            first_name: req.user?.user_metadata?.name?.split(' ')[0] || 'Merchant',
+            last_name: req.user?.user_metadata?.name?.split(' ')[1] || 'Store',
+            email: req.user?.email || 'admin@egparts.store',
+            phone_number: '01000000000',
+            apartment: 'NA', floor: 'NA', street: 'Platform', building: 'NA',
+            shipping_method: 'NA', postal_code: 'NA', city: 'Cairo', country: 'EG', state: 'NA'
+          },
+          currency: 'EGP',
+          integration_id: integrationId
+        }, { timeout: 10000 });
 
-      const paymentUrl = `https://accept.paymob.com/api/acceptance/iframes/${iframeId}?payment_token=${paymentKeyRes.data.token}`;
+        const paymentUrl = `https://accept.paymob.com/api/acceptance/iframes/${iframeId}?payment_token=${paymentKeyRes.data.token}`;
 
-      // Log transaction
-      await supabase.from('payment_transactions').insert([{
-        provider: 'paymob',
-        provider_transaction_id: String(orderRes.data.id),
-        invoice_id: invoice.id,
-        status: 'pending',
-        amount,
-        currency: 'EGP'
-      }]);
+        // Log transaction
+        await supabase.from('payment_transactions').insert([{
+          provider: 'paymob',
+          provider_transaction_id: String(orderRes.data.id),
+          invoice_id: invoice.id,
+          status: 'pending',
+          amount,
+          currency: 'EGP'
+        }]);
 
-      return sendSuccess(res, {
-        invoice_id: invoice.id,
-        invoice_number: invoiceNumber,
-        payment_url: paymentUrl,
-        amount,
-        requires_proof: false
-      });
+        return sendSuccess(res, {
+          invoice_id: invoice.id,
+          invoice_number: invoiceNumber,
+          payment_url: paymentUrl,
+          amount,
+          requires_proof: false
+        });
+      } catch (paymobErr) {
+        logger.error('[billing] Paymob API execution failed:', paymobErr.response?.data || paymobErr.message);
+        return apiError(
+          res,
+          400,
+          'تعذر الاتصال ببوابة الدفع Paymob أو مفاتيح الربط غير صحيحة. يرجى الدفع عبر المحافظ الإلكترونية أو التواصل مع الدعم.',
+          'PAYMOB_GATEWAY_ERROR'
+        );
+      }
     }
 
     // 3b. Manual Wallet Flow
