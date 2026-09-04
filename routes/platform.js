@@ -3129,6 +3129,113 @@ router.post('/invoices/:id/refund', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
+// POST /api/platform/invoices/:id/approve - Approve pending subscription invoice & activate tenant store
+router.post('/invoices/:id/approve', verifyPlatformAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { data: invoice, error: invErr } = await supabase
+      .from('invoices')
+      .select('*, plans(*)')
+      .eq('id', id)
+      .single();
+
+    if (invErr || !invoice) return apiError(res, 404, 'Invoice not found', `HTTP_404`);
+    if (invoice.status === 'paid') return apiError(res, 400, 'Invoice is already marked as paid', 'ALREADY_PAID');
+
+    const now = new Date();
+    const isYearly = invoice.billing_cycle === 'yearly';
+    const durationDays = isYearly ? 365 : 30;
+    const expiresAt = invoice.billing_period_end 
+      ? new Date(invoice.billing_period_end) 
+      : new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+
+    // 1. Mark invoice as paid
+    const { error: updateInvErr } = await supabase
+      .from('invoices')
+      .update({
+        status: 'paid',
+        amount_paid: invoice.total,
+        updated_at: now.toISOString()
+      })
+      .eq('id', invoice.id);
+
+    if (updateInvErr) throw updateInvErr;
+
+    // 2. Update or insert store subscription
+    if (invoice.store_id && invoice.plan_id) {
+      await supabase
+        .from('store_subscriptions')
+        .insert([{
+          store_id: invoice.store_id,
+          plan_id: invoice.plan_id,
+          status: 'active',
+          started_at: now.toISOString(),
+          expires_at: expiresAt.toISOString()
+        }]);
+
+      // 3. Unsuspend store and update subscription_expires_at
+      await supabase
+        .from('stores')
+        .update({
+          status: 'active',
+          is_active: true,
+          subscription_expires_at: expiresAt.toISOString()
+        })
+        .eq('id', invoice.store_id);
+    }
+
+    // 4. Log audit action
+    try {
+      await supabase.from('audit_logs').insert([{
+        actor_id: req.user?.id || null,
+        action: 'INVOICE_APPROVED',
+        target_type: 'invoice',
+        target_id: invoice.id,
+        details: { store_id: invoice.store_id, total: invoice.total, plan_id: invoice.plan_id }
+      }]);
+    } catch (_) {}
+
+    sendSuccess(res, {
+      approved: true,
+      message: 'تم اعتماد الفاتورة وتفعيل باقة المتجر بنجاح'
+    });
+  } catch (err) {
+    logger.error('Failed to approve invoice:', err.message);
+    apiError(res, 500, 'فشل اعتماد الفاتورة', `HTTP_500`);
+  }
+});
+
+// POST /api/platform/invoices/:id/reject - Reject pending invoice
+router.post('/invoices/:id/reject', verifyPlatformAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { data: invoice, error: invErr } = await supabase
+      .from('invoices')
+      .select('id, status')
+      .eq('id', id)
+      .single();
+
+    if (invErr || !invoice) return apiError(res, 404, 'Invoice not found', `HTTP_404`);
+    if (invoice.status === 'paid') return apiError(res, 400, 'Cannot reject an already paid invoice', 'ALREADY_PAID');
+
+    const { error: updateErr } = await supabase
+      .from('invoices')
+      .update({
+        status: 'cancelled',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+
+    if (updateErr) throw updateErr;
+
+    sendSuccess(res, { rejected: true, message: 'تم رفض الفاتورة بنجاح' });
+  } catch (err) {
+    logger.error('Failed to reject invoice:', err.message);
+    apiError(res, 500, 'فشل رفض الفاتورة', `HTTP_500`);
+  }
+});
+
+
 
 // ============================================================
 // 10. Notification Template Control
