@@ -10,7 +10,7 @@ const logger = require('../utils/logger');
 
 // ── GET /api/pos/products ──
 // Fast, indexed product search and catalog for POS tablet cashier
-router.get('/products', verifyPermission('orders.create'), async (req, res) => {
+router.get('/products', verifyPermission('orders.read'), async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   try {
@@ -55,7 +55,7 @@ router.get('/products', verifyPermission('orders.create'), async (req, res) => {
 
 // ── GET /api/pos/categories ──
 // Quick category filter buttons for POS
-router.get('/categories', verifyPermission('orders.create'), async (req, res) => {
+router.get('/categories', verifyPermission('orders.read'), async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   try {
@@ -83,7 +83,7 @@ router.get('/categories', verifyPermission('orders.create'), async (req, res) =>
 
 // ── POST /api/pos/orders ──
 // Executes atomic POS cashier sale, decrements stock atomically, and records delivered order
-router.post('/orders', verifyPermission('orders.create'), async (req, res) => {
+router.post('/orders', verifyPermission('orders.write'), async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   const {
