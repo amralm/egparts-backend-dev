@@ -568,13 +568,128 @@ async function runIntegratedPosE2E() {
     assert(foundShiftInHistory && foundShiftInHistory.status === 'closed', 'Closed shift must appear in history');
     pass('Shift History Verified', `Found closed shift ${testShiftId} in history list`);
 
-    // 15. Teardown & Restoring Inventory
-    console.log('\n[Stage 15] Restoring Inventory and Cleaning Up Fixtures...');
+    // 15. Cashier PIN & Terminal Lock Engine (Migration 97)
+    console.log('\n[Stage 15] Testing Cashier PIN Engine, Switching & Terminal Locking...');
+    
+    // Clean up any lingering test cashiers from prior runs
+    await supabaseAdmin
+      .from('pos_cashiers')
+      .delete()
+      .eq('store_id', store.id);
+
+    const testManagerPin = '8899';
+    const testCashierPin = '4455';
+
+    // 15.1 Set Manager PIN
+    const setManagerPinRes = await request('/api/pos/terminal/manager-pin', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: { pin: testManagerPin }
+    });
+    assert(setManagerPinRes.status === 200, `Set manager PIN failed: ${JSON.stringify(setManagerPinRes.data)}`);
+    assert(setManagerPinRes.data?.success === true, 'Set manager PIN must succeed');
+    pass('Store Manager PIN Configured', `PIN: ${testManagerPin}`);
+
+    // 15.2 Create Cashier
+    const createCashierRes = await request('/api/pos/cashiers', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: {
+        name: 'كاشير فادي التجريبي',
+        phone: '01012344321',
+        pin: testCashierPin,
+        role: 'cashier'
+      }
+    });
+    assert(createCashierRes.status === 201, `Create cashier failed: ${JSON.stringify(createCashierRes.data)}`);
+    assert(createCashierRes.data?.success === true, 'Create cashier must return success');
+    const createdCashier = createCashierRes.data?.data?.cashier;
+    assert(createdCashier?.id, 'Cashier ID must be returned');
+    assert(createdCashier?.name === 'كاشير فادي التجريبي', 'Cashier name must match');
+    assert(!createdCashier.pin_hash, 'pin_hash MUST NEVER be leaked in response');
+    pass('Cashier Created Successfully', `ID: ${createdCashier.id} | Name: ${createdCashier.name}`);
+
+    // 15.3 Duplicate PIN Rejection
+    const dupPinRes = await request('/api/pos/cashiers', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: {
+        name: 'كاشير مكرر',
+        pin: testCashierPin,
+        role: 'cashier'
+      }
+    });
+    assert(dupPinRes.status === 400, 'Duplicate PIN must be rejected with 400');
+    assert(dupPinRes.data?.code === 'DUPLICATE_PIN' || dupPinRes.data?.code === 'PIN_ALREADY_IN_USE', 'Duplicate PIN code must be DUPLICATE_PIN');
+    pass('Duplicate PIN Rejection Verified', 'Unique constraint within store enforced');
+
+    // 15.4 List Cashiers
+    const listCashiersRes = await request('/api/pos/cashiers', { headers: adminHeaders });
+    assert(listCashiersRes.status === 200, 'List cashiers must return 200');
+    assert(listCashiersRes.data?.data?.has_manager_pin === true, 'has_manager_pin must be true');
+    const cashiersList = listCashiersRes.data?.data?.cashiers || [];
+    assert(cashiersList.some(c => c.id === createdCashier.id), 'Created cashier must be in list');
+    pass('Cashiers List Retrieved', `Count: ${cashiersList.length} | Manager PIN Active: true`);
+
+    // 15.5 Switch Cashier via PIN (Cashier mode)
+    const switchCashierRes = await request('/api/pos/switch-cashier', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: { pin: testCashierPin }
+    });
+    assert(switchCashierRes.status === 200, `Switch cashier failed: ${JSON.stringify(switchCashierRes.data)}`);
+    assert(switchCashierRes.data?.data?.mode === 'cashier', 'Mode must be cashier');
+    assert(switchCashierRes.data?.data?.cashier?.name === 'كاشير فادي التجريبي', 'Cashier name must match');
+    pass('Switch to Cashier Mode Verified', `Mode: cashier | Name: ${switchCashierRes.data?.data?.cashier?.name}`);
+
+    // 15.6 Switch Cashier via PIN (Manager mode)
+    const switchManagerRes = await request('/api/pos/switch-cashier', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: { pin: testManagerPin }
+    });
+    assert(switchManagerRes.status === 200, 'Switch manager must succeed');
+    assert(switchManagerRes.data?.data?.mode === 'manager', 'Mode must be manager');
+    pass('Switch to Manager Mode Verified', 'Mode: manager');
+
+    // 15.7 Unlock Terminal Endpoint
+    const badUnlockRes = await request('/api/pos/terminal/unlock', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: { pin: '0000' }
+    });
+    assert(badUnlockRes.status === 401, 'Invalid manager PIN must be rejected with 401');
+
+    const goodUnlockRes = await request('/api/pos/terminal/unlock', {
+      method: 'POST',
+      headers: adminHeaders,
+      body: { pin: testManagerPin }
+    });
+    assert(goodUnlockRes.status === 200, 'Valid manager PIN must unlock terminal');
+    assert(goodUnlockRes.data?.data?.unlocked === true, 'unlocked must be true');
+    pass('Terminal Manager Unlock Verified', 'Invalid PIN rejected (401) & Valid PIN unlocks (200)');
+
+    // 15.8 Delete Cashier & Cleanup
+    const delCashierRes = await request(`/api/pos/cashiers/${createdCashier.id}`, {
+      method: 'DELETE',
+      headers: adminHeaders
+    });
+    assert(delCashierRes.status === 200, 'Delete cashier must return 200');
+    pass('Cashier Deleted Successfully');
+
+    // 16. Teardown & Restoring Inventory
+    console.log('\n[Stage 16] Restoring Inventory and Cleaning Up Fixtures...');
     await supabaseAdmin
       .from('products')
       .update({ stock_quantity: initialStock, stock: initialStock })
       .eq('id', targetProduct.id);
     pass('Product Inventory Restored to Initial State', `Stock: ${initialStock}`);
+
+    // Clear test manager PIN from store
+    await supabaseAdmin
+      .from('stores')
+      .update({ pos_manager_pin_hash: null })
+      .eq('id', store.id);
 
     if (testUserId) {
       await supabaseAdmin.auth.admin.deleteUser(testUserId);

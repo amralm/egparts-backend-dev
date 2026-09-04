@@ -16,8 +16,16 @@ const {
   openShiftSchema,
   cashMovementSchema,
   closeShiftSchema,
-  sendReceiptSchema
+  sendReceiptSchema,
+  createCashierSchema,
+  updateCashierSchema,
+  switchCashierSchema,
+  managerPinSchema
 } = require('../schemas/posSchemas');
+
+function hashPin(storeId, pin) {
+  return crypto.createHash('sha256').update(`${storeId}:${String(pin).trim()}`).digest('hex');
+}
 
 // ── GET /api/pos/products ──
 // Fast, indexed product search and catalog for POS tablet cashier
@@ -134,7 +142,27 @@ router.post('/orders', verifyPermission(['tenant.orders.write', 'orders.create',
       return apiError(res, 400, rpcError.message || 'تعذر إتمام عملية البيع بالكاشير', 'POS_ORDER_FAILED');
     }
 
-    // 2. Fetch store order prefix
+    // 2. Persist active cashier name and ID in order metadata if supplied from POS terminal
+    if (rpcResult?.order_id && (req.body?.cashier_name || req.body?.cashier_id)) {
+      const activeCashierName = req.body.cashier_name || 'الكاشير';
+      await supabase
+        .from('orders')
+        .update({
+          metadata: {
+            channel: 'pos',
+            cashier_id: req.body.cashier_id || null,
+            cashier_name: activeCashierName,
+            customer_name: customer_name || 'عميل نقدي',
+            cash_tendered: cash_tendered != null ? Number(cash_tendered) : null,
+            change_due: change_due != null ? Number(change_due) : null,
+            source: 'pos_terminal'
+          }
+        })
+        .eq('id', rpcResult.order_id);
+      rpcResult.cashier_name = activeCashierName;
+    }
+
+    // 3. Fetch store order prefix
     const { data: settings } = await supabase
       .from('site_settings')
       .select('order_prefix, brand_name, brand_logo, logo_url')
@@ -653,6 +681,324 @@ router.get('/shifts/history', verifyPermission(['tenant.orders.read', 'orders.vi
   } catch (err) {
     logger.error('[pos] shift history failed:', err.message);
     apiError(res, 500, 'فشل جلب سجل الورديات', 'HTTP_500');
+  }
+});
+
+// ── POST /api/pos/switch-cashier ──
+// Fast PIN authentication for Cashier & Manager on POS Terminal
+router.post('/switch-cashier', verifyPermission(['tenant.orders.read', 'orders.view', 'tenant.products.read', 'products.view', 'orders.read']), async (req, res) => {
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
+
+  const parseResult = switchCashierSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return apiError(res, 400, parseResult.error.errors[0]?.message || 'رمز PIN غير صالح', 'VALIDATION_ERROR');
+  }
+
+  const { pin } = parseResult.data;
+  const pinHash = hashPin(req.store.id, pin);
+
+  try {
+    // 1. Check Manager PIN first
+    const { data: storeRow } = await supabase
+      .from('stores')
+      .select('pos_manager_pin_hash, name')
+      .eq('id', req.store.id)
+      .maybeSingle();
+
+    if (storeRow?.pos_manager_pin_hash && storeRow.pos_manager_pin_hash === pinHash) {
+      return sendSuccess(res, {
+        mode: 'manager',
+        cashier: {
+          id: req.user?.sub || 'manager',
+          name: 'مدير المتجر',
+          role: 'owner'
+        }
+      }, { message: 'تم فتح لوحة تحكم المدير بنجاح' });
+    }
+
+    // 2. Check Store Cashiers
+    const { data: cashier, error: cashierError } = await supabase
+      .from('pos_cashiers')
+      .select('id, name, phone, role, is_active')
+      .eq('store_id', req.store.id)
+      .eq('pin_hash', pinHash)
+      .maybeSingle();
+
+    if (cashierError) throw cashierError;
+
+    if (!cashier) {
+      return apiError(res, 401, 'رمز الـ PIN غير صحيح', 'INVALID_PIN');
+    }
+
+    if (!cashier.is_active) {
+      return apiError(res, 403, 'حساب هذا الكاشير معطل حالياً', 'CASHIER_INACTIVE');
+    }
+
+    sendSuccess(res, {
+      mode: 'cashier',
+      cashier: {
+        id: cashier.id,
+        name: cashier.name,
+        role: cashier.role
+      }
+    }, { message: `مرحباً بك يا ${cashier.name}` });
+  } catch (err) {
+    logger.error('[pos] switch cashier failed:', err.message);
+    apiError(res, 500, 'فشل التحقق من رمز PIN', 'HTTP_500');
+  }
+});
+
+// ── POST /api/pos/terminal/unlock ──
+// Unlock manager mode from POS Terminal using manager PIN
+router.post('/terminal/unlock', verifyPermission(['tenant.orders.read', 'orders.view', 'orders.read']), async (req, res) => {
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
+
+  const parseResult = managerPinSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return apiError(res, 400, parseResult.error.errors[0]?.message || 'رمز PIN غير صالح', 'VALIDATION_ERROR');
+  }
+
+  const { pin } = parseResult.data;
+  const pinHash = hashPin(req.store.id, pin);
+
+  try {
+    const { data: storeRow } = await supabase
+      .from('stores')
+      .select('pos_manager_pin_hash')
+      .eq('id', req.store.id)
+      .maybeSingle();
+
+    if (!storeRow?.pos_manager_pin_hash) {
+      return apiError(res, 400, 'لم يتم تعيين رمز PIN للمدير بعد. يرجى ضبطه من إعدادات المتجر.', 'NO_MANAGER_PIN_SET');
+    }
+
+    if (storeRow.pos_manager_pin_hash !== pinHash) {
+      return apiError(res, 401, 'رمز PIN المدير غير صحيح', 'INVALID_MANAGER_PIN');
+    }
+
+    sendSuccess(res, { unlocked: true }, { message: 'تم إلغاء قفل الإدارة بنجاح' });
+  } catch (err) {
+    logger.error('[pos] terminal unlock failed:', err.message);
+    apiError(res, 500, 'فشل إلغاء قفل الـ POS', 'HTTP_500');
+  }
+});
+
+// ── POST /api/pos/terminal/manager-pin ──
+// Set or update store manager PIN
+router.post('/terminal/manager-pin', verifyPermission(['settings.update', 'tenant.settings.write']), async (req, res) => {
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
+
+  const parseResult = managerPinSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return apiError(res, 400, parseResult.error.errors[0]?.message || 'رمز PIN غير صالح', 'VALIDATION_ERROR');
+  }
+
+  const { pin } = parseResult.data;
+  const pinHash = hashPin(req.store.id, pin);
+
+  try {
+    // Check if duplicate with any cashier PIN
+    const { data: duplicateCashier } = await supabase
+      .from('pos_cashiers')
+      .select('id, name')
+      .eq('store_id', req.store.id)
+      .eq('pin_hash', pinHash)
+      .maybeSingle();
+
+    if (duplicateCashier) {
+      return apiError(res, 400, `رمز الـ PIN هذا مستخدم بالفعل للكاشير (${duplicateCashier.name}). يرجى اختيار رمز مختلف.`, 'DUPLICATE_PIN');
+    }
+
+    const { error } = await supabase
+      .from('stores')
+      .update({ pos_manager_pin_hash: pinHash })
+      .eq('id', req.store.id);
+
+    if (error) throw error;
+
+    sendSuccess(res, { updated: true }, { message: 'تم حفظ رمز PIN المدير بنجاح' });
+  } catch (err) {
+    logger.error('[pos] update manager pin failed:', err.message);
+    apiError(res, 500, 'فشل حفظ رمز PIN المدير', 'HTTP_500');
+  }
+});
+
+// ── GET /api/pos/cashiers ──
+// List all store cashiers for management
+router.get('/cashiers', verifyPermission(['settings.view', 'settings.update', 'tenant.settings.read', 'tenant.settings.write', 'orders.read', 'tenant.orders.read']), async (req, res) => {
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
+
+  try {
+    const [{ data: cashiers, error: cashiersErr }, { data: storeRow }] = await Promise.all([
+      supabase
+        .from('pos_cashiers')
+        .select('id, name, phone, role, is_active, created_at, updated_at')
+        .eq('store_id', req.store.id)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('stores')
+        .select('pos_manager_pin_hash')
+        .eq('id', req.store.id)
+        .maybeSingle()
+    ]);
+
+    if (cashiersErr) throw cashiersErr;
+
+    sendSuccess(res, {
+      cashiers: cashiers || [],
+      has_manager_pin: Boolean(storeRow?.pos_manager_pin_hash)
+    });
+  } catch (err) {
+    logger.error('[pos] list cashiers failed:', err.message);
+    apiError(res, 500, 'فشل جلب قائمة الكاشيرين', 'HTTP_500');
+  }
+});
+
+// ── POST /api/pos/cashiers ──
+// Create a new store cashier
+router.post('/cashiers', verifyPermission(['settings.update', 'tenant.settings.write', 'orders.write', 'tenant.orders.write']), async (req, res) => {
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
+
+  const parseResult = createCashierSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return apiError(res, 400, parseResult.error.errors[0]?.message || 'بيانات الكاشير غير صالحة', 'VALIDATION_ERROR');
+  }
+
+  const { name, phone, role, pin } = parseResult.data;
+  const pinHash = hashPin(req.store.id, pin);
+
+  try {
+    // 1. Check uniqueness against Manager PIN
+    const { data: storeRow } = await supabase
+      .from('stores')
+      .select('pos_manager_pin_hash')
+      .eq('id', req.store.id)
+      .maybeSingle();
+
+    if (storeRow?.pos_manager_pin_hash === pinHash) {
+      return apiError(res, 400, 'هذا الرمز مطابق لرمز PIN المدير، يرجى اختيار رمز آخر للكاشير', 'DUPLICATE_PIN');
+    }
+
+    // 2. Check uniqueness against other cashiers
+    const { data: existingCashier } = await supabase
+      .from('pos_cashiers')
+      .select('id, name')
+      .eq('store_id', req.store.id)
+      .eq('pin_hash', pinHash)
+      .maybeSingle();
+
+    if (existingCashier) {
+      return apiError(res, 400, `رمز الـ PIN هذا مسجل بالفعل للكاشير (${existingCashier.name})`, 'DUPLICATE_PIN');
+    }
+
+    // 3. Insert cashier
+    const { data: newCashier, error: insertError } = await supabase
+      .from('pos_cashiers')
+      .insert({
+        store_id: req.store.id,
+        name,
+        phone: phone || null,
+        role,
+        pin_hash: pinHash,
+        is_active: true
+      })
+      .select('id, name, phone, role, is_active, created_at, updated_at')
+      .single();
+
+    if (insertError) throw insertError;
+
+    sendSuccess(res, { cashier: newCashier }, { status: 201, message: 'تمت إضافة الكاشير بنجاح' });
+  } catch (err) {
+    logger.error('[pos] create cashier failed:', err.message);
+    apiError(res, 500, err.message || 'فشل إضافة الكاشير', 'HTTP_500');
+  }
+});
+
+// ── PATCH /api/pos/cashiers/:id ──
+// Update cashier details or reset PIN
+router.patch('/cashiers/:id', verifyPermission(['settings.update', 'tenant.settings.write', 'orders.write', 'tenant.orders.write']), async (req, res) => {
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
+
+  const parseResult = updateCashierSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return apiError(res, 400, parseResult.error.errors[0]?.message || 'بيانات التحديث غير صالحة', 'VALIDATION_ERROR');
+  }
+
+  const { name, phone, role, pin, is_active } = parseResult.data;
+  const updateData = { updated_at: new Date().toISOString() };
+
+  if (name !== undefined) updateData.name = name;
+  if (phone !== undefined) updateData.phone = phone || null;
+  if (role !== undefined) updateData.role = role;
+  if (is_active !== undefined) updateData.is_active = is_active;
+
+  try {
+    if (pin) {
+      const pinHash = hashPin(req.store.id, pin);
+
+      // Check manager pin
+      const { data: storeRow } = await supabase
+        .from('stores')
+        .select('pos_manager_pin_hash')
+        .eq('id', req.store.id)
+        .maybeSingle();
+
+      if (storeRow?.pos_manager_pin_hash === pinHash) {
+        return apiError(res, 400, 'هذا الرمز مطابق لرمز PIN المدير، يرجى اختيار رمز آخر للكاشير', 'DUPLICATE_PIN');
+      }
+
+      // Check other cashiers
+      const { data: existingCashier } = await supabase
+        .from('pos_cashiers')
+        .select('id, name')
+        .eq('store_id', req.store.id)
+        .eq('pin_hash', pinHash)
+        .neq('id', req.params.id)
+        .maybeSingle();
+
+      if (existingCashier) {
+        return apiError(res, 400, `رمز الـ PIN هذا مسجل بالفعل للكاشير (${existingCashier.name})`, 'DUPLICATE_PIN');
+      }
+
+      updateData.pin_hash = pinHash;
+    }
+
+    const { data: updatedCashier, error: updateError } = await supabase
+      .from('pos_cashiers')
+      .update(updateData)
+      .eq('id', req.params.id)
+      .eq('store_id', req.store.id)
+      .select('id, name, phone, role, is_active, created_at, updated_at')
+      .single();
+
+    if (updateError) throw updateError;
+    if (!updatedCashier) return apiError(res, 404, 'الكاشير غير موجود', 'CASHIER_NOT_FOUND');
+
+    sendSuccess(res, { cashier: updatedCashier }, { message: 'تم تحديث بيانات الكاشير بنجاح' });
+  } catch (err) {
+    logger.error('[pos] update cashier failed:', err.message);
+    apiError(res, 500, 'فشل تحديث بيانات الكاشير', 'HTTP_500');
+  }
+});
+
+// ── DELETE /api/pos/cashiers/:id ──
+// Delete a store cashier
+router.delete('/cashiers/:id', verifyPermission(['settings.update', 'tenant.settings.write', 'orders.write', 'tenant.orders.write']), async (req, res) => {
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
+
+  try {
+    const { error } = await supabase
+      .from('pos_cashiers')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('store_id', req.store.id);
+
+    if (error) throw error;
+
+    sendSuccess(res, { deleted: true }, { message: 'تم حذف الكاشير بنجاح' });
+  } catch (err) {
+    logger.error('[pos] delete cashier failed:', err.message);
+    apiError(res, 500, 'فشل حذف الكاشير', 'HTTP_500');
   }
 });
 

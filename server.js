@@ -434,6 +434,7 @@ app.get('/api/store-context', publicTelemetryLimiter, (req, res) => {
     is_active: store.is_active,
     status: store.status,
     allow_unpriced_products: Boolean(store.allow_unpriced_products),
+    has_pos_manager_pin: Boolean(store.pos_manager_pin_hash),
     subscription_expires_at: store.subscription_expires_at,
     created_at: store.created_at,
     updated_at: store.updated_at

@@ -55,11 +55,38 @@ const sendReceiptSchema = z.object({
   phone: z.string().trim().min(8, { message: 'رقم الهاتف غير صالح' }).max(30)
 }).strip();
 
+const createCashierSchema = z.object({
+  name: z.string().trim().min(2, { message: 'اسم الكاشير يجب أن يتكون من حرفين على الأقل' }).max(80),
+  phone: z.string().trim().max(30).nullable().optional(),
+  role: z.enum(['cashier', 'supervisor']).default('cashier'),
+  pin: z.string().trim().regex(/^\d{4,6}$/, { message: 'رمز PIN يجب أن يتكون من 4 إلى 6 أرقام رقمية فقط' })
+}).strip();
+
+const updateCashierSchema = z.object({
+  name: z.string().trim().min(2).max(80).optional(),
+  phone: z.string().trim().max(30).nullable().optional(),
+  role: z.enum(['cashier', 'supervisor']).optional(),
+  pin: z.string().trim().regex(/^\d{4,6}$/, { message: 'رمز PIN يجب أن يتكون من 4 إلى 6 أرقام' }).optional(),
+  is_active: z.boolean().optional()
+}).strip();
+
+const switchCashierSchema = z.object({
+  pin: z.string().trim().regex(/^\d{4,6}$/, { message: 'رمز PIN يجب أن يتكون من 4 إلى 6 أرقام' })
+}).strip();
+
+const managerPinSchema = z.object({
+  pin: z.string().trim().regex(/^\d{4,6}$/, { message: 'رمز PIN المدير يجب أن يتكون من 4 إلى 6 أرقام' })
+}).strip();
+
 module.exports = {
   posOrderSchema,
   posReturnSchema,
   openShiftSchema,
   cashMovementSchema,
   closeShiftSchema,
-  sendReceiptSchema
+  sendReceiptSchema,
+  createCashierSchema,
+  updateCashierSchema,
+  switchCashierSchema,
+  managerPinSchema
 };

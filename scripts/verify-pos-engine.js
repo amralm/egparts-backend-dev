@@ -10,7 +10,11 @@ const {
   openShiftSchema,
   cashMovementSchema,
   closeShiftSchema,
-  sendReceiptSchema
+  sendReceiptSchema,
+  createCashierSchema,
+  updateCashierSchema,
+  switchCashierSchema,
+  managerPinSchema
 } = require('../schemas/posSchemas');
 const { supabase } = require('../services/supabase');
 
@@ -95,9 +99,25 @@ async function runPosVerification() {
   const validReceiptPhone = sendReceiptSchema.safeParse({ phone: '01012345678' });
   assert(validReceiptPhone.success, 'Receipt phone should pass validation');
 
-  console.log('  ✓ All 6 POS Zod schemas verified against strict constraints.');
+  // Cashier PIN Schemas (Migration 97)
+  const validCashier = createCashierSchema.safeParse({ name: 'كاشير التجربة', pin: '1234', phone: '01011112222', role: 'cashier' });
+  assert(validCashier.success, 'Create cashier schema should pass');
 
-  // 4. Verify Database Integrity (Migration 96, Tables & Functions)
+  const invalidShortPin = createCashierSchema.safeParse({ name: 'كاشير', pin: '12' });
+  assert(!invalidShortPin.success, 'Short PIN must fail validation');
+
+  const validUpdateCashier = updateCashierSchema.safeParse({ name: 'كاشير معدل', is_active: false });
+  assert(validUpdateCashier.success, 'Update cashier schema should pass');
+
+  const validSwitchPin = switchCashierSchema.safeParse({ pin: '5678' });
+  assert(validSwitchPin.success, 'Switch cashier schema should pass');
+
+  const validManagerPin = managerPinSchema.safeParse({ pin: '9876' });
+  assert(validManagerPin.success, 'Manager pin schema should pass');
+
+  console.log('  ✓ All 10 POS Zod schemas verified against strict constraints.');
+
+  // 4. Verify Database Integrity (Migration 96 & 97, Tables & Columns)
   console.log('[Test 4] Verifying Database Schema and Stored Procedures...');
   
   // pos_shifts table
@@ -114,7 +134,21 @@ async function runPosVerification() {
     .limit(1);
   assert(!returnErr, `pos_returns table query failed: ${returnErr?.message}`);
 
-  console.log('  ✓ pos_shifts and pos_returns tables verified in Supabase.');
+  // pos_cashiers table (Migration 97)
+  const { error: cashiersErr } = await supabase
+    .from('pos_cashiers')
+    .select('id, name, pin_hash, is_active')
+    .limit(1);
+  assert(!cashiersErr, `pos_cashiers table query failed: ${cashiersErr?.message}`);
+
+  // stores.pos_manager_pin_hash column (Migration 97)
+  const { error: storePinErr } = await supabase
+    .from('stores')
+    .select('id, pos_manager_pin_hash')
+    .limit(1);
+  assert(!storePinErr, `stores.pos_manager_pin_hash column query failed: ${storePinErr?.message}`);
+
+  console.log('  ✓ pos_shifts, pos_returns, and pos_cashiers tables verified in Supabase.');
 
   console.log('----------------------------------------------------');
   console.log('🎉 ALL POS ZERO-REGRESSION ENGINE TESTS PASSED (100%)');
