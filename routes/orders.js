@@ -79,6 +79,24 @@ const orderRateLimiter = rateLimit({
   message: { success: false, code: 'RATE_LIMITED', message: 'طلبات إنشاء الطلبات كثيرة جداً، حاول بعد دقيقة', data: null }
 });
 
+function enrichOrderItems(order) {
+  if (!order) return order;
+  if (Array.isArray(order.items)) {
+    order.items = order.items.map(item => {
+      const title = item.title || item.name || '';
+      return {
+        ...item,
+        id: item.id || item.product_id,
+        title: title,
+        name: item.name || title,
+        qty: Number(item.qty ?? item.quantity ?? 1),
+        price: item.price !== undefined ? Number(item.price) : (item.unit_price !== undefined ? Number(item.unit_price) : undefined)
+      };
+    });
+  }
+  return order;
+}
+
 router.get('/my', verifyUser, async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', `HTTP_400`);
 
@@ -90,7 +108,7 @@ router.get('/my', verifyUser, async (req, res) => {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    sendSuccess(res, { orders: data || [] });
+    sendSuccess(res, { orders: (data || []).map(enrichOrderItems) });
   } catch (error) {
     console.error('Customer orders list error:', error.message);
     apiError(res, 500, 'Failed to load orders', `HTTP_500`);
@@ -119,7 +137,7 @@ router.get('/:id/tracking', verifyUser, async (req, res) => {
       .order('created_at', { ascending: true });
 
     if (trackingError) throw trackingError;
-    sendSuccess(res, { order, tracking: tracking || [] });
+    sendSuccess(res, { order: enrichOrderItems(order), tracking: tracking || [] });
   } catch (error) {
     console.error('Customer order tracking error:', error.message);
     apiError(res, 500, 'Failed to load order tracking', `HTTP_500`);
@@ -151,7 +169,7 @@ router.get('/admin/list', verifyPermission('orders.view'), async (req, res) => {
 
     if (error) throw error;
 
-    let orders = data || [];
+    let orders = (data || []).map(enrichOrderItems);
     if (productId) {
       orders = orders.filter((order) => Array.isArray(order.items) && order.items.some((item) => item.id === productId));
     }
@@ -606,7 +624,13 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
     // 4. Atomic Execution — every payment method uses the same stock-safe RPC.
     const { data, error } = await supabase.rpc('create_order_atomic', {
         p_user_id: userId,
-        p_items: items.map(item => ({ id: item.id, qty: Number(item.qty || 1) })),
+        p_items: itemsWithPrices.map(item => ({
+          id: item.id,
+          qty: Number(item.qty || 1),
+          title: item.title,
+          name: item.title,
+          price: item.price
+        })),
         p_phone: phone,
         p_city: city,
         p_address: address,

@@ -94,8 +94,13 @@ class NotificationWorker {
     try {
       // Skip if WhatsApp is not ready
       if (!whatsappService.isConnected()) {
-        // Revert status to failed but don't increment retry yet, just wait for service
-        await supabase.from('notification_queue').update({ status: 'failed', last_error: 'WhatsApp service not ready' }).eq('id', job.id);
+        // Keep in pending state with next_retry_at delayed by 1 minute, awaiting active session connection
+        await supabase.from('notification_queue').update({
+          status: 'pending',
+          last_error: 'WhatsApp service not ready (awaiting active session)',
+          next_retry_at: new Date(Date.now() + 60 * 1000).toISOString(),
+          updated_at: new Date().toISOString()
+        }).eq('id', job.id);
         return;
       }
 
