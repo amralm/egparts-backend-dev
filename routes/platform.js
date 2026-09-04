@@ -3184,25 +3184,44 @@ router.post('/invoices/:id/approve', verifyPlatformAdmin, async (req, res) => {
 
     // 2. Update or insert store subscription
     if (invoice.store_id && invoice.plan_id) {
-      await supabase
+      const { error: subUpsertErr } = await supabase
         .from('store_subscriptions')
-        .insert([{
+        .upsert({
           store_id: invoice.store_id,
           plan_id: invoice.plan_id,
           status: 'active',
           started_at: now.toISOString(),
-          expires_at: expiresAt.toISOString()
-        }]);
+          expires_at: expiresAt.toISOString(),
+          updated_at: now.toISOString()
+        }, { onConflict: 'store_id' });
+
+      if (subUpsertErr) {
+        logger.error('Failed to upsert store subscription on invoice approve:', subUpsertErr);
+        throw subUpsertErr;
+      }
 
       // 3. Unsuspend store and update subscription_expires_at
-      await supabase
+      const { data: updatedStore, error: storeUpdateErr } = await supabase
         .from('stores')
         .update({
           status: 'active',
           is_active: true,
-          subscription_expires_at: expiresAt.toISOString()
+          subscription_expires_at: expiresAt.toISOString(),
+          updated_at: now.toISOString()
         })
-        .eq('id', invoice.store_id);
+        .eq('id', invoice.store_id)
+        .select('subdomain, custom_domain')
+        .single();
+
+      if (storeUpdateErr) {
+        logger.error('Failed to update store status on invoice approve:', storeUpdateErr);
+        throw storeUpdateErr;
+      }
+
+      if (updatedStore) {
+        if (updatedStore.subdomain) tenantCache.delete(updatedStore.subdomain);
+        if (updatedStore.custom_domain) tenantCache.delete(updatedStore.custom_domain);
+      }
     }
 
     // 4. Log audit action

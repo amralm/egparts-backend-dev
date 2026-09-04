@@ -163,7 +163,7 @@ router.get('/current', verifyUser, async (req, res) => {
         .limit(10),
       supabase
         .from('stores')
-        .select('id, name, status')
+        .select('id, name, status, subscription_expires_at')
         .eq('id', req.store.id)
         .maybeSingle()
     ]);
@@ -172,6 +172,30 @@ router.get('/current', verifyUser, async (req, res) => {
     if (invRes.error) throw invRes.error;
 
     const subscription = subRes.data || null;
+
+    // Auto-reconciliation: ensure subscription is never out of sync with stores.subscription_expires_at
+    if (subscription && storeRes.data?.subscription_expires_at) {
+      const storeExp = new Date(storeRes.data.subscription_expires_at).getTime();
+      const subExp = subscription.expires_at ? new Date(subscription.expires_at).getTime() : 0;
+      if (storeExp > subExp) {
+        subscription.expires_at = storeRes.data.subscription_expires_at;
+        if (storeRes.data.status === 'active' && subscription.status !== 'active') {
+          subscription.status = 'active';
+        }
+        // Self-heal store_subscriptions row asynchronously
+        supabase
+          .from('store_subscriptions')
+          .update({
+            expires_at: storeRes.data.subscription_expires_at,
+            status: subscription.status,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', subscription.id)
+          .then(() => {})
+          .catch(e => logger.warn('[billing] auto-heal sub update failed:', e?.message));
+      }
+    }
+
     const isSuspended = storeRes.data?.status === 'suspended' || subscription?.status === 'suspended';
 
     sendSuccess(res, {
@@ -293,20 +317,30 @@ router.post('/subscribe', verifyUser, async (req, res) => {
       // Upsert store subscription
       const { data: newSub, error: subErr } = await supabase
         .from('store_subscriptions')
-        .insert([{
+        .upsert({
           store_id: req.store.id,
           plan_id: plan.id,
           status: 'active',
           started_at: now.toISOString(),
-          expires_at: expiresAt.toISOString()
-        }])
+          expires_at: expiresAt.toISOString(),
+          updated_at: now.toISOString()
+        }, { onConflict: 'store_id' })
         .select()
         .single();
 
       if (subErr) throw subErr;
 
-      // Unsuspend store
-      await supabase.from('stores').update({ status: 'active' }).eq('id', req.store.id);
+      // Unsuspend store and update subscription_expires_at
+      await supabase.from('stores').update({
+        status: 'active',
+        is_active: true,
+        subscription_expires_at: expiresAt.toISOString(),
+        updated_at: now.toISOString()
+      }).eq('id', req.store.id);
+
+      const { tenantCache } = require('../utils/cache');
+      if (req.store.subdomain) tenantCache.delete(req.store.subdomain);
+      if (req.store.custom_domain) tenantCache.delete(req.store.custom_domain);
 
       // Create zero-amount paid invoice
       const invoiceNumber = `INV-${Date.now().toString().slice(-6)}`;
