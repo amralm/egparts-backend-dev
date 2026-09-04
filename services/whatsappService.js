@@ -455,6 +455,45 @@ class WhatsappService {
     });
   }
 
+  // ✅ Send Document (PDF, etc.) via Queue with automatic retries
+  async sendDocument(to, buffer, fileName, caption = '', retries = 3) {
+    return this.queue.add(async () => {
+      let lastError;
+      
+      for (let i = 0; i < retries; i++) {
+        try {
+          if (!this.isReady) {
+            logger.warn(`WhatsApp not ready, attempt ${i + 1} of ${retries}. Waiting for reconnection...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            if (!this.isReady) throw new Error('خدمة واتساب غير جاهزة حالياً');
+          }
+
+          let cleanedTo = to.replace(/\D/g, '');
+          if (cleanedTo.startsWith('01') && cleanedTo.length === 11) {
+            cleanedTo = '2' + cleanedTo;
+          }
+          const formattedId = `${cleanedTo}@s.whatsapp.net`;
+          await this.sock.sendMessage(formattedId, {
+            document: buffer,
+            mimetype: 'application/pdf',
+            fileName: fileName || 'Receipt.pdf',
+            caption: caption || ''
+          });
+          logger.info(`Document ${fileName} sent successfully to ${to.slice(0, 6)}XXXX (Attempt ${i + 1})`);
+          return true;
+        } catch (error) {
+          lastError = error;
+          logger.error(`Retry ${i + 1}/${retries} document send failed for ${to.slice(0, 6)}XXXX: ${error.message}`);
+          if (i < retries - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+        }
+      }
+      
+      throw lastError || new Error('فشل إرسال المستند بعد عدة محاولات');
+    });
+  }
+
   async shutdown() {
     this.isShutdown = true;
     this.reconnectAttempts = 0;

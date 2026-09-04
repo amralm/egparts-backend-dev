@@ -192,6 +192,70 @@ class WhatsAppPoolService {
       throw error;
     }
   }
+
+  async sendDocument(to, buffer, fileName, caption = '', options = {}) {
+    await this.loadAccounts();
+    const idempotencyKey = options.idempotencyKey || `whatsapp-doc-${options.storeId || 'platform'}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let reserved = false;
+    if (options.storeId) {
+      reserved = await subscriptionLimitService.reserveFeatureUsage(
+        options.storeId,
+        'whatsapp_messages_month',
+        1,
+        idempotencyKey
+      );
+      if (!reserved) {
+        const error = new Error('WhatsApp message limit exceeded');
+        error.code = 'FEATURE_LIMIT_EXCEEDED';
+        throw error;
+      }
+    }
+    const candidates = options.accountId
+      ? [this.accounts.get(options.accountId)].filter(Boolean)
+      : [...this.accounts.values()]
+        .filter(({ row, service }) => row.enabled && service.isReady && service.sock && service.connectionState === 'open')
+        .filter(({ row }) => (row.circuit_state || 'closed') !== 'open')
+        .sort((a, b) => {
+          const score = (x) => ((x.row.active_jobs || 0) / Math.max(1, x.row.weight || 1)) * 1000 + (x.row.priority || 100);
+          return score(a) - score(b);
+        });
+    let account = null;
+    for (const candidate of candidates) {
+      const { data: claimed, error: claimError } = await supabase.rpc('claim_whatsapp_account', { p_account_id: candidate.row.id });
+      if (!claimError && claimed === true) {
+        account = candidate;
+        break;
+      }
+    }
+    if (!account) {
+      if (reserved) await subscriptionLimitService.rollbackFeatureUsage(idempotencyKey);
+      const error = new Error('No connected WhatsApp account is available');
+      error.code = 'WHATSAPP_POOL_EMPTY';
+      throw error;
+    }
+
+    const { row, service } = account;
+    row.active_jobs = (row.active_jobs || 0) + 1;
+    try {
+      const result = await service.sendDocument(to, buffer, fileName, caption, options.retries || 3);
+      row.active_jobs = Math.max(0, row.active_jobs - 1);
+      row.consecutive_failures = 0;
+      row.circuit_state = 'closed';
+      await supabase.rpc('release_whatsapp_account', { p_account_id: row.id });
+      await supabase.from('whatsapp_accounts').update({ consecutive_failures: 0, circuit_state: 'closed', last_success_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', row.id);
+      if (reserved) await subscriptionLimitService.commitFeatureUsage(idempotencyKey);
+      return { result, accountId: row.id, idempotencyKey };
+    } catch (error) {
+      row.active_jobs = Math.max(0, row.active_jobs - 1);
+      row.consecutive_failures = (row.consecutive_failures || 0) + 1;
+      const circuitState = row.consecutive_failures >= 3 ? 'open' : 'closed';
+      await supabase.rpc('release_whatsapp_account', { p_account_id: row.id });
+      await supabase.from('whatsapp_accounts').update({ consecutive_failures: row.consecutive_failures, circuit_state: circuitState, circuit_opened_at: circuitState === 'open' ? new Date().toISOString() : null, last_error: error.message, last_error_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', row.id);
+      logger.warn(`WhatsApp account ${row.id} failed: ${error.message}`);
+      if (reserved) await subscriptionLimitService.rollbackFeatureUsage(idempotencyKey);
+      throw error;
+    }
+  }
 }
 
 module.exports = new WhatsAppPoolService();

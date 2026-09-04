@@ -7,7 +7,7 @@
     "postinstall": "node scripts/harden-runtime-dependencies.js",
     "start": "node server.js",
     "lint": "node scripts/syntax-check.js",
-    "test": "npm run lint && npm run audit:inventory && npm run test:contracts && npm run contract:parity && npm run audit:contracts && npm run test:billing",
+    "test": "npm run lint && npm run audit:inventory && npm run test:contracts && npm run contract:parity && npm run audit:contracts && npm run test:billing && npm run test:pos",
     "dev": "node server.js",
     "contract:parity": "node scripts/verify-contract-parity.js",
     "audit:contracts": "node scripts/contract-audit.js",
@@ -15,6 +15,7 @@
     "security:scan": "node scripts/secret-scan.js",
     "test:contracts": "node scripts/contract-smoke.js",
     "test:billing": "node scripts/verify-billing-contract.js",
+    "test:pos": "node scripts/verify-pos-engine.js",
     "retention:cleanup": "node scripts/cleanup-payment-proofs.js"
   },
   "keywords": [],
