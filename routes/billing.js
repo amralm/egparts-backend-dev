@@ -12,6 +12,7 @@ const { apiError } = require('../utils/apiError');
 const logger = require('../utils/logger');
 const { decryptCredentials, getEncryptionKeyForVersion } = require('../utils/crypto');
 const r2 = require('../services/r2StorageService');
+const { validateUpload } = require('../middleware/uploadValidator');
 
 const ROOT_PLATFORM_STORE_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -304,6 +305,7 @@ router.post('/subscribe', verifyUser, async (req, res) => {
         status: 'paid',
         billing_cycle,
         payment_method: 'free',
+        due_date: expiresAt.toISOString(),
         billing_period_start: now.toISOString(),
         billing_period_end: expiresAt.toISOString()
       }]);
@@ -329,6 +331,7 @@ router.post('/subscribe', verifyUser, async (req, res) => {
         status: 'pending',
         billing_cycle,
         payment_method,
+        due_date: expiresAt.toISOString(),
         billing_period_start: now.toISOString(),
         billing_period_end: expiresAt.toISOString()
       }])
@@ -430,8 +433,8 @@ router.post('/subscribe', verifyUser, async (req, res) => {
 });
 
 // ── POST /api/billing/upload-proof ──
-// Merchant uploads payment proof for manual wallet transfer
-router.post('/upload-proof', verifyUser, upload.single('receipt'), async (req, res) => {
+// Merchant uploads payment proof for manual wallet transfer (validated and optimized via sharp)
+router.post('/upload-proof', verifyUser, upload.single('receipt'), validateUpload, async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
   const { invoice_id } = req.body;
 

@@ -21,6 +21,7 @@ class ReceiptPolicy extends AssetPolicy {
   get convertToWebP()     { return false }              // Preserve original format (evidence)
   get pngOptimizationProfile() { return 'receipt' }     // Aggressive PNG palette optimization for screenshots
   get visibility()        { return 'private' }
+  get skipStorageQuota()  { return true }               // Payment proofs are financial evidence, not store media catalog
   get duplicateDetection(){ return false }
   get allowedMimeTypes()  { return ['image/jpeg', 'image/png', 'image/webp', 'image/heic'] }
 
