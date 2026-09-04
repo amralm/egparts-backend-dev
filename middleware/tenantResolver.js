@@ -149,18 +149,64 @@ module.exports = async function tenantResolver(req, res, next) {
     }
 
     // Check subscription status
-    const isExpired = new Date(store.subscription_expires_at) < new Date();
+    const isExpired = store.subscription_expires_at ? new Date(store.subscription_expires_at) < new Date() : false;
     if (!store.is_active || isExpired) {
-      const isContextOrUsage = req.path === '/store-context' || req.path === '/store-usage';
-      if (!isContextOrUsage) {
-        return apiError(
-          res,
-          403,
-          isExpired ? 'انتهت صلاحية اشتراك هذا المتجر.' : 'هذا المتجر معلق حاليًا.',
-          isExpired ? 'STORE_SUBSCRIPTION_EXPIRED' : 'STORE_SUSPENDED',
-          { is_suspended: true }
-        );
+      // 1. If impersonation session header is present, allow to proceed
+      if (req.headers['x-impersonate-session']) {
+        req.store = store;
+        req.context = { type: 'tenant' };
+        return next();
       }
+
+      // 2. Allow whitelisted paths required for renewal, login, and suspension status
+      const fullPath = (req.originalUrl || req.url || '').split('?')[0];
+      const relPath = req.path || '';
+      const isAllowedPath =
+        relPath === '/store-context' || fullPath.includes('/store-context') ||
+        relPath === '/store-usage' || fullPath.includes('/store-usage') ||
+        relPath.startsWith('/auth') || fullPath.includes('/api/auth') ||
+        relPath.startsWith('/billing') || fullPath.includes('/api/billing') ||
+        relPath === '/account/login-log' || fullPath.includes('/api/account/login-log') ||
+        relPath.startsWith('/health') || fullPath.includes('/api/health');
+
+      if (isAllowedPath) {
+        req.store = store;
+        req.context = { type: 'tenant' };
+        return next();
+      }
+
+      // 3. If user is authenticated as super admin, allow full access
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        try {
+          const { verifyBearerToken } = require('./auth');
+          const decoded = await verifyBearerToken(authHeader.slice(7));
+          if (decoded?.sub) {
+            const { data: superAdmin } = await supabase
+              .from('super_admins')
+              .select('user_id')
+              .eq('user_id', decoded.sub)
+              .maybeSingle();
+
+            if (superAdmin) {
+              req.user = decoded;
+              req.store = store;
+              req.context = { type: 'tenant' };
+              return next();
+            }
+          }
+        } catch (_) {
+          // Token verification failed or not super admin; fall through to 403
+        }
+      }
+
+      return apiError(
+        res,
+        403,
+        isExpired ? 'انتهت صلاحية اشتراك هذا المتجر.' : 'هذا المتجر معلق حاليًا.',
+        isExpired ? 'STORE_SUBSCRIPTION_EXPIRED' : 'STORE_SUSPENDED',
+        { is_suspended: true }
+      );
     }
 
     // Attach store context and set context type
