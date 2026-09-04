@@ -27,6 +27,29 @@ async function createReport({ storeId, reporterUserId, reporterName, reporterPho
   return data;
 }
 
+function formatReport(report) {
+  if (!report) return report;
+  const storeObj = report.store || report.stores || null;
+  const storeName = storeObj?.name || report.store_name || null;
+  const storeSubdomain = storeObj?.subdomain || report.store_subdomain || null;
+  const storeIsActive = storeObj ? storeObj.is_active !== false : true;
+
+  const orderObj = report.order ? {
+    ...report.order,
+    customer_phone: report.order.customer_phone || report.order.phone || null
+  } : null;
+
+  return {
+    ...report,
+    store: storeObj,
+    stores: storeObj,
+    store_name: storeName,
+    store_subdomain: storeSubdomain,
+    store_active: storeIsActive,
+    order: orderObj,
+  };
+}
+
 async function listPlatformReports({ status, reasonCategory, storeId, page = 1, limit = 20 }) {
   let query = supabase
     .from('platform_abuse_reports')
@@ -52,11 +75,19 @@ async function listPlatformReports({ status, reasonCategory, storeId, page = 1, 
   const { data, count, error } = await query;
   if (error) throw error;
 
+  const formatted = (data || []).map(formatReport);
+
   return {
-    reports: data || [],
+    reports: formatted,
     total: count || 0,
     page: Number(page),
-    limit: Number(limit)
+    limit: Number(limit),
+    pagination: {
+      page: Number(page),
+      limit: Number(limit),
+      total: count || 0,
+      totalPages: Math.ceil((count || 0) / Number(limit)) || 1
+    }
   };
 }
 
@@ -66,14 +97,32 @@ async function getPlatformReportDetails(reportId) {
     .select(`
       *,
       store:stores(id, name, subdomain, business_type, is_active, created_at),
-      order:orders(id, order_number, total, status, customer_phone, city, address),
-      resolver:user_profiles!platform_abuse_reports_resolved_by_fkey(name, email)
+      order:orders(id, order_number, total, status, phone, city, address)
     `)
     .eq('id', reportId)
     .maybeSingle();
 
   if (error) throw error;
-  return data;
+  if (!data) return null;
+
+  let resolver = null;
+  if (data.resolved_by) {
+    try {
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('name, email')
+        .eq('id', data.resolved_by)
+        .maybeSingle();
+      resolver = profile || null;
+    } catch {
+      resolver = null;
+    }
+  }
+
+  return formatReport({
+    ...data,
+    resolver
+  });
 }
 
 async function updateReportAction(reportId, { status, adminAction, action, adminNotes, resolvedByUserId, correlationId, ipAddress, userAgent }) {
@@ -148,7 +197,7 @@ async function updateReportAction(reportId, { status, adminAction, action, admin
     console.warn('Platform abuse audit log insertion warning:', auditErr.message);
   }
 
-  return data;
+  return formatReport(data);
 }
 
 module.exports = {
