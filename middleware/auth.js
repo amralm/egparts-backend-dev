@@ -247,18 +247,58 @@ const verifyAdmin = (req, res, next) => {
   });
 };
 
+const PERMISSION_ALIASES = {
+  'orders.write': ['orders.write', 'tenant.orders.write', 'orders.create'],
+  'orders.read': ['orders.read', 'tenant.orders.read', 'orders.view'],
+  'orders.create': ['orders.create', 'tenant.orders.write', 'orders.write'],
+  'orders.view': ['orders.view', 'tenant.orders.read', 'orders.read'],
+  'products.read': ['products.read', 'tenant.products.read', 'products.view'],
+  'products.write': ['products.write', 'tenant.products.write', 'products.create', 'products.update'],
+  'products.view': ['products.view', 'tenant.products.read', 'products.read'],
+  'products.create': ['products.create', 'tenant.products.write', 'products.write'],
+  'inventory.read': ['inventory.read', 'tenant.inventory.read'],
+  'inventory.write': ['inventory.write', 'tenant.inventory.write'],
+  'customers.read': ['customers.read', 'tenant.customers.read'],
+  'customers.write': ['customers.write', 'tenant.customers.write'],
+  'finance.read': ['finance.read', 'tenant.finance.read'],
+  'reports.read': ['reports.read', 'tenant.reports.read'],
+  'marketing.write': ['marketing.write', 'tenant.marketing.write'],
+  'settings.write': ['settings.write', 'tenant.settings.write', 'settings.update'],
+  'settings.view': ['settings.view', 'tenant.settings.read'],
+  'support.write': ['support.write', 'tenant.support.write'],
+  'branches.manage': ['branches.manage', 'tenant.branches.manage']
+};
+
+function expandPermissions(perms) {
+  const permList = Array.isArray(perms) ? perms : [perms];
+  const expanded = new Set();
+  for (const p of permList) {
+    if (!p) continue;
+    expanded.add(p);
+    if (PERMISSION_ALIASES[p]) {
+      for (const alias of PERMISSION_ALIASES[p]) {
+        expanded.add(alias);
+      }
+    }
+  }
+  return [...expanded];
+}
+
 // ─────────────────────────────────────────────────────────────
 // Middleware: verifyPermission(permissionName)
 // The PRIMARY authorization primitive. Use this everywhere.
 //
+// Supports single permission string or array of permissions (OR logic).
+// Transparently handles permission aliases (e.g. legacy vs tenant.* names).
+//
 // For store-level permissions: verifyPermission('products.create')
 // For platform-level permissions: verifyPermission('platform.stores.view')
-//
-// Permission names starting with 'platform.' are checked against
-// the super_admin platform role. All others are checked against
-// the user's store membership (user_roles).
 // ─────────────────────────────────────────────────────────────
 const verifyPermission = (permissionName) => {
+  const rawPerms = Array.isArray(permissionName) ? permissionName : [permissionName];
+  const expandedPerms = expandPermissions(rawPerms);
+  const isPlatformPermission = rawPerms.some((p) => typeof p === 'string' && p.startsWith('platform.'));
+
   return async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if ((!authHeader || !authHeader.startsWith('Bearer ')) && !(req.isImpersonated && req.user?.sub)) {
@@ -272,7 +312,6 @@ const verifyPermission = (permissionName) => {
       req.user = decoded;
 
       const userId = decoded.sub;
-      const isPlatformPermission = permissionName.startsWith('platform.');
 
       if (isPlatformPermission) {
         if (req.isImpersonated === true) {
@@ -284,8 +323,9 @@ const verifyPermission = (permissionName) => {
           return apiError(res, 403, 'Forbidden: Platform access required', `HTTP_403`);
         }
 
-        if (!platformPermissions.includes(permissionName)) {
-          return apiError(res, 403, `Forbidden: Missing permission '${permissionName}'`, `HTTP_403`);
+        const hasPlatformPerm = expandedPerms.some((p) => platformPermissions.includes(p));
+        if (!hasPlatformPerm) {
+          return apiError(res, 403, `Forbidden: Missing permission '${rawPerms.join(', ')}'`, `HTTP_403`);
         }
 
         return next();
@@ -301,14 +341,18 @@ const verifyPermission = (permissionName) => {
         impersonated: req.isImpersonated === true
       });
 
-      if (!storePermissions.includes(permissionName)) {
-        return apiError(res, 403, `Forbidden: Missing permission '${permissionName}'`, `HTTP_403`);
+      const hasStorePerm = expandedPerms.some((p) => storePermissions.includes(p));
+      if (!hasStorePerm) {
+        return apiError(res, 403, `Forbidden: Missing permission '${rawPerms.join(', ')}'`, `HTTP_403`);
       }
 
       return next();
     } catch (err) {
-      logger.error(`verifyPermission('${permissionName}') failed:`, err.message);
-      if (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError' || err.message.includes('token')) { return apiError(res, 401, 'Unauthorized: Invalid or expired token', `HTTP_401`); } return apiError(res, 500, 'Internal server error', `HTTP_500`);
+      logger.error(`verifyPermission('${JSON.stringify(permissionName)}') failed:`, err.message);
+      if (err.name === 'TokenExpiredError' || err.name === 'JsonWebTokenError' || err.message.includes('token')) {
+        return apiError(res, 401, 'Unauthorized: Invalid or expired token', `HTTP_401`);
+      }
+      return apiError(res, 500, 'Internal server error', `HTTP_500`);
     }
   };
 };
