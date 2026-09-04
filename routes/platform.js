@@ -1217,7 +1217,7 @@ router.delete('/stores/:id', verifyPlatformAdmin, async (req, res) => {
     // 1. Wipe all files associated with the store from R2 across all prefixes
     let storageResult = { deletedCount: 0, deletedBytes: 0 };
     if (process.env.R2_BUCKET_NAME) {
-      const dirsToWipe = [`stores/${id}/`, `payment-proofs/${id}/`, `support/${id}/`, `abuse-reports/${id}/`];
+      const dirsToWipe = [`stores/${id}/`, `payment-proofs/${id}/`, `support/${id}/`, `abuse-reports/${id}/`, `subscription-proofs/${id}/`];
       for (const dir of dirsToWipe) {
         try {
           const resDir = await emptyS3Directory(process.env.R2_BUCKET_NAME, dir);
@@ -1229,7 +1229,28 @@ router.delete('/stores/:id', verifyPlatformAdmin, async (req, res) => {
       }
     }
 
-    // 2. Hard delete the store from database (Cascades to products, orders, etc.)
+    // 2. Detach any custom domains from Cloudflare Pages (best-effort)
+    try {
+      const { data: domains } = await supabase
+        .from('custom_domains')
+        .select('domain')
+        .eq('store_id', id);
+
+      if (Array.isArray(domains) && domains.length > 0) {
+        const cloudflarePages = require('../services/cloudflarePagesService');
+        for (const d of domains) {
+          if (d.domain) {
+            await cloudflarePages.deleteCustomDomain(d.domain).catch(err => {
+              logger.warn(`[stores/hard] Cloudflare Pages detach failed for ${d.domain}:`, err.message);
+            });
+          }
+        }
+      }
+    } catch (domainErr) {
+      logger.warn('[stores/hard] Failed to query custom domains for cleanup:', domainErr.message);
+    }
+
+    // 3. Hard delete the store from database (Cascades to products, orders, etc.)
     const { error } = await supabase
       .from('stores')
       .delete()
