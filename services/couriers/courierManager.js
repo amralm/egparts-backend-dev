@@ -215,6 +215,41 @@ class CourierManager {
   }
 
   /**
+   * Get Airway Bill (AWB) / Printable Sticker for an Order
+   */
+  async getAirwayBill(orderId, storeId) {
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('id, courier_name, courier_order_id, tracking_number')
+      .eq('id', orderId)
+      .eq('store_id', storeId)
+      .single();
+
+    if (error || !order) {
+      throw new Error('الطلب غير موجود.');
+    }
+
+    if (!order.courier_order_id) {
+      throw new Error('لم يتم إصدار بوليصة شحن لهذا الطلب بعد.');
+    }
+
+    const provider = order.courier_name || 'bosta';
+    if (provider === 'bosta') {
+      const settings = await this.getSettings(storeId, 'bosta');
+      if (!settings || !settings.api_key) {
+        throw new Error('يرجى ضبط وتفعيل مفتاح API الخاص بشركة Bosta أولاً.');
+      }
+      return await bostaService.getAirwayBill({
+        apiKey: settings.api_key,
+        isTestMode: settings.is_test_mode !== false,
+        deliveryId: order.courier_order_id
+      });
+    }
+
+    throw new Error(`جلب البوليصة غير مدعوم للمزود (${provider}).`);
+  }
+
+  /**
    * Handle Courier Inbound Webhook (e.g. Bosta Delivery Status Callback)
    */
   async handleWebhook(provider, payload) {
@@ -248,7 +283,8 @@ class CourierManager {
       if (normalizedState.includes('DELIVERED')) {
         updatePayload.status = 'delivered';
         // If COD, mark paid automatically
-        if (String(order.payment_method).toLowerCase() === 'cod' && order.payment_status !== 'paid') {
+        const isCod = ['cod', 'cash_on_delivery', 'cash'].includes(String(order.payment_method || '').toLowerCase());
+        if (isCod && order.payment_status !== 'paid') {
           updatePayload.payment_status = 'paid';
           updatePayload.paid_at = new Date().toISOString();
         }

@@ -124,7 +124,25 @@ router.get('/track/:orderId', verifyPermission('orders.view'), async (req, res) 
 });
 
 /**
- * 5. Inbound Webhook from Courier Services (Public)
+ * 5. Get Airway Bill (AWB) for an Order
+ */
+router.get('/awb/:orderId', verifyPermission('orders.view'), async (req, res) => {
+  const storeId = requireStore(req, res);
+  if (!storeId) return;
+
+  const { orderId } = req.params;
+
+  try {
+    const awb = await courierManager.getAirwayBill(orderId, storeId);
+    sendSuccess(res, { awb });
+  } catch (err) {
+    logger.error(`[CourierShipping] AWB retrieval failed for order ${orderId}:`, err.message);
+    apiError(res, 500, err.message || 'تعذر جلب بوليصة الشحن', 'AWB_FAILED');
+  }
+});
+
+/**
+ * 6. Inbound Webhook from Courier Services (Public)
  */
 router.post('/webhook/:courier', async (req, res) => {
   const { courier } = req.params;

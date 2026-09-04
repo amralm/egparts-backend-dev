@@ -47,14 +47,20 @@ class BostaService {
     }
 
     const baseUrl = this.getBaseUrl(isTestMode);
-    const isCod = String(order.payment_method || '').toLowerCase() === 'cod';
+    const isAlreadyPaid = order.payment_status === 'paid';
+    const isCod = !isAlreadyPaid && ['cod', 'cash_on_delivery', 'cash'].includes(String(order.payment_method || '').toLowerCase());
     const codAmount = isCod ? parseFloat(order.total || order.total_amount || 0) : 0;
 
     // Build receiver phone (sanitize Egyptian phone)
     let cleanPhone = String(order.phone || '').replace(/\D/g, '');
     if (cleanPhone.startsWith('20') && cleanPhone.length === 12) {
       cleanPhone = `0${cleanPhone.slice(2)}`;
+    } else if (cleanPhone.length === 10 && cleanPhone.startsWith('1')) {
+      cleanPhone = `0${cleanPhone}`;
     }
+
+    const customerName = (order.customer_name || order.user_name || order.name || '').trim();
+    const receiverName = customerName || (cleanPhone ? `عميل ${cleanPhone.slice(-4)}` : 'عميل المتجر');
 
     const geoLocation = this.parseGeoLocation(order.location_url);
 
@@ -74,7 +80,7 @@ class BostaService {
         ...(geoLocation ? { geoLocation } : {})
       },
       receiver: {
-        firstName: order.customer_name || (order.phone ? `عميل ${order.phone.slice(-4)}` : 'عميل المتجر'),
+        firstName: receiverName,
         lastName: '',
         phone: cleanPhone
       },

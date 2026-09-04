@@ -15,9 +15,21 @@ router.get('/', async (req, res) => {
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  const expectedToken = process.env.META_WHATSAPP_VERIFY_TOKEN || 'egparts_meta_webhook_secret';
+  let expectedToken = process.env.META_WHATSAPP_VERIFY_TOKEN || 'egparts_meta_webhook_secret';
+  let isVerified = (mode === 'subscribe' && token === expectedToken);
 
-  if (mode === 'subscribe' && token === expectedToken) {
+  if (!isVerified && mode === 'subscribe' && token) {
+    const { data } = await supabase
+      .from('site_settings')
+      .select('meta_verify_token')
+      .eq('meta_verify_token', token)
+      .limit(1);
+    if (data && data.length > 0) {
+      isVerified = true;
+    }
+  }
+
+  if (isVerified) {
     logger.info('[MetaWebhook] Successfully verified Meta webhook challenge.');
     return res.status(200).send(challenge);
   }
