@@ -124,11 +124,11 @@ BEGIN
           WHERE id = v_product.id;
 
           INSERT INTO public.inventory_adjustments (product_id, order_id, admin_id, change_amount, reason, store_id)
-          VALUES (v_product.id, p_order_id, p_user_id, v_qty, 'return_pos_sound', p_store_id);
+          VALUES (v_product.id, p_order_id, p_user_id, v_qty, 'return', p_store_id);
         ELSE
-          -- Damaged item: log scrap adjustment without increasing sellable stock
+          -- Damaged item: log correction adjustment without increasing sellable stock
           INSERT INTO public.inventory_adjustments (product_id, order_id, admin_id, change_amount, reason, store_id)
-          VALUES (v_product.id, p_order_id, p_user_id, 0, 'return_pos_damaged', p_store_id);
+          VALUES (v_product.id, p_order_id, p_user_id, 0, 'correction', p_store_id);
         END IF;
       END IF;
     END IF;

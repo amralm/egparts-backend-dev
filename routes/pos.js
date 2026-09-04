@@ -172,7 +172,7 @@ router.get('/orders/lookup/:query', verifyPermission(['tenant.orders.read', 'ord
 
     let orderQuery = supabase
       .from('orders')
-      .select('id, order_number, total, subtotal, discount, discount_amount, payment_method, status, payment_status, items, created_at, phone, customer_name, metadata')
+      .select('id, order_number, total, subtotal, discount, discount_amount, payment_method, status, payment_status, items, created_at, phone, metadata')
       .eq('store_id', req.store.id);
 
     if (isUuid) {
@@ -298,7 +298,7 @@ router.post('/orders/:id/send-receipt', verifyPermission(['tenant.orders.read', 
     // 1. Fetch order
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, order_number, total, total_amount, subtotal, discount, discount_amount, payment_method, items, created_at, phone, customer_name, metadata')
+      .select('id, order_number, total, total_amount, subtotal, discount, discount_amount, payment_method, items, created_at, phone, metadata')
       .eq('id', req.params.id)
       .eq('store_id', req.store.id)
       .single();

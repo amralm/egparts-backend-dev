@@ -16,6 +16,7 @@
     "test:contracts": "node scripts/contract-smoke.js",
     "test:billing": "node scripts/verify-billing-contract.js",
     "test:pos": "node scripts/verify-pos-engine.js",
+    "test:pos:e2e": "node scripts/e2e-pos-integrated.js",
     "retention:cleanup": "node scripts/cleanup-payment-proofs.js"
   },
   "keywords": [],
