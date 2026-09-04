@@ -63,14 +63,14 @@ async function searchProducts(storeId, query, limit = 5) {
 
 async function getCatalogMeta(storeId) {
   const [catData, brandData] = await Promise.all([
-    supabase.from('products').select('category').eq('store_id', storeId).eq('is_active', true),
-    supabase.from('products').select('brand').eq('store_id', storeId).eq('is_active', true)
+    supabase.from('products').select('category').eq('store_id', storeId).eq('is_active', true).eq('is_deleted', false),
+    supabase.from('products').select('brand').eq('store_id', storeId).eq('is_active', true).eq('is_deleted', false)
   ]);
   if (catData.error) throw catData.error;
   if (brandData.error) throw brandData.error;
   return {
-    categories: ['All', ...new Set((catData.data || []).map((item) => item.category).filter(Boolean))],
-    brands: ['All', ...new Set((brandData.data || []).map((item) => item.brand).filter(Boolean))]
+    categories: ['All', ...new Set((catData.data || []).map((item) => item.category?.trim()).filter(Boolean))],
+    brands: ['All', ...new Set((brandData.data || []).map((item) => item.brand?.trim()).filter(Boolean))]
   };
 }
 
@@ -91,8 +91,8 @@ async function listCatalogProducts(storeId, filters = {}) {
     const safeSearch = sanitizeIlikeTerm(filters.q);
     if (safeSearch) query = query.or(`name.ilike.%${safeSearch}%,part_number.ilike.%${safeSearch}%,category.ilike.%${safeSearch}%`);
   }
-  if (filters.category && filters.category !== 'All') query = query.eq('category', filters.category);
-  if (filters.brand && filters.brand !== 'All') query = query.eq('brand', filters.brand);
+  if (filters.category && filters.category !== 'All') query = query.eq('category', filters.category.trim());
+  if (filters.brand && filters.brand !== 'All') query = query.eq('brand', filters.brand.trim());
   const minPrice = Number(filters.min);
   const maxPrice = Number(filters.max);
   const hasCustomMin = Number.isFinite(minPrice) && minPrice > 0;
