@@ -57,4 +57,28 @@ router.post('/accounts/:id/reset', validateParams(whatsappAccountIdParamSchema),
   sendSuccess(res, {});
 });
 
+router.delete('/accounts/:id', validateParams(whatsappAccountIdParamSchema), async (req, res) => {
+  const { data: account, error: fetchError } = await supabase
+    .from('whatsapp_accounts')
+    .select('id, phone_number')
+    .eq('id', req.params.id)
+    .single();
+  if (fetchError || !account) return apiError(res, 404, 'WhatsApp account not found', `HTTP_404`);
+
+  const { error: sessionError } = await supabase
+    .from('whatsapp_sessions')
+    .delete()
+    .eq('whatsapp_account_id', account.id);
+  if (sessionError) return apiError(res, 500, 'Failed to clear WhatsApp session', `HTTP_500`);
+
+  const { error: deleteError } = await supabase
+    .from('whatsapp_accounts')
+    .delete()
+    .eq('id', account.id);
+  if (deleteError) return apiError(res, 500, 'Failed to delete WhatsApp account', `HTTP_500`);
+
+  await pool.removeAccount(account.id);
+  sendSuccess(res, { deleted: true, id: account.id, phone_number: account.phone_number });
+});
+
 module.exports = router;

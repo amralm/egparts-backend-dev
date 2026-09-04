@@ -103,6 +103,15 @@ class WhatsAppPoolService {
     return replacement.service.getStatus();
   }
 
+  async removeAccount(accountId) {
+    const entry = this.accounts.get(accountId);
+    if (entry) {
+      await entry.service.shutdown().catch(() => {});
+      this.accounts.delete(accountId);
+    }
+    await this.loadAccounts();
+  }
+
   selectAccount() {
     const now = Date.now();
     return [...this.accounts.values()]
