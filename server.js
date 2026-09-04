@@ -88,6 +88,9 @@ const supportRoutes = require('./routes/support');
 const platformReportsRoutes = require('./routes/platformReports');
 const posRoutes = require('./routes/pos');
 const billingRoutes = require('./routes/billing');
+const courierShippingRoutes = require('./routes/courierShipping');
+const metaWebhookRoutes = require('./routes/metaWebhook');
+const metaAdminRoutes = require('./routes/metaAdmin');
 const healthCollector = require('./services/healthCollector');
 const whatsappService = require('./services/whatsappService');
 const whatsappPoolService = require('./services/whatsappPoolService');
@@ -709,6 +712,9 @@ app.use('/api/platform/reports', platformReportsRoutes.publicReportsRouter || pl
 app.use('/api/platform/admin/reports', platformReportsRoutes.adminReportsRouter || platformReportsRoutes);
 app.use('/api/pos', posRoutes);
 app.use('/api/billing', billingRoutes);
+app.use('/api/shipping/couriers', courierShippingRoutes);
+app.use('/api/whatsapp/meta/webhook', metaWebhookRoutes);
+app.use('/api/whatsapp/meta/admin', metaAdminRoutes);
 
 // âœ… WhatsApp Auth Routes
 app.post('/api/auth/qr-login', async (req, res) => {
