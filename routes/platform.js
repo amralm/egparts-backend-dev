@@ -4,8 +4,42 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const { S3Client, ListObjectsV2Command, DeleteObjectsCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
-const { supabase } = require('../services/supabase');
+const { supabase, supabaseAuth } = require('../services/supabase');
 const { verifyPlatformAdmin, verifyPlatformPermission } = require('../middleware/platformAdmin');
+
+/**
+ * Server-Side Step-Up Re-Authentication Guard
+ * Destructive operations (such as purging global audit logs or login logs) require
+ * the administrator to prove possession of their current account password on the server.
+ */
+async function verifyStepUpPassword(req) {
+  const password = req.body?.password || req.headers['x-admin-password'];
+  if (!password || typeof password !== 'string') {
+    return { ok: false, error: 'كلمة المرور مطلوبة لتأكيد هذا الإجراء الحساس' };
+  }
+  let email = req.user?.email;
+  if (!email && req.user?.sub) {
+    try {
+      const { data: userData } = await supabase.auth.admin.getUserById(req.user.sub);
+      email = userData?.user?.email;
+    } catch {}
+  }
+  if (!email) {
+    return { ok: false, error: 'تعذر التحقق من هوية الحساب الإداري' };
+  }
+  try {
+    const { error: authErr } = await supabaseAuth.auth.signInWithPassword({
+      email,
+      password: password.trim()
+    });
+    if (authErr) {
+      return { ok: false, error: 'كلمة المرور غير صحيحة. تم رفض العملية الحساسة.' };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: 'فشل التحقق من كلمة المرور: ' + (err.message || 'خطأ غير متوقع') };
+  }
+}
 const logger = require('../utils/logger');
 const { z } = require('zod');
 const rateLimit = require('express-rate-limit');
@@ -2224,9 +2258,14 @@ router.get('/audit-logs', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
-// DELETE /api/platform/audit-logs - Purge global audit logs
+// DELETE /api/platform/audit-logs - Purge global audit logs (Protected by Server-Side Step-Up)
 router.delete('/audit-logs', verifyPlatformAdmin, async (req, res) => {
-  const { mode, days } = req.body;
+  const stepUp = await verifyStepUpPassword(req);
+  if (!stepUp.ok) {
+    return apiError(res, 401, stepUp.error, 'REAUTH_REQUIRED');
+  }
+
+  const { mode, days } = req.body || {};
   
   try {
     let query = supabase.from('audit_logs').delete();
@@ -3602,8 +3641,13 @@ router.delete('/login-logs/:id', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
-// DELETE /api/platform/login-logs
+// DELETE /api/platform/login-logs (Protected by Server-Side Step-Up)
 router.delete('/login-logs', verifyPlatformAdmin, async (req, res) => {
+  const stepUp = await verifyStepUpPassword(req);
+  if (!stepUp.ok) {
+    return apiError(res, 401, stepUp.error, 'REAUTH_REQUIRED');
+  }
+
   try {
     const { error } = await supabase.from('user_login_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     if (error) throw error;
