@@ -512,7 +512,7 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
       await supabase.from('orders')
         .update({ payment_status: 'failed', payment_details: newPaymentDetails })
         .eq('id', order.id);
-      console.log(`â Œ Order ${order.id} payment failed.`);
+      console.log(`❌ Order ${order.id} payment failed.`);
     }
 
     res.sendStatus(200);
@@ -548,6 +548,8 @@ router.get('/verify-redirect', async (req, res) => {
     return apiError(res, 400, 'Missing parameters', `HTTP_400`);
   }
 
+  let storeUrl = null;
+  let currentOrderId = null;
   try {
     const { data: order } = await supabase
       .from('orders')
@@ -563,6 +565,7 @@ router.get('/verify-redirect', async (req, res) => {
       return apiError(res, 404, 'Order not found', `HTTP_404`);
     }
 
+    currentOrderId = order.id;
     let storeData = order.stores;
     if (!storeData || (Array.isArray(storeData) && storeData.length === 0)) {
       const { data: directStore } = await supabase
@@ -572,7 +575,7 @@ router.get('/verify-redirect', async (req, res) => {
         .maybeSingle();
       storeData = directStore;
     }
-    const storeUrl = getStoreUrl(storeData);
+    storeUrl = getStoreUrl(storeData);
 
     // If already marked as paid by webhook
     if (order.payment_status === 'paid') {
@@ -616,17 +619,20 @@ router.get('/verify-redirect', async (req, res) => {
     ].map(v => String(v ?? ''));
 
     let isValid = false;
-    if (hmacSecret) {
-      const computedHmac = crypto
-        .createHmac('sha512', hmacSecret)
-        .update(concatFields.join(''))
-        .digest('hex');
+    if (hmacSecret && receivedHmac) {
+      try {
+        const computedHmac = crypto
+          .createHmac('sha512', hmacSecret)
+          .update(concatFields.join(''))
+          .digest('hex');
 
-      if (computedHmac.length === (receivedHmac || '').length) {
-        isValid = crypto.timingSafeEqual(
-          Buffer.from(computedHmac, 'hex'),
-          Buffer.from(receivedHmac, 'hex')
-        );
+        const b1 = Buffer.from(computedHmac, 'hex');
+        const b2 = Buffer.from(receivedHmac, 'hex');
+        if (b1.length === b2.length && b1.length > 0) {
+          isValid = crypto.timingSafeEqual(b1, b2);
+        }
+      } catch (hmacErr) {
+        console.warn('[verify-redirect] HMAC comparison exception:', hmacErr.message);
       }
     }
 
@@ -672,8 +678,9 @@ router.get('/verify-redirect', async (req, res) => {
   } catch (err) {
     console.error('Verify Redirect Error:', err.message);
     if (isBrowserNavigation) {
-      const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
-      return res.redirect(302, `https://${primaryDomain}/payment/fail?error=server_error`);
+      const fallbackDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
+      const targetBase = storeUrl || `https://${fallbackDomain}`;
+      return res.redirect(302, `${targetBase}/payment/fail?error=server_error${currentOrderId ? `&orderId=${currentOrderId}` : ''}`);
     }
     return apiError(res, 500, 'Internal server error', `HTTP_500`);
   }
