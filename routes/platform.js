@@ -1130,6 +1130,57 @@ router.post('/stores/:id/recover', verifyPlatformAdmin, async (req, res) => {
   }
 });
 
+// Reset or remove Store Owner / Manager POS PIN by Platform Admin
+router.post('/stores/:id/reset-pin', verifyPlatformAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { pin } = req.body || {};
+
+  try {
+    const { data: store, error: storeError } = await supabase
+      .from('stores')
+      .select('id, name, subdomain, custom_domain, pos_manager_pin_hash')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (storeError || !store) {
+      return apiError(res, 404, 'المتجر غير موجود', 'STORE_NOT_FOUND');
+    }
+
+    let newHash = null;
+    if (pin) {
+      const cleanPin = String(pin).trim();
+      if (!/^\d{4,6}$/.test(cleanPin)) {
+        return apiError(res, 400, 'رمز PIN يجب أن يتكون من 4 إلى 6 أرقام', 'INVALID_PIN');
+      }
+      newHash = crypto.createHash('sha256').update(`${id}:${cleanPin}`).digest('hex');
+    }
+
+    const { error: updateError } = await supabase
+      .from('stores')
+      .update({
+        pos_manager_pin_hash: newHash,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+
+    if (updateError) throw updateError;
+
+    if (store.subdomain) tenantCache.delete(store.subdomain);
+    if (store.custom_domain) tenantCache.delete(store.custom_domain);
+
+    await auditPlatform(req, 'platform.store.reset_pin', 'store', id, { had_pin: Boolean(store.pos_manager_pin_hash) }, { has_pin: Boolean(newHash) }, id);
+
+    sendSuccess(res, {
+      id,
+      has_manager_pin: Boolean(newHash),
+      message: newHash ? 'تم تعيين رمز PIN المدير بنجاح' : 'تم حذف رمز PIN المدير وإرجاع المتجر لحالة البدء'
+    });
+  } catch (err) {
+    logger.error('Failed to reset store manager PIN:', err.message);
+    apiError(res, 500, 'فشل إعادة تعيين رمز PIN المدير للمتجر', 'HTTP_500');
+  }
+});
+
 // Lightweight, searchable store directory for selectors. Never force an admin
 // page to download the entire tenant table just to render a dropdown.
 router.get('/stores/options', verifyPlatformAdmin, async (req, res) => {
