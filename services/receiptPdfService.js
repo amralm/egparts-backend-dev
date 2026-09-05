@@ -77,11 +77,6 @@ async function generateReceiptPdf({ order, store, cashierName = 'الكاشير'
     const width = 600;
     const items = Array.isArray(order.items) ? order.items : [];
     
-    // Dynamic height calculation
-    const itemRowHeight = 35;
-    const baseHeight = 540;
-    const height = baseHeight + (items.length * itemRowHeight);
-
     const orderNum = order.formatted_order_number || `EG-${order.order_number || '1001'}`;
     const storeName = (store?.name || 'متجر سحابي').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const dateStr = new Date(order.created_at || Date.now()).toLocaleString('ar-EG', {
@@ -96,23 +91,9 @@ async function generateReceiptPdf({ order, store, cashierName = 'الكاشير'
     const customerName = (order.customer_name || order.metadata?.customer_name || 'عميل نقدي')
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-    // Generate QR Code SVG
-    const trackingHost = store?.subdomain ? `${store.subdomain}.egparts.store` : 'egparts.store';
-    const qrData = `https://${trackingHost}/track-order?id=${order.id || order.order_number}`;
-    const qrSvgRaw = await QRCode.toString(qrData, {
-      type: 'svg',
-      margin: 1,
-      width: 100,
-      color: { dark: '#000000', light: '#ffffff' }
-    });
-    const qrInner = qrSvgRaw.replace(/<\?xml.*?\?>/, '').replace(/<svg[^>]*>/, '').replace(/<\/svg>/, '');
-
-    // Generate Barcode SVG
-    const barcodeSvgRaw = generateBarcode128Svg(orderNum, { height: 40, moduleWidth: 1.8, showText: true });
-    const barcodeInner = barcodeSvgRaw.replace(/<\?xml.*?\?>/, '').replace(/<svg[^>]*>/, '').replace(/<\/svg>/, '');
-
     // Render items rows
-    let yPos = 240;
+    let yPos = 220;
+    const itemRowHeight = 32;
     const itemRowsSvg = items.map((item) => {
       const name = (item.name || item.title || 'صنف').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const qty = item.qty || item.quantity || 1;
@@ -120,17 +101,43 @@ async function generateReceiptPdf({ order, store, cashierName = 'الكاشير'
       const lineTotal = (qty * price).toFixed(2);
       
       const row = `
-        <text x="550" y="${yPos}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="14" font-weight="bold" fill="#111827" text-anchor="end">${name}</text>
+        <text x="550" y="${yPos}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" font-weight="bold" fill="#111827" text-anchor="end">${name}</text>
         <text x="180" y="${yPos}" font-family="monospace" font-size="13" fill="#4B5563" text-anchor="middle">${qty} × ${price}</text>
-        <text x="50" y="${yPos}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="14" font-weight="bold" fill="#111827" text-anchor="start">${lineTotal} ج.م</text>
+        <text x="50" y="${yPos}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" font-weight="bold" fill="#111827" text-anchor="start">${lineTotal} ج.م</text>
       `;
       yPos += itemRowHeight;
       return row;
     }).join('\n');
 
+    // Dynamic positioning for totals, barcode, QR code, and footer
     const totalsY = yPos + 10;
-    const barcodeY = totalsY + 110;
-    const qrY = barcodeY + 70;
+    const hasDiscount = Number(discount) > 0;
+    const totalBoxY = hasDiscount ? totalsY + 62 : totalsY + 42;
+    const payMethodY = totalBoxY + 58;
+    const barcodeY = payMethodY + 25;
+    const barcodeHeight = 56;
+    const qrY = barcodeY + barcodeHeight + 25;
+    const qrSize = 100;
+    const footerText1Y = qrY + qrSize + 22;
+    const footerText2Y = footerText1Y + 20;
+
+    // Full canvas height dynamically calculated so content is never cropped or overlapped
+    const height = footerText2Y + 40;
+
+    // Generate QR Code SVG (nested with proper coordinates and viewBox preserved)
+    const trackingHost = store?.subdomain ? `${store.subdomain}.egparts.store` : 'egparts.store';
+    const qrData = `https://${trackingHost}/track-order?id=${order.id || order.order_number}`;
+    const qrSvgRaw = await QRCode.toString(qrData, {
+      type: 'svg',
+      margin: 1,
+      width: qrSize,
+      color: { dark: '#000000', light: '#ffffff' }
+    });
+    const nestedQr = qrSvgRaw.replace('<svg ', `<svg x="${(width - qrSize) / 2}" y="${qrY}" `);
+
+    // Generate Barcode SVG (nested with proper coordinates)
+    const barcodeSvgRaw = generateBarcode128Svg(orderNum, { height: 40, moduleWidth: 1.8, showText: true });
+    const nestedBarcode = barcodeSvgRaw.replace('<svg ', `<svg x="${(width - 240) / 2}" y="${barcodeY}" `);
 
     const svg = `
     <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
@@ -173,29 +180,26 @@ async function generateReceiptPdf({ order, store, cashierName = 'الكاشير'
       <text x="550" y="${totalsY + 25}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#6B7280" text-anchor="end">المجموع الفرعي:</text>
       <text x="50" y="${totalsY + 25}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#111827" text-anchor="start">${subtotal} ج.م</text>
 
-      ${Number(discount) > 0 ? `
-      <text x="550" y="${totalsY + 45}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#EF4444" text-anchor="end">الخصم:</text>
-      <text x="50" y="${totalsY + 45}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#EF4444" text-anchor="start">-${discount} ج.م</text>
+      ${hasDiscount ? `
+      <text x="550" y="${totalsY + 48}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#EF4444" text-anchor="end">الخصم:</text>
+      <text x="50" y="${totalsY + 48}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#EF4444" text-anchor="start">-${discount} ج.م</text>
       ` : ''}
 
-      <rect x="40" y="${totalsY + 55}" width="520" height="42" fill="#ECFDF5" rx="6" stroke="#A7F3D0"/>
-      <text x="540" y="${totalsY + 82}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="16" font-weight="bold" fill="#065F46" text-anchor="end">الإجمالي المستحق:</text>
-      <text x="60" y="${totalsY + 82}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="18" font-weight="bold" fill="#059669" text-anchor="start">${total} ج.م</text>
+      <rect x="40" y="${totalBoxY}" width="520" height="42" fill="#ECFDF5" rx="6" stroke="#A7F3D0"/>
+      <text x="540" y="${totalBoxY + 27}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="16" font-weight="bold" fill="#065F46" text-anchor="end">الإجمالي المستحق:</text>
+      <text x="60" y="${totalBoxY + 27}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="18" font-weight="bold" fill="#059669" text-anchor="start">${total} ج.م</text>
 
       <!-- Payment Method -->
-      <text x="300" y="${totalsY + 115}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="12" fill="#6B7280" text-anchor="middle">طريقة السداد: <tspan font-weight="bold" fill="#111827">${payMethod}</tspan></text>
+      <text x="300" y="${payMethodY}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="12" fill="#6B7280" text-anchor="middle">طريقة السداد: <tspan font-weight="bold" fill="#111827">${payMethod}</tspan></text>
 
       <!-- Barcode 128 -->
-      <g transform="translate(160, ${barcodeY})">
-        ${barcodeInner}
-      </g>
+      ${nestedBarcode}
 
       <!-- QR Code & Footer -->
-      <g transform="translate(250, ${qrY})">
-        ${qrInner}
-      </g>
-      <text x="300" y="${qrY + 115}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="11" fill="#9CA3AF" text-anchor="middle">امسح الرمز لتتبع الفاتورة إلكترونياً</text>
-      <text x="300" y="${qrY + 135}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="12" font-weight="bold" fill="#4B5563" text-anchor="middle">شكراً لتعاملكم معنا!</text>
+      ${nestedQr}
+
+      <text x="300" y="${footerText1Y}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="11" fill="#6B7280" text-anchor="middle">امسح الرمز لتتبع الفاتورة إلكترونياً</text>
+      <text x="300" y="${footerText2Y}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="12" font-weight="bold" fill="#374151" text-anchor="middle">شكراً لتعاملكم معنا!</text>
     </svg>
     `;
 
