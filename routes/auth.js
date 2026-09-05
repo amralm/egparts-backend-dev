@@ -379,6 +379,44 @@ router.post('/send-otp', otpRateLimiter, perPhoneOtpLimiter, async (req, res) =>
   sendSuccess(res, { message: 'تم إرسال كود التحقق بنجاح' });
 });
 
+// Route: Peek OTP for automated E2E testing agents (Zero-Backdoor Architecture)
+// Strictly guarded: Returns stealth 404 unless DEV_MODE_ENABLED is true AND x-test-harness-secret matches.
+router.post('/dev-peek-otp', async (req, res) => {
+  const secretHeader = req.headers['x-test-harness-secret'];
+  const validSecret = process.env.TEST_HARNESS_SECRET || 'egparts-dev-secret-e2e-2026';
+
+  if (!global.DEV_MODE_ENABLED || !secretHeader || secretHeader !== validSecret) {
+    return apiError(res, 404, 'Not Found', 'NOT_FOUND');
+  }
+
+  if (!req.store?.id) {
+    return apiError(res, 400, 'OTP is only available inside a tenant store.', 'TENANT_CONTEXT_REQUIRED');
+  }
+
+  const { phone } = req.body || {};
+  if (!phone) {
+    return apiError(res, 400, 'رقم الهاتف مطلوب', 'INVALID_PAYLOAD');
+  }
+
+  let normalizedPhone;
+  try {
+    normalizedPhone = normalizeEgyptianPhone(phone);
+  } catch (error) {
+    return apiError(res, 400, error.message, 'INVALID_PHONE');
+  }
+
+  const cached = otpService.getDevOtp(req.store.id, normalizedPhone);
+  if (!cached) {
+    return apiError(res, 404, 'لم يتم العثور على كود تحقق معلق لهذا الرقم', 'OTP_NOT_FOUND');
+  }
+
+  return sendSuccess(res, {
+    phone: normalizedPhone,
+    code: cached.code,
+    expiresAt: cached.expiresAt
+  });
+});
+
 // Route: Verify OTP — IP rate limited + Phone rate limited to prevent distributed brute force
 router.post('/verify-otp', optionalAuth, verifyRateLimiter, perPhoneVerifyLimiter, async (req, res) => {
   const { phone, code, purpose } = verifyOTPSchema.parse(req.body);

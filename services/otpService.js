@@ -15,6 +15,9 @@ class OTPService {
     // Per-phone mutexes to prevent race conditions on OTP verify
     this.phoneMutexes = {};
 
+    // In-memory OTP cache used exclusively when DEV_MODE_ENABLED is true for E2E testing agents
+    this.devOtpMemoryCache = new Map();
+
     // ✅ Start periodic cleanup (every 10 minutes)
     setInterval(() => this.cleanupExpired(), 10 * 60 * 1000);
     // ✅ Reclaim idle mutexes every 30 minutes to avoid unbounded memory growth.
@@ -110,6 +113,10 @@ class OTPService {
     const message = `رمز التحقق الخاص بك لمتجر ${storeName} (مؤمن بواسطة EG-PARTS Cloud) هو: ${code}\nصالح لمدة 5 دقائق. يرجى عدم مشاركة هذا الرمز مع الآخرين لسرية وأمان حسابك.`;
     
     if (global.DEV_MODE_ENABLED) {
+      this.devOtpMemoryCache.set(`${store.id}:${phone}`, {
+        code,
+        expiresAt: expiry.getTime()
+      });
       logger.info(`DEV MODE: OTP for ${phone} is ${code}`);
       return true; // Bypass WhatsApp
     }
@@ -190,7 +197,28 @@ class OTPService {
     });
   }
 
+  getDevOtp(storeId, phone) {
+    if (!global.DEV_MODE_ENABLED) return null;
+    const key = `${storeId}:${phone}`;
+    const entry = this.devOtpMemoryCache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.devOtpMemoryCache.delete(key);
+      return null;
+    }
+    return entry;
+  }
+
   async deleteOTP(phone, storeId) {
+    if (this.devOtpMemoryCache) {
+      if (storeId) {
+        this.devOtpMemoryCache.delete(`${storeId}:${phone}`);
+      } else {
+        for (const k of this.devOtpMemoryCache.keys()) {
+          if (k.endsWith(`:${phone}`)) this.devOtpMemoryCache.delete(k);
+        }
+      }
+    }
     let query = supabase.from('otp_codes').delete().eq('phone', phone);
     if (storeId) query = query.eq('store_id', storeId);
     await query;
