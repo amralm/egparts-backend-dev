@@ -11,6 +11,7 @@ const { assertPaymentMethodAvailable } = require('../services/paymentMethodPolic
 const { validateBody } = require('../middleware/requestValidation');
 const { createOrderSchema, whatsappOrderSchema, orderStatusSchema } = require('../schemas/orderSchemas');
 const { normalizePaymentMethod } = require('../schemas/canonicalSchemas');
+const { calculateCouponDiscount } = require('../services/couponService');
 const logger = require('../utils/logger');
 
 const PLAN_UPGRADE_CHAIN = {
@@ -620,11 +621,11 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
           const now = new Date();
           const expiry = coupon.expiry_date ? new Date(coupon.expiry_date) : null;
           if ((!expiry || expiry > now) && (coupon.max_uses === 0 || coupon.used_count < coupon.max_uses) && (calculatedSubtotal >= (Number(coupon.min_order_value) || 0))) {
-            calculatedDiscount = coupon.discount_percentage ? (calculatedSubtotal * (coupon.discount_percentage / 100)) : (Number(coupon.discount_amount) || 0);
-            if (coupon.max_discount_cap && Number(coupon.max_discount_cap) > 0 && calculatedDiscount > Number(coupon.max_discount_cap)) {
-              calculatedDiscount = Number(coupon.max_discount_cap);
+            const discountResult = calculateCouponDiscount(coupon, itemsWithPrices, calculatedSubtotal);
+            if (discountResult.applicableSubtotal > 0 && discountResult.calculatedDiscount > 0) {
+              calculatedDiscount = discountResult.calculatedDiscount;
+              couponId = coupon.id;
             }
-            couponId = coupon.id;
           }
         }
       }

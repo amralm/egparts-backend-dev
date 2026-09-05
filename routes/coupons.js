@@ -43,7 +43,7 @@ router.post('/validate', validateBody(couponValidationSchema), async (req, res) 
   if (!storeId) return;
 
   try {
-    const coupon = await couponService.validateCoupon(storeId, req.body?.code, req.body?.subtotal);
+    const coupon = await couponService.validateCoupon(storeId, req.body?.code, req.body?.subtotal, req.body?.items);
     sendSuccess(res, { coupon });
   } catch (err) {
     logger.error('[coupons] validate failed:', err.message);

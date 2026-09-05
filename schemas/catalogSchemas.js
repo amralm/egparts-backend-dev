@@ -41,14 +41,22 @@ const couponSchema = z.object({
   min_order_value: z.coerce.number().finite().min(0).max(1_000_000_000).optional().default(0),
   max_discount_cap: z.preprocess((v) => v === '' || v === null || v === undefined ? null : v, z.coerce.number().finite().min(0).max(1_000_000_000).nullable().optional().default(null)),
   max_uses: z.coerce.number().int().min(1).max(100000).optional().default(100),
-  is_active: z.boolean().optional().default(true)
+  is_active: z.boolean().optional().default(true),
+  applies_to: z.enum(['all', 'specific_products']).optional().default('all'),
+  applicable_product_ids: z.array(z.string().uuid()).optional().default([])
 }).strip().refine((value) => value.discount_percentage > 0 || value.discount_amount > 0, {
   message: 'A coupon must have a percentage or fixed discount'
 });
 
 const couponValidationSchema = z.object({
   code: z.string().trim().min(2).max(64),
-  subtotal: z.coerce.number().finite().min(0).max(1_000_000_000)
+  subtotal: z.coerce.number().finite().min(0).max(1_000_000_000),
+  items: z.array(z.object({
+    id: z.string().uuid().or(z.string().min(1)),
+    qty: z.coerce.number().finite().min(1).optional(),
+    quantity: z.coerce.number().finite().min(1).optional(),
+    price: z.coerce.number().finite().min(0).optional()
+  })).optional().default([])
 }).strip();
 
 module.exports = { productSchema, bannerSchema, shippingZoneSchema, couponSchema, couponValidationSchema };
