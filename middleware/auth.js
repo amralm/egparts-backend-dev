@@ -35,6 +35,15 @@ const logger = require('../utils/logger');
  * @returns {Promise<string[]>} Array of granted permission names
  */
 async function resolveStorePermissions(userId, storeId, options = {}) {
+  // Cashier Role Isolation: restricted strictly to POS and store orders/products view
+  if (options.role === 'cashier') {
+    return [
+      'tenant.orders.read', 'orders.read', 'orders.view',
+      'tenant.orders.write', 'orders.create', 'orders.write',
+      'tenant.products.read', 'products.view', 'products.read'
+    ];
+  }
+
   // Check if super_admin first (super admins have full capabilities across all stores)
   try {
     const { data: superAdmin } = await supabase
@@ -337,8 +346,11 @@ const verifyPermission = (permissionName) => {
         return apiError(res, 403, 'Forbidden: Tenant context required', `HTTP_403`);
       }
 
+      const isCashierSession = decoded.role === 'cashier' || req.headers['x-pos-session-role'] === 'cashier';
+
       const storePermissions = await resolveStorePermissions(userId, storeId, {
-        impersonated: req.isImpersonated === true
+        impersonated: req.isImpersonated === true,
+        role: isCashierSession ? 'cashier' : decoded.role
       });
 
       const hasStorePerm = expandedPerms.some((p) => storePermissions.includes(p));

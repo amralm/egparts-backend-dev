@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const { supabase } = require('../services/supabase');
 const { verifyPermission } = require('../middleware/auth');
 const { sendSuccess } = require('../utils/apiResponse');
@@ -145,11 +146,12 @@ router.post('/orders', verifyPermission(['tenant.orders.write', 'orders.create',
       logger.warn(`[POS] Quota reservation warning: ${e.message}`);
     });
 
-    // 2. Execute atomic RPC
+    // 2. Execute atomic RPC (sanitizing items to strip any client-sent price)
+    const sanitizedItems = items.map(it => ({ id: it.id, qty: Number(it.qty), name: it.name || undefined }));
     const { data: rpcResult, error: rpcError } = await supabase.rpc('create_pos_order_atomic', {
       p_store_id: req.store.id,
       p_user_id: userId,
-      p_items: items,
+      p_items: sanitizedItems,
       p_payment_method: payment_method === 'card' ? 'card' : 'cash',
       p_discount_amount: Number(discount_amount) || 0,
       p_customer_name: customer_name || 'عميل نقدي',
@@ -322,11 +324,18 @@ router.post('/returns', verifyPermission(['tenant.orders.write', 'orders.write']
   const userId = req.user?.sub || req.user?.id || null;
 
   try {
+    const sanitizedReturnItems = items.map(it => ({
+      id: it.id,
+      product_id: it.id,
+      qty: Number(it.qty),
+      condition: it.condition || 'sound',
+      name: it.name || undefined
+    }));
     const { data: rpcResult, error: rpcError } = await supabase.rpc('create_pos_return_atomic', {
       p_store_id: req.store.id,
       p_order_id: order_id,
       p_user_id: userId,
-      p_items: items,
+      p_items: sanitizedReturnItems,
       p_refund_method: refund_method,
       p_reason: reason || 'مرتجع كاشير'
     });
@@ -772,13 +781,29 @@ router.post('/switch-cashier', verifyPermission(['tenant.orders.read', 'orders.v
       return apiError(res, 403, 'حساب هذا الكاشير معطل حالياً', 'CASHIER_INACTIVE');
     }
 
+    let sessionToken = null;
+    if (process.env.SUPABASE_JWT_SECRET) {
+      try {
+        sessionToken = jwt.sign({
+          sub: cashier.id,
+          store_id: req.store.id,
+          role: 'cashier',
+          cashier_name: cashier.name,
+          parent_user_id: req.user?.sub
+        }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
+      } catch (tokenErr) {
+        logger.warn('[pos] could not sign cashier token:', tokenErr.message);
+      }
+    }
+
     sendSuccess(res, {
       mode: 'cashier',
       cashier: {
         id: cashier.id,
         name: cashier.name,
         role: cashier.role
-      }
+      },
+      session_token: sessionToken
     }, { message: `مرحباً بك يا ${cashier.name}` });
   } catch (err) {
     logger.error('[pos] switch cashier failed:', err.message);
@@ -863,7 +888,7 @@ router.post('/terminal/manager-pin', verifyPermission(['settings.update', 'tenan
 
 // ── GET /api/pos/cashiers ──
 // List all store cashiers for management
-router.get('/cashiers', verifyPermission(['settings.view', 'settings.update', 'tenant.settings.read', 'tenant.settings.write', 'orders.read', 'tenant.orders.read']), async (req, res) => {
+router.get('/cashiers', verifyPermission(['settings.view', 'settings.update', 'tenant.settings.read', 'tenant.settings.write']), async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   try {
@@ -894,7 +919,7 @@ router.get('/cashiers', verifyPermission(['settings.view', 'settings.update', 't
 
 // ── POST /api/pos/cashiers ──
 // Create a new store cashier
-router.post('/cashiers', verifyPermission(['settings.update', 'tenant.settings.write', 'orders.write', 'tenant.orders.write']), async (req, res) => {
+router.post('/cashiers', verifyPermission(['settings.update', 'tenant.settings.write']), async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   const parseResult = createCashierSchema.safeParse(req.body);
@@ -954,7 +979,7 @@ router.post('/cashiers', verifyPermission(['settings.update', 'tenant.settings.w
 
 // ── PATCH /api/pos/cashiers/:id ──
 // Update cashier details or reset PIN
-router.patch('/cashiers/:id', verifyPermission(['settings.update', 'tenant.settings.write', 'orders.write', 'tenant.orders.write']), async (req, res) => {
+router.patch('/cashiers/:id', verifyPermission(['settings.update', 'tenant.settings.write']), async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   const parseResult = updateCashierSchema.safeParse(req.body);
@@ -1021,7 +1046,7 @@ router.patch('/cashiers/:id', verifyPermission(['settings.update', 'tenant.setti
 
 // ── DELETE /api/pos/cashiers/:id ──
 // Delete a store cashier
-router.delete('/cashiers/:id', verifyPermission(['settings.update', 'tenant.settings.write', 'orders.write', 'tenant.orders.write']), async (req, res) => {
+router.delete('/cashiers/:id', verifyPermission(['settings.update', 'tenant.settings.write']), async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   try {
