@@ -573,7 +573,7 @@ router.get('/verify-redirect', async (req, res) => {
   try {
     const { data: order } = await supabase
       .from('orders')
-      .select('id, store_id, payment_status, stores (id, name, subdomain, custom_domain)')
+      .select('id, store_id, total, payment_status, stores (id, name, subdomain, custom_domain)')
       .eq('paymob_order_id', paymobOrderId)
       .single();
 
