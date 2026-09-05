@@ -1191,14 +1191,22 @@ router.get('/stores/options', verifyPlatformAdmin, async (req, res) => {
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
     let query = supabase
       .from('stores')
-      .select('id,name,subdomain,custom_domain,is_active,status')
+      .select('id,name,subdomain,custom_domain,is_active,status,site_settings(logo_url)')
       .order('name', { ascending: true })
       .limit(limit + 1);
     if (search) query = query.or(`name.ilike.%${search}%,subdomain.ilike.%${search}%,custom_domain.ilike.%${search}%`);
     if (cursor) query = query.gt('name', cursor);
     const { data, error } = await query;
     if (error) throw error;
-    const rows = data || [];
+    const rows = (data || []).map(store => ({
+      id: store.id,
+      name: store.name,
+      subdomain: store.subdomain,
+      custom_domain: store.custom_domain,
+      is_active: store.is_active,
+      status: store.status,
+      logo_url: store.site_settings?.logo_url || null
+    }));
     const items = rows.slice(0, limit);
     sendSuccess(res, { items, nextCursor: rows.length > limit ? items[items.length - 1]?.name || null : null });
   } catch (err) {
@@ -3037,7 +3045,8 @@ router.get('/store-transactions', verifyPlatformAdmin, async (req, res) => {
         stores!inner(
           id,
           name,
-          subdomain
+          subdomain,
+          site_settings(logo_url)
         )
       `)
       .order('created_at', { ascending: false })
