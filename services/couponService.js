@@ -56,6 +56,7 @@ async function listCoupons(storeId) {
 }
 
 async function validateCoupon(storeId, code, subtotal) {
+  await ensureCouponsEnabled(storeId);
   const normalizedCode = String(code || '').trim().toUpperCase();
   const orderSubtotal = Number(subtotal) || 0;
 

@@ -605,16 +605,19 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
     let calculatedDiscount = 0;
     let couponId = null;
     if (couponCode) {
-      const { data: coupon } = await supabase.from('coupons').select('*').eq('code', couponCode).eq('is_active', true).eq('store_id', req.store.id).maybeSingle();
-      if (coupon) {
-        const now = new Date();
-        const expiry = coupon.expiry_date ? new Date(coupon.expiry_date) : null;
-        if ((!expiry || expiry > now) && (coupon.max_uses === 0 || coupon.used_count < coupon.max_uses) && (calculatedSubtotal >= (Number(coupon.min_order_value) || 0))) {
-          calculatedDiscount = coupon.discount_percentage ? (calculatedSubtotal * (coupon.discount_percentage / 100)) : (Number(coupon.discount_amount) || 0);
-          if (coupon.max_discount_cap && Number(coupon.max_discount_cap) > 0 && calculatedDiscount > Number(coupon.max_discount_cap)) {
-            calculatedDiscount = Number(coupon.max_discount_cap);
+      const couponState = await subscriptionLimitService.checkFeatureLimit(req.store.id, 'coupons', 0);
+      if (couponState?.allowed) {
+        const { data: coupon } = await supabase.from('coupons').select('*').eq('code', couponCode).eq('is_active', true).eq('store_id', req.store.id).maybeSingle();
+        if (coupon) {
+          const now = new Date();
+          const expiry = coupon.expiry_date ? new Date(coupon.expiry_date) : null;
+          if ((!expiry || expiry > now) && (coupon.max_uses === 0 || coupon.used_count < coupon.max_uses) && (calculatedSubtotal >= (Number(coupon.min_order_value) || 0))) {
+            calculatedDiscount = coupon.discount_percentage ? (calculatedSubtotal * (coupon.discount_percentage / 100)) : (Number(coupon.discount_amount) || 0);
+            if (coupon.max_discount_cap && Number(coupon.max_discount_cap) > 0 && calculatedDiscount > Number(coupon.max_discount_cap)) {
+              calculatedDiscount = Number(coupon.max_discount_cap);
+            }
+            couponId = coupon.id;
           }
-          couponId = coupon.id;
         }
       }
     }
