@@ -473,6 +473,23 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
     };
 
     if (isSuccess) {
+      // 🔒 FINANCIAL INTEGRITY: Verify exact amount and currency to prevent underpayment/tampering
+      const expectedAmountCents = Math.round(Number(order.total) * 100);
+      const receivedAmountCents = Number(obj.amount_cents);
+      const receivedCurrency = String(obj.currency || 'EGP').toUpperCase();
+
+      if (receivedAmountCents !== expectedAmountCents || receivedCurrency !== 'EGP') {
+        console.error(`[SECURITY ALERT] Fraudulent amount/currency detected for Order ${order.id}: expected ${expectedAmountCents} EGP, received ${receivedAmountCents} ${receivedCurrency}`);
+        await supabase.from('orders').update({
+          payment_status: 'flagged_fraud_mismatch',
+          payment_details: {
+            ...newPaymentDetails,
+            fraud_alert: `Amount mismatch: expected ${expectedAmountCents} EGP cents, received ${receivedAmountCents} ${receivedCurrency}`
+          }
+        }).eq('id', order.id);
+        return res.status(400).json({ error: 'Amount or currency mismatch' });
+      }
+
       // Update order payment status
       const { data: updatedOrder, error: updateError } = await supabase
         .from('orders')
@@ -641,8 +658,12 @@ router.get('/verify-redirect', async (req, res) => {
 
     const isSuccess = query.success === 'true' || query.success === true;
 
-    // If HMAC is valid or Paymob confirmed success in the redirect
-    if (isSuccess) {
+    // 🔒 SECURITY CHECK: If HMAC is cryptographically valid and amount matches, confirm payment immediately
+    const expectedAmountCents = Math.round(Number(order.total) * 100);
+    const queryAmountCents = Number(query.amount_cents);
+    const isAmountMatch = !isNaN(queryAmountCents) && queryAmountCents === expectedAmountCents;
+
+    if (isSuccess && isValid && isAmountMatch) {
       if (order.payment_status !== 'paid') {
         await supabase.from('orders').update({
           payment_status: 'paid',
@@ -674,12 +695,31 @@ router.get('/verify-redirect', async (req, res) => {
         store: storeData });
     }
 
-    // Payment was not successful
+    // 🔒 If isSuccess is true but HMAC was not directly verifiable on GET, wait briefly for the cryptographically-signed server-to-server Webhook
+    if (isSuccess) {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 600));
+        const { data: refreshed } = await supabase
+          .from('orders')
+          .select('payment_status')
+          .eq('id', order.id)
+          .maybeSingle();
+
+        if (refreshed?.payment_status === 'paid') {
+          if (isBrowserNavigation) {
+            return res.redirect(302, `${storeUrl}/payment/success?method=card&orderId=${order.id}&isPaymob=true`);
+          }
+          return sendSuccess(res, { success: true, payment_status: 'paid', orderId: order.id, store: storeData });
+        }
+      }
+    }
+
+    // Payment was not successful or was not verified by Paymob webhook
     if (isBrowserNavigation) {
       return res.redirect(302, `${storeUrl}/payment/fail?orderId=${order.id}&isPaymob=true`);
     }
 
-    return apiError(res, 400, 'Payment was not successful', 'PAYMENT_FAILED');
+    return apiError(res, 400, 'Payment was not successful or not verified', 'PAYMENT_FAILED');
 
   } catch (err) {
     console.error('Verify Redirect Error:', err.message);
