@@ -525,9 +525,10 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
 
 function getStoreUrl(store) {
   const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
-  if (!store) return `https://${primaryDomain}`;
-  if (store.custom_domain) return `https://${store.custom_domain}`;
-  if (store.subdomain) return `https://${store.subdomain}.${primaryDomain}`;
+  const target = Array.isArray(store) ? store[0] : store;
+  if (!target) return `https://${primaryDomain}`;
+  if (target.custom_domain) return `https://${target.custom_domain}`;
+  if (target.subdomain) return `https://${target.subdomain}.${primaryDomain}`;
   return `https://${primaryDomain}`;
 }
 
@@ -562,7 +563,16 @@ router.get('/verify-redirect', async (req, res) => {
       return apiError(res, 404, 'Order not found', `HTTP_404`);
     }
 
-    const storeUrl = getStoreUrl(order.stores);
+    let storeData = order.stores;
+    if (!storeData || (Array.isArray(storeData) && storeData.length === 0)) {
+      const { data: directStore } = await supabase
+        .from('stores')
+        .select('id, name, subdomain, custom_domain')
+        .eq('id', order.store_id)
+        .maybeSingle();
+      storeData = directStore;
+    }
+    const storeUrl = getStoreUrl(storeData);
 
     // If already marked as paid by webhook
     if (order.payment_status === 'paid') {
@@ -571,7 +581,7 @@ router.get('/verify-redirect', async (req, res) => {
       }
       return sendSuccess(res, { payment_status: 'paid', 
         orderId: order.id, 
-        store: order.stores });
+        store: storeData });
     }
 
     // Otherwise, verify the GET HMAC to confirm success instantly
