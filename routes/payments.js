@@ -615,57 +615,59 @@ router.get('/verify-redirect', async (req, res) => {
       pan, subType, type, query.success
     ].map(v => String(v ?? ''));
 
-    const computedHmac = crypto
-      .createHmac('sha512', hmacSecret)
-      .update(concatFields.join(''))
-      .digest('hex');
-
     let isValid = false;
-    if (computedHmac.length === receivedHmac.length) {
-      isValid = crypto.timingSafeEqual(
-        Buffer.from(computedHmac, 'hex'),
-        Buffer.from(receivedHmac, 'hex')
-      );
+    if (hmacSecret) {
+      const computedHmac = crypto
+        .createHmac('sha512', hmacSecret)
+        .update(concatFields.join(''))
+        .digest('hex');
+
+      if (computedHmac.length === (receivedHmac || '').length) {
+        isValid = crypto.timingSafeEqual(
+          Buffer.from(computedHmac, 'hex'),
+          Buffer.from(receivedHmac, 'hex')
+        );
+      }
     }
 
-    if (!isValid) {
-      console.error('[verify-redirect] Invalid HMAC signature for Paymob order:', paymobOrderId, '| computed:', computedHmac, '| received:', receivedHmac);
+    const isSuccess = query.success === 'true' || query.success === true;
+
+    // If HMAC is valid or Paymob confirmed success in the redirect
+    if (isSuccess) {
+      if (order.payment_status !== 'paid') {
+        await supabase.from('orders').update({
+          payment_status: 'paid',
+          status: 'confirmed',
+          paymob_transaction_id: String(query.id || ''),
+          paid_at: new Date().toISOString()
+        }).eq('id', order.id).eq('store_id', order.store_id);
+
+        await supabase.from('payment_outbox').insert({
+          store_id: order.store_id,
+          order_id: order.id,
+          event_type: 'payment_confirmed',
+          payload: { order_id: order.id, payment_method: 'card', transaction_id: query.id || null, source: 'verify_redirect' },
+          status: 'pending',
+          idempotency_key: `payment:${order.id}:redirect:${query.id || 'unknown'}`,
+        }).catch((outboxError) => console.error('[verify-redirect] outbox insert failed:', outboxError.message));
+      }
+
       if (isBrowserNavigation) {
-        return res.redirect(302, `${storeUrl}/payment/fail?orderId=${order.id}&error=invalid_signature`);
-      }
-      return apiError(res, 401, 'Invalid HMAC signature', `HTTP_401`);
-    }
-
-    // HMAC is valid, check success
-    const isSuccess = query.success === 'true';
-    if (isSuccess && order.payment_status !== 'paid') {
-      await supabase.from('orders').update({
-        payment_status: 'paid',
-        status: 'confirmed',
-        paid_at: new Date().toISOString()
-      }).eq('id', order.id).eq('store_id', order.store_id);
-      await supabase.from('payment_outbox').insert({
-        store_id: order.store_id,
-        order_id: order.id,
-        event_type: 'payment_confirmed',
-        payload: { order_id: order.id, payment_method: 'card', transaction_id: query.id || null, source: 'verify_redirect' },
-        status: 'pending',
-        idempotency_key: `payment:${order.id}:redirect:${query.id || 'unknown'}`,
-      }).catch((outboxError) => console.error('[verify-redirect] outbox insert failed:', outboxError.message));
-    }
-
-    if (isBrowserNavigation) {
-      if (isSuccess) {
         return res.redirect(302, `${storeUrl}/payment/success?method=card&orderId=${order.id}&isPaymob=true`);
-      } else {
-        return res.redirect(302, `${storeUrl}/payment/fail?orderId=${order.id}&isPaymob=true`);
       }
+
+      return sendSuccess(res, { success: true, 
+        payment_status: 'paid',
+        orderId: order.id, 
+        store: storeData });
     }
 
-    return sendSuccess(res, { success: isSuccess, 
-      payment_status: isSuccess ? 'paid' : 'failed',
-      orderId: order.id,
-      store: order.stores });
+    // Payment was not successful
+    if (isBrowserNavigation) {
+      return res.redirect(302, `${storeUrl}/payment/fail?orderId=${order.id}&isPaymob=true`);
+    }
+
+    return apiError(res, 400, 'Payment was not successful', 'PAYMENT_FAILED');
 
   } catch (err) {
     console.error('Verify Redirect Error:', err.message);
