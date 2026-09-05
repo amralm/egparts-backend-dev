@@ -492,7 +492,7 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
       }
 
       // Trigger notifications via payment_outbox (same pattern as walletPayments.js)
-      await supabase.from('payment_outbox').insert({
+      const { error: outboxErr } = await supabase.from('payment_outbox').insert({
         store_id: order.store_id,
         order_id: order.id,
         event_type: 'payment_confirmed',
@@ -504,7 +504,10 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
         },
         status: 'pending',
         idempotency_key: `payment:${order.id}:transaction:${paymobTransactionId}`
-      }).catch(err => console.error('[webhook] outbox insert failed (non-fatal):', err.message));
+      });
+      if (outboxErr) {
+        console.error('[webhook] outbox insert failed (non-fatal):', outboxErr.message);
+      }
 
       console.log(`✅ Order ${order.id} confirmed | Transaction ${paymobTransactionId}`);
 
@@ -648,14 +651,17 @@ router.get('/verify-redirect', async (req, res) => {
           paid_at: new Date().toISOString()
         }).eq('id', order.id).eq('store_id', order.store_id);
 
-        await supabase.from('payment_outbox').insert({
+        const { error: outboxErr } = await supabase.from('payment_outbox').insert({
           store_id: order.store_id,
           order_id: order.id,
           event_type: 'payment_confirmed',
           payload: { order_id: order.id, payment_method: 'card', transaction_id: query.id || null, source: 'verify_redirect' },
           status: 'pending',
           idempotency_key: `payment:${order.id}:redirect:${query.id || 'unknown'}`,
-        }).catch((outboxError) => console.error('[verify-redirect] outbox insert failed:', outboxError.message));
+        });
+        if (outboxErr) {
+          console.error('[verify-redirect] outbox insert error (non-fatal):', outboxErr.message);
+        }
       }
 
       if (isBrowserNavigation) {
@@ -680,6 +686,15 @@ router.get('/verify-redirect', async (req, res) => {
     if (isBrowserNavigation) {
       const fallbackDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
       const targetBase = storeUrl || `https://${fallbackDomain}`;
+      // Fallback: If payment actually succeeded or was updated in DB despite a non-fatal exception, redirect to success!
+      if (currentOrderId) {
+        try {
+          const { data: paidCheck } = await supabase.from('orders').select('payment_status').eq('id', currentOrderId).maybeSingle();
+          if (paidCheck?.payment_status === 'paid') {
+            return res.redirect(302, `${targetBase}/payment/success?method=card&orderId=${currentOrderId}&isPaymob=true`);
+          }
+        } catch (_) {}
+      }
       return res.redirect(302, `${targetBase}/payment/fail?error=server_error${currentOrderId ? `&orderId=${currentOrderId}` : ''}`);
     }
     return apiError(res, 500, 'Internal server error', `HTTP_500`);
