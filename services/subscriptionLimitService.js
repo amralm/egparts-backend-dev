@@ -25,7 +25,7 @@ function inferPeriodType(featureKey) {
   }
   if ([
     'whatsapp_messages_month', 'otp_messages_month', 'email_messages_month', 'push_notifications_month',
-    'ai_requests_month', 'analytics_exports', 'report_generation', 'forecast_jobs'
+    'ai_requests_month', 'analytics_exports', 'report_generation', 'forecast_jobs', 'orders_per_month'
   ].includes(key)) {
     return 'monthly';
   }
@@ -314,9 +314,9 @@ async function decrementFeatureUsage(storeId, featureKey, amount = 1) {
   let periodStart;
   const now = new Date();
   if (period === 'monthly') {
-    periodStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    periodStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).toISOString();
   } else if (period === 'daily') {
-    periodStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    periodStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).toISOString();
   } else {
     periodStart = new Date(0).toISOString();
   }

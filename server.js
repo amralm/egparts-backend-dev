@@ -453,8 +453,7 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
     const now = new Date();
     const dayStart = new Date(now);
     dayStart.setHours(0, 0, 0, 0);
-    const monthStart = new Date(now);
-    monthStart.setDate(1);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
     // Sync image usage count to ensure accuracy
     try {
       await supabase.rpc('sync_store_image_usage', { p_store_id: req.store.id });
@@ -596,7 +595,7 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
           enabled: entitlementState.features.custom_domains?.allowed === true
         },
         storage_bytes: {
-          usage: Number(entitlementState.features.storage_bytes?.usage ?? (usagesMap['storage_bytes'] || 0)),
+          usage: Math.max(Number(entitlementState.features.storage_bytes?.usage || 0), Number(usagesMap['storage_bytes'] || 0)),
           limit: limits['storage_bytes']?.max_value ?? null,
           is_unlimited: !limits['storage_bytes'] || limits['storage_bytes'].max_value === null
         },
@@ -627,7 +626,7 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
           enabled: entitlementState.features.copilot_messages_day?.allowed === true
         },
         orders_per_month: {
-          usage: ordersCountResult.count || 0,
+          usage: Math.max(ordersCountResult.count || 0, Number(entitlementState.features.orders_per_month?.usage || 0)),
           limit: limits['orders_per_month']?.max_value ?? null,
           is_unlimited: !limits['orders_per_month'] || limits['orders_per_month'].max_value === null
         },

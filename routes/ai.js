@@ -544,7 +544,7 @@ router.get('/weekly-review', verifyUser, async (req, res) => {
       supabase.from('orders').select('*', { count: 'exact', head: true }).eq('store_id', storeId).gt('created_at', sevenDaysAgo.toISOString()),
       supabase.from('orders').select('*', { count: 'exact', head: true }).eq('store_id', storeId).gt('created_at', fourteenDaysAgo.toISOString()).lte('created_at', sevenDaysAgo.toISOString()),
       supabase.from('products').select('*', { count: 'exact', head: true }).eq('store_id', storeId).eq('is_deleted', false).is('image', null),
-      subscriptionLimitService.checkFeatureLimit(storeId, 'uploads', 0)
+      subscriptionLimitService.checkFeatureLimit(storeId, 'storage_bytes', 0)
     ]);
 
     let salesChangePct = 0;
@@ -561,6 +561,8 @@ router.get('/weekly-review', verifyUser, async (req, res) => {
 
     const reviewJSON = {
       salesChangePct,
+      currentWeekOrders: currentWeekOrders || 0,
+      activeProducts: activeProducts || 0,
       outOfStockCount: lowStock || 0,
       missingImagesCount: missingImagesCount || 0,
       storageUsagePct,

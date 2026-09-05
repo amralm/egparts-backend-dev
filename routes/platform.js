@@ -3,7 +3,7 @@ const { sendSuccess } = require('../utils/apiResponse');
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
+const { S3Client, ListObjectsV2Command, DeleteObjectsCommand, HeadObjectCommand } = require('@aws-sdk/client-s3');
 const { supabase } = require('../services/supabase');
 const { verifyPlatformAdmin, verifyPlatformPermission } = require('../middleware/platformAdmin');
 const logger = require('../utils/logger');
@@ -1168,9 +1168,31 @@ router.delete('/storage/object', verifyPlatformAdmin, async (req, res) => {
     }
     const { data: store } = await supabase.from('stores').select('id').eq('id', storeId).maybeSingle();
     if (!store) return apiError(res, 404, 'Store not found.', `HTTP_404`);
+
+    let fileSize = 0;
+    try {
+      const headData = await s3Client.send(new HeadObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME,
+        Key: key
+      }));
+      fileSize = headData.ContentLength || 0;
+    } catch (headErr) {
+      logger.warn(`[Platform Storage] Failed to get size for key ${key}: ${headErr.message}`);
+    }
+
     await s3Client.send(new DeleteObjectsCommand({ Bucket: process.env.R2_BUCKET_NAME, Delete: { Objects: [{ Key: key }] } }));
-    await auditPlatform(req, 'platform.storage.object_delete', 'storage_object', key, { store_id: storeId }, null, storeId);
-    sendSuccess(res, { key });
+
+    const uploadFeatureKey = key.includes('/images/') || key.includes('/products/') || key.includes('/banners/') || key.includes('/logos/') || key.includes('/categories/')
+      ? 'uploaded_images'
+      : 'uploaded_files';
+
+    await subscriptionLimitService.decrementFeatureUsage(storeId, uploadFeatureKey, 1).catch(() => {});
+    if (fileSize > 0) {
+      await subscriptionLimitService.decrementFeatureUsage(storeId, 'storage_bytes', fileSize).catch(() => {});
+    }
+
+    await auditPlatform(req, 'platform.storage.object_delete', 'storage_object', key, { store_id: storeId, fileSize }, null, storeId);
+    sendSuccess(res, { key, deletedBytes: fileSize });
   } catch (err) {
     logger.error('Platform storage object deletion failed:', err.message);
     apiError(res, 500, 'Unable to delete storage object.', `HTTP_500`);
@@ -1188,6 +1210,16 @@ router.delete('/storage/folder', verifyPlatformAdmin, async (req, res) => {
     const { data: store } = await supabase.from('stores').select('id').eq('id', storeId).maybeSingle();
     if (!store) return apiError(res, 404, 'Store not found.', `HTTP_404`);
     const result = await emptyS3Directory(process.env.R2_BUCKET_NAME, requestedPrefix);
+
+    if (result.deletedBytes > 0) {
+      await subscriptionLimitService.decrementFeatureUsage(storeId, 'storage_bytes', result.deletedBytes).catch(() => {});
+    }
+    if (result.deletedCount > 0) {
+      const isImagesFolder = requestedPrefix.includes('/images/') || requestedPrefix.includes('/products/') || requestedPrefix.includes('/banners/') || requestedPrefix.includes('/logos/') || requestedPrefix.includes('/categories/');
+      const uploadFeatureKey = isImagesFolder ? 'uploaded_images' : 'uploaded_files';
+      await subscriptionLimitService.decrementFeatureUsage(storeId, uploadFeatureKey, result.deletedCount).catch(() => {});
+    }
+
     await auditPlatform(req, 'platform.storage.folder_delete', 'storage_folder', requestedPrefix, { store_id: storeId }, result, storeId);
     sendSuccess(res, { prefix: requestedPrefix, ...result });
   } catch (err) {

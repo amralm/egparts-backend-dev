@@ -31,15 +31,15 @@ async function processOrderQuotaReservation(storeId, reservationKey) {
 
   if (isFreePlan) {
     // 1. FREE PLAN: Hard Cap.
-    // Merchants on Free tier (0 EGP) cannot exceed their 50 orders/month allowance without upgrading.
+    // Merchants on Free tier (0 EGP) cannot exceed their allowance without upgrading.
     if (!limitState.allowed && !limitState.is_unlimited) {
       return {
         allowed: false,
-        error: 'عذراً، لقد استنفد المتجر الحد الأقصى للطلبات المسموحة في الخطة المجانية لهذا الشهر (50 طلب). يرجى ترقية باقة المتجر للاستمرار في استقبال طلبات جديدة.',
+        error: 'عذراً، لقد استنفد المتجر الحد الأقصى للطلبات المسموحة في الخطة المجانية لهذا الشهر. يرجى ترقية باقة المتجر للاستمرار في استقبال طلبات جديدة.',
         code: 'FREE_PLAN_ORDER_LIMIT_REACHED'
       };
     }
-    await subscriptionLimitService.reserveFeatureUsage(storeId, 'orders', 1, reservationKey).catch((e) => {
+    await subscriptionLimitService.reserveFeatureUsage(storeId, 'orders_per_month', 1, reservationKey).catch((e) => {
       logger.warn(`[Orders] Free plan quota reservation warning: ${e.message}`);
     });
     return { allowed: true, isFreePlan: true };
@@ -65,7 +65,7 @@ async function processOrderQuotaReservation(storeId, reservationKey) {
     ]).catch(err => logger.warn(`[Orders] Failed to flag store overage: ${err.message}`));
   }
 
-  await subscriptionLimitService.reserveFeatureUsage(storeId, 'orders', 1, reservationKey).catch((e) => {
+  await subscriptionLimitService.reserveFeatureUsage(storeId, 'orders_per_month', 1, reservationKey).catch((e) => {
     logger.warn(`[Orders] Paid plan quota reservation warning: ${e.message}`);
   });
 

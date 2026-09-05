@@ -45,9 +45,9 @@ const s3 = new S3Client({
       
       const { rows } = await pool.query(`SELECT id FROM feature_usage WHERE store_id = $1 AND feature_key = 'storage_bytes'`, [store.id]);
       if (rows.length > 0) {
-        await pool.query(`UPDATE feature_usage SET usage_count = $1, updated_at = NOW() WHERE id = $2`, [totalBytes, rows[0].id]);
+        await pool.query(`UPDATE feature_usage SET usage_count = $1, period_start = to_timestamp(0), updated_at = NOW() WHERE id = $2`, [totalBytes, rows[0].id]);
       } else {
-        await pool.query(`INSERT INTO feature_usage (store_id, feature_key, usage_count, period, period_start, updated_at) VALUES ($1, 'storage_bytes', $2, 'lifetime', '2000-01-01', NOW())`, [store.id, totalBytes]);
+        await pool.query(`INSERT INTO feature_usage (store_id, feature_key, usage_count, period, period_start, updated_at) VALUES ($1, 'storage_bytes', $2, 'lifetime', to_timestamp(0), NOW())`, [store.id, totalBytes]);
       }
     }
     

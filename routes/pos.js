@@ -8,6 +8,7 @@ const { verifyPermission } = require('../middleware/auth');
 const { sendSuccess } = require('../utils/apiResponse');
 const { apiError } = require('../utils/apiError');
 const logger = require('../utils/logger');
+const subscriptionLimitService = require('../services/subscriptionLimitService');
 const whatsappPoolService = require('../services/whatsappPoolService');
 const { generateReceiptPdf } = require('../services/receiptPdfService');
 const {
@@ -121,9 +122,30 @@ router.post('/orders', verifyPermission(['tenant.orders.write', 'orders.create',
   } = parseResult.data;
 
   const userId = req.user?.sub || req.user?.id || null;
+  let posReservationKey = null;
 
   try {
-    // 1. Execute atomic RPC
+    // 1. Quota check & reservation for orders_per_month with high POS resilience
+    const activeSub = await subscriptionLimitService.getActiveStoreSubscription(req.store.id).catch(() => null);
+    const planCode = String(activeSub?.plans?.code || 'free').toLowerCase();
+    const isFreePlan = planCode === 'free';
+    const limitState = await subscriptionLimitService.checkFeatureLimit(req.store.id, 'orders_per_month', 1).catch(() => ({ allowed: true }));
+
+    if (isFreePlan && !limitState.allowed && !limitState.is_unlimited) {
+      return apiError(
+        res,
+        403,
+        'عذراً، لقد استنفد المتجر الحد الأقصى للطلبات المسموحة في الخطة المجانية لهذا الشهر. يرجى ترقية باقة المتجر من لوحة الإدارة للاستمرار في تسجيل مبيعات الكاشير.',
+        'FREE_PLAN_ORDER_LIMIT_REACHED'
+      );
+    }
+
+    posReservationKey = `pos-${req.store.id}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    await subscriptionLimitService.reserveFeatureUsage(req.store.id, 'orders_per_month', 1, posReservationKey).catch((e) => {
+      logger.warn(`[POS] Quota reservation warning: ${e.message}`);
+    });
+
+    // 2. Execute atomic RPC
     const { data: rpcResult, error: rpcError } = await supabase.rpc('create_pos_order_atomic', {
       p_store_id: req.store.id,
       p_user_id: userId,
@@ -138,8 +160,21 @@ router.post('/orders', verifyPermission(['tenant.orders.write', 'orders.create',
     });
 
     if (rpcError) {
+      await subscriptionLimitService.rollbackFeatureUsage(posReservationKey).catch(() => {});
       logger.error('[pos] atomic order error:', rpcError.message);
       return apiError(res, 400, rpcError.message || 'تعذر إتمام عملية البيع بالكاشير', 'POS_ORDER_FAILED');
+    }
+
+    await subscriptionLimitService.commitFeatureUsage(posReservationKey).catch((e) => {
+      logger.warn(`[POS] Quota commit warning: ${e.message}`);
+    });
+
+    // 3. Soft limit overage detection for paid plans
+    if (!isFreePlan && !limitState.is_unlimited && limitState.limit > 0 && (Number(limitState.usage || 0) + 1 >= Number(limitState.limit))) {
+      Promise.all([
+        supabase.from('stores').update({ is_over_quota: true, quota_overage_detected_at: new Date().toISOString() }).eq('id', req.store.id),
+        supabase.from('store_subscriptions').update({ is_over_quota: true, quota_overage_detected_at: new Date().toISOString() }).eq('store_id', req.store.id)
+      ]).catch(err => logger.warn(`[POS] Failed to flag store overage: ${err.message}`));
     }
 
     // 2. Persist active cashier name and ID in order metadata if supplied from POS terminal
@@ -183,6 +218,9 @@ router.post('/orders', verifyPermission(['tenant.orders.write', 'orders.create',
       created_at: new Date().toISOString()
     });
   } catch (err) {
+    if (posReservationKey) {
+      await subscriptionLimitService.rollbackFeatureUsage(posReservationKey).catch(() => {});
+    }
     logger.error('[pos] order creation failed:', err.message);
     apiError(res, 500, err.message || 'حدث خطأ أثناء إتمام الطلب', 'HTTP_500');
   }
