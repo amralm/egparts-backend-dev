@@ -438,6 +438,14 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
       return apiError(res, 400, 'Invalid cart quantities', `HTTP_400`);
     }
+    let effectiveCouponCode = null;
+    if (couponCode) {
+      const couponState = await subscriptionLimitService.checkFeatureLimit(req.store.id, 'coupons', 0);
+      if (couponState?.allowed) {
+        effectiveCouponCode = couponCode;
+      }
+    }
+
     const stableIdempotencyKey = String(idempotencyKey || `whatsapp-checkout-${req.store.id}-${req.user?.sub || 'guest'}-${crypto.randomUUID()}`).slice(0, 255);
     let { data, error } = await supabase.rpc('create_order_atomic', {
       p_user_id: req.user?.sub || null,
@@ -447,7 +455,7 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
       p_address: customerAddress,
       p_customer_note: customerNote,
       p_payment_method: paymentMethod,
-      p_coupon_code: couponCode || null,
+      p_coupon_code: effectiveCouponCode,
       p_idempotency_key: stableIdempotencyKey,
       p_auth_source: req.user?.app_metadata?.provider || 'otp',
       p_metadata: { coupon_id: couponId },
@@ -639,7 +647,7 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
         p_address: address,
         p_customer_note: note || '',
         p_payment_method: paymentMethod,
-        p_coupon_code: couponCode || null,
+        p_coupon_code: couponId ? couponCode : null,
         p_idempotency_key: idempotencyScope,
         p_auth_source: req.user?.app_metadata?.provider || 'otp',
         p_metadata: {
