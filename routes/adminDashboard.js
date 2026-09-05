@@ -12,7 +12,8 @@ router.post('/', verifyPermission('usage.view'), async (req, res) => {
   }
 
   try {
-    const dashboard = await adminDashboardService.getDashboard(req.store.id, req.body?.settings || {});
+    const period = typeof req.body?.period === 'string' ? req.body.period.trim() : '30d';
+    const dashboard = await adminDashboardService.getDashboard(req.store.id, req.body?.settings || {}, period);
     sendSuccess(res, { ...dashboard });
   } catch (err) {
     logger.error('[admin-dashboard] load failed:', err.message);
