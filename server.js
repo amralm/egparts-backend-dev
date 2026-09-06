@@ -92,6 +92,7 @@ const courierShippingRoutes = require('./routes/courierShipping');
 const metaWebhookRoutes = require('./routes/metaWebhook');
 const metaAdminRoutes = require('./routes/metaAdmin');
 const cartRoutes = require('./routes/cart');
+const marketplaceRoutes = require('./routes/marketplace');
 const abandonedCartWorker = require('./services/abandonedCartWorker');
 const retentionService = require('./services/retentionService');
 const healthCollector = require('./services/healthCollector');
@@ -718,6 +719,7 @@ app.use('/api/shipping/couriers', courierShippingRoutes);
 app.use('/api/whatsapp/meta/webhook', metaWebhookRoutes);
 app.use('/api/whatsapp/meta/admin', metaAdminRoutes);
 app.use('/api/cart', cartRoutes);
+app.use('/api/admin/marketplace', marketplaceRoutes);
 
 // âœ… WhatsApp Auth Routes
 app.post('/api/auth/qr-login', async (req, res) => {

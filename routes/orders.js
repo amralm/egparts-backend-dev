@@ -422,7 +422,7 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
     const productIds = items.map((item) => item?.id).filter(Boolean);
     const { data: tenantProducts, error: productError } = await supabase
       .from('products')
-      .select('id')
+      .select('id, price')
       .in('id', productIds)
       .eq('store_id', req.store.id)
       .eq('is_active', true)
@@ -439,6 +439,30 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
     if (normalizedItems.some(item => !item.id || !Number.isInteger(item.qty) || item.qty < 1)) {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
       return apiError(res, 400, 'Invalid cart quantities', `HTTP_400`);
+    }
+
+    if (paymentMethod === 'cod') {
+      const { data: storeSiteSettings } = await supabase
+        .from('site_settings')
+        .select('cod_max_threshold_enabled, cod_max_threshold')
+        .eq('store_id', req.store.id)
+        .maybeSingle();
+
+      if (storeSiteSettings?.cod_max_threshold_enabled) {
+        const maxThreshold = Number(storeSiteSettings.cod_max_threshold) || 1000;
+        const productsMap = new Map((tenantProducts || []).map(p => [String(p.id), Number(p.price || 0)]));
+        const estimatedSubtotal = normalizedItems.reduce((sum, it) => sum + (productsMap.get(String(it.id)) || 0) * it.qty, 0);
+        if (estimatedSubtotal > maxThreshold) {
+          await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+          return apiError(
+            res,
+            400,
+            `قيمة الطلب تتجاوز الحد الأقصى المسموح به للدفع عند الاستلام (${maxThreshold} ج.م). يرجى الدفع إلكترونياً.`,
+            'COD_THRESHOLD_EXCEEDED',
+            { max_threshold: maxThreshold, total: estimatedSubtotal }
+          );
+        }
+      }
     }
     let effectiveCouponCode = null;
     if (couponCode) {
@@ -609,9 +633,14 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
       if (fallback) calculatedShippingFee = Number(fallback.shipping_fee) || 0;
     }
 
-    // Free shipping: waive fee if subtotal >= threshold
-    const { data: shipSettings } = await supabase.from('site_settings').select('free_shipping_enabled, free_shipping_threshold').eq('store_id', req.store.id).maybeSingle();
-    if (shipSettings && shipSettings.free_shipping_enabled !== false && calculatedSubtotal >= (Number(shipSettings.free_shipping_threshold) || 0)) {
+    // Free shipping & COD threshold settings
+    const { data: storeSiteSettings } = await supabase
+      .from('site_settings')
+      .select('free_shipping_enabled, free_shipping_threshold, cod_max_threshold_enabled, cod_max_threshold')
+      .eq('store_id', req.store.id)
+      .maybeSingle();
+
+    if (storeSiteSettings && storeSiteSettings.free_shipping_enabled !== false && calculatedSubtotal >= (Number(storeSiteSettings.free_shipping_threshold) || 0)) {
       calculatedShippingFee = 0;
     }
 
@@ -636,6 +665,21 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
     }
 
     const calculatedTotal = Math.max(calculatedSubtotal + calculatedShippingFee - calculatedDiscount, 0);
+
+    // COD Maximum Threshold Enforcement (e.g. Supermarket fraud & perishable goods protection)
+    if (paymentMethod === 'cod' && storeSiteSettings?.cod_max_threshold_enabled) {
+      const maxThreshold = Number(storeSiteSettings.cod_max_threshold) || 1000;
+      if (calculatedTotal > maxThreshold) {
+        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+        return apiError(
+          res,
+          400,
+          `قيمة الطلب (${calculatedTotal} ج.م) تتجاوز الحد الأقصى المسموح به للدفع عند الاستلام (${maxThreshold} ج.م). يرجى اختيار وسيلة دفع إلكترونية.`,
+          'COD_THRESHOLD_EXCEEDED',
+          { max_threshold: maxThreshold, total: calculatedTotal }
+        );
+      }
+    }
 
     // 4. Atomic Execution — every payment method uses the same stock-safe RPC.
     const { data, error } = await supabase.rpc('create_order_atomic', {

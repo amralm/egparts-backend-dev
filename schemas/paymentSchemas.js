@@ -25,4 +25,10 @@ const walletSettingsSchema = z.object({
   is_active: z.boolean()
 }).strip();
 
-module.exports = { paymentSettingsSchema, paymentToggleSchema, intentSchema, proofDecisionSchema, walletSettingsSchema };
+const codSettingsSchema = z.object({
+  is_active: z.boolean().optional(),
+  max_threshold_enabled: z.boolean().optional(),
+  max_threshold: z.number().min(0).max(1000000).optional()
+}).strip();
+
+module.exports = { paymentSettingsSchema, paymentToggleSchema, intentSchema, proofDecisionSchema, walletSettingsSchema, codSettingsSchema };

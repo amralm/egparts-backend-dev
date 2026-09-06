@@ -5,6 +5,7 @@ const pool = require('./whatsappPoolService');
 const metaWhatsAppService = require('./metaWhatsAppService');
 const { ABANDONED_CART_TEMPLATES, renderAbandonedCartMessage } = require('../constants/abandonedCartTemplates');
 const abandonedCartService = require('./abandonedCartService');
+const subscriptionLimitService = require('./subscriptionLimitService');
 const logger = require('../utils/logger');
 
 const WORKER_INTERVAL_MS = 15 * 60 * 1000; // Run every 15 minutes
@@ -80,6 +81,14 @@ class AbandonedCartWorker {
         if (!store || !store.is_active) continue;
 
         const storeId = entry.store_id;
+
+        // Check if plan allows abandoned cart recovery
+        const limitCheck = await subscriptionLimitService.checkFeatureLimit(storeId, 'abandoned_cart_recovery');
+        if (limitCheck && limitCheck.allowed === false) {
+          logger.debug(`[AbandonedCartWorker] Store "${store.name}" (${storeId}) plan does not include abandoned cart recovery. Skipping.`);
+          continue;
+        }
+
         const delayMinutes = Math.max(15, parseInt(entry.abandoned_cart_delay_minutes, 10) || 30);
         const templateKey = entry.abandoned_cart_template || 'friendly_discount';
 

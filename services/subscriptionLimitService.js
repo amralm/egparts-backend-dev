@@ -11,7 +11,7 @@ const DEFAULT_FEATURE_KEYS = [
   'whatsapp_messages_month', 'otp_messages_month', 'email_messages_month', 'push_notifications_month',
   'custom_domains', 'api_keys', 'webhooks', 'integrations', 'payment_gateways',
   'ai_requests_month', 'forecast_jobs', 'report_generation', 'analytics_exports',
-  'api_requests_day', 'export_formats', 'copilot_messages_day'
+  'api_requests_day', 'export_formats', 'copilot_messages_day', 'abandoned_cart_recovery'
 ];
 
 function normalizeFeatureKey(featureKey) {

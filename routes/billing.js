@@ -46,7 +46,7 @@ const upload = multer({
 const PLAN_FEATURE_MAP = {
   free: {
     products_limit: 15,
-    orders_limit: 50,
+    orders_limit: 'غير محدود',
     coupons: false,
     pos: false,
     whatsapp: false,
@@ -56,7 +56,7 @@ const PLAN_FEATURE_MAP = {
   },
   basic: {
     products_limit: 100,
-    orders_limit: 300,
+    orders_limit: 'غير محدود',
     coupons: false,
     pos: true,
     whatsapp: true,
@@ -66,27 +66,27 @@ const PLAN_FEATURE_MAP = {
   },
   starter: {
     products_limit: 300,
-    orders_limit: 800,
+    orders_limit: 'غير محدود',
     coupons: true,
     pos: true,
     whatsapp: true,
-    custom_domain: true,
+    custom_domain: false,
     branches: 2,
     support_level: 'واتساب ودردشة'
   },
   growth: {
     products_limit: 1000,
-    orders_limit: 2500,
+    orders_limit: 'غير محدود',
     coupons: true,
     pos: true,
     whatsapp: true,
-    custom_domain: true,
+    custom_domain: false,
     branches: 5,
     support_level: 'مدير حساب مخصص'
   },
   scale: {
     products_limit: 5000,
-    orders_limit: 10000,
+    orders_limit: 'غير محدود',
     coupons: true,
     pos: true,
     whatsapp: true,

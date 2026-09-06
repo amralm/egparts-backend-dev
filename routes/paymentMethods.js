@@ -3,8 +3,9 @@
  * Handles fetching and managing available payment methods per store.
  *
  * Routes:
- *   GET  /api/payments/methods             — Customer: list available methods
+ *   GET  /api/payments/methods                 — Customer: list available methods
  *   GET  /api/payments/methods/:method/settings — Admin: get method config
+ *   POST /api/payments/methods/cod/settings    — Admin: update COD config and thresholds
  *   POST /api/payments/methods/:method/toggle   — Admin: enable/disable method
  *
  * SECURITY CONTRACT:
@@ -21,7 +22,7 @@ const { resolvePaymentMethods, assertPaymentMethodAvailable } = require('../serv
 const { apiError } = require('../utils/apiError');
 const { sendSuccess } = require('../utils/apiResponse');
 const { validateBody } = require('../middleware/requestValidation');
-const { paymentToggleSchema } = require('../schemas/paymentSchemas');
+const { paymentToggleSchema, codSettingsSchema } = require('../schemas/paymentSchemas');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -56,6 +57,50 @@ router.get('/', async (req, res) => {
   }
 });
 
+// ─── Admin: POST /api/payments/methods/cod/settings ───────────────────────────
+
+router.post('/cod/settings', verifyPermission('payments.configure'), validateBody(codSettingsSchema), async (req, res) => {
+  const storeId = req.store?.id;
+  if (!storeId) return apiError(res, 404, 'Store not found', 'STORE_NOT_FOUND');
+
+  const { is_active, max_threshold_enabled, max_threshold } = req.body;
+
+  try {
+    if (typeof is_active === 'boolean') {
+      const { error: gwError } = await supabase
+        .from('store_payment_gateways')
+        .upsert({
+          store_id: storeId,
+          provider_name: 'cod',
+          is_active,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'store_id,provider_name' });
+      if (gwError) throw gwError;
+    }
+
+    const updates = {};
+    if (typeof max_threshold_enabled === 'boolean') {
+      updates.cod_max_threshold_enabled = max_threshold_enabled;
+    }
+    if (typeof max_threshold === 'number') {
+      updates.cod_max_threshold = max_threshold;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      const { error: setErr } = await supabase
+        .from('site_settings')
+        .update(updates)
+        .eq('store_id', storeId);
+      if (setErr) throw setErr;
+    }
+
+    return sendSuccess(res, { message: 'تم حفظ إعدادات الدفع عند الاستلام بنجاح.' });
+  } catch (err) {
+    console.error('[payments/methods/cod/settings] Error:', err.message);
+    return apiError(res, 500, 'Failed to update COD settings', 'COD_SETTINGS_UPDATE_FAILED');
+  }
+});
+
 // ─── Admin: GET /api/payments/methods/:method/settings ───────────────────────
 
 router.get('/:method/settings', verifyPermission('payments.view'), async (req, res) => {
@@ -71,10 +116,28 @@ router.get('/:method/settings', verifyPermission('payments.view'), async (req, r
   try {
     const gateway = await getGateway(storeId, method === 'card' ? 'paymob' : method);
     const resolved = await resolvePaymentMethods(storeId);
-    return sendSuccess(res, { availability: resolved.availability[method],
+
+    let codDetails = {};
+    if (method === 'cod') {
+      const { data: siteSettings } = await supabase
+        .from('site_settings')
+        .select('cod_max_threshold_enabled, cod_max_threshold')
+        .eq('store_id', storeId)
+        .maybeSingle();
+
+      codDetails = {
+        max_threshold_enabled: siteSettings?.cod_max_threshold_enabled ?? false,
+        max_threshold: siteSettings?.cod_max_threshold !== undefined && siteSettings?.cod_max_threshold !== null ? Number(siteSettings.cod_max_threshold) : 1000
+      };
+    }
+
+    return sendSuccess(res, {
+      availability: resolved.availability[method],
       settings: {
         is_active: gateway ? gateway.is_active : (method === 'cod'), // COD defaults true
-      } });
+        ...codDetails
+      }
+    });
   } catch (err) {
     console.error(`[payments/methods/${method}/settings] Error:`, err.message);
     return apiError(res, 500, 'Failed to fetch settings', 'PAYMENT_SETTINGS_LOAD_FAILED');

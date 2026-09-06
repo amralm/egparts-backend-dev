@@ -315,6 +315,9 @@ async function cleanupOrphanedWhatsAppSessions() {
       supabase.from('whatsapp_sessions').delete().like('id', '%:app-state-sync-%')
     ]);
 
+    // Reclaim physical disk pages automatically
+    await supabase.rpc('compact_storage_tables').catch(() => {});
+
     return { purgedOrphanSessions: deletedSessions?.length || 0 };
   } catch (err) {
     logger.warn(`[RetentionService] WhatsApp sessions cleanup exception: ${err.message}`);

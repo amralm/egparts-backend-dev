@@ -60,7 +60,7 @@ const SUPPORTED_PLAN_FEATURE_KEYS = new Set([
   'api_keys', 'webhooks', 'integrations', 'payment_gateways', 'ai_requests_month', 'forecast_jobs',
   'report_generation', 'analytics_exports', 'api_requests_day', 'export_formats', 'copilot_messages_day',
   'staff_users', 'r2_storage', 'platform_billing', 'whatsapp_notifications', 'custom_domain',
-  'whatsapp_customer_notifications'
+  'whatsapp_customer_notifications', 'abandoned_cart_recovery'
 ]);
 const FEATURE_KEY_ALIASES = {
   staff_users: 'employees',

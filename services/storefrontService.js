@@ -2,14 +2,52 @@ const { supabase } = require('./supabase');
 const { sanitizeIlikeTerm } = require('../utils/postgrest');
 const { normalizeTenantSettings } = require('./tenantContentNormalizer');
 
+async function getTrackingPixels(storeId) {
+  try {
+    const { data, error } = await supabase
+      .from('store_apps')
+      .select('settings, is_active, platform_apps(slug)')
+      .eq('store_id', storeId)
+      .eq('is_active', true);
+
+    if (error || !Array.isArray(data)) return {};
+
+    const pixels = {};
+    for (const item of data) {
+      const slug = item.platform_apps?.slug;
+      const s = item.settings || {};
+      if (slug === 'meta-pixel' && s.pixel_id) {
+        pixels.meta_pixel_id = s.pixel_id;
+        pixels.meta_pixel_enabled = true;
+      } else if (slug === 'tiktok-pixel' && s.pixel_id) {
+        pixels.tiktok_pixel_id = s.pixel_id;
+        pixels.tiktok_pixel_enabled = true;
+      } else if (slug === 'google-analytics' && s.measurement_id) {
+        pixels.ga4_id = s.measurement_id;
+        pixels.ga4_enabled = true;
+      } else if (slug === 'snapchat-pixel' && s.pixel_id) {
+        pixels.snapchat_pixel_id = s.pixel_id;
+        pixels.snapchat_pixel_enabled = true;
+      }
+    }
+    return pixels;
+  } catch {
+    return {};
+  }
+}
+
 async function getSettings(storeId) {
-  const { data, error } = await supabase
-    .from('site_settings')
-    .select('*')
-    .eq('store_id', storeId)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data?.theme_id) return normalizeTenantSettings(data || {});
+  const [settingsRes, trackingPixels] = await Promise.all([
+    supabase
+      .from('site_settings')
+      .select('*')
+      .eq('store_id', storeId)
+      .maybeSingle(),
+    getTrackingPixels(storeId)
+  ]);
+
+  if (settingsRes.error) throw settingsRes.error;
+  const data = settingsRes.data || {};
 
   let activeTheme = null;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.theme_id);
@@ -25,7 +63,11 @@ async function getSettings(storeId) {
     activeTheme = themeData;
   }
   
-  return normalizeTenantSettings({ ...data, active_theme: activeTheme || null });
+  return normalizeTenantSettings({
+    ...data,
+    active_theme: activeTheme || null,
+    tracking_pixels: trackingPixels
+  });
 }
 
 async function getHome(storeId) {
