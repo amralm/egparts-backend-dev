@@ -605,6 +605,130 @@ router.post('/settings', verifyPlatformAdmin, validateBody(platformSettingsSchem
   }
 });
 
+// ─── Platform Meta WhatsApp Cloud API Endpoints ──────────────────────────────
+
+// GET /api/platform/whatsapp/meta
+router.get('/whatsapp/meta', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const { data: dbSettings, error } = await supabase
+      .from('system_settings')
+      .select('key, value')
+      .in('key', [
+        'platform_whatsapp_provider',
+        'platform_meta_phone_number_id',
+        'platform_meta_access_token',
+        'platform_meta_verify_token',
+        'platform_meta_app_secret',
+        'platform_meta_waba_id'
+      ]);
+
+    if (error) throw error;
+    const map = Object.fromEntries((dbSettings || []).map(r => [r.key, r.value]));
+
+    const token = map.platform_meta_access_token || process.env.META_WHATSAPP_ACCESS_TOKEN || '';
+    const maskedToken = token ? `${token.slice(0, 6)}••••••••${token.slice(-4)}` : '';
+
+    const unifiedWhatsAppRouter = require('../services/unifiedWhatsAppRouter');
+    const platformStatus = await unifiedWhatsAppRouter.getStatus(null);
+
+    sendSuccess(res, {
+      config: {
+        platform_whatsapp_provider: map.platform_whatsapp_provider || process.env.WHATSAPP_PROVIDER || 'pool',
+        platform_meta_phone_number_id: map.platform_meta_phone_number_id || process.env.META_WHATSAPP_PHONE_NUMBER_ID || '',
+        platform_meta_access_token_masked: maskedToken,
+        has_access_token: Boolean(token),
+        platform_meta_verify_token: map.platform_meta_verify_token || process.env.META_WHATSAPP_VERIFY_TOKEN || 'egparts_meta_webhook_secret',
+        platform_meta_app_secret: map.platform_meta_app_secret || process.env.META_WHATSAPP_APP_SECRET || '',
+        platform_meta_waba_id: map.platform_meta_waba_id || process.env.META_WHATSAPP_WABA_ID || ''
+      },
+      status: platformStatus
+    });
+  } catch (err) {
+    logger.error('[Platform] Error fetching Meta WhatsApp config:', err.message);
+    apiError(res, 500, 'Failed to retrieve platform WhatsApp settings', 'HTTP_500');
+  }
+});
+
+// POST /api/platform/whatsapp/meta
+router.post('/whatsapp/meta', verifyPlatformAdmin, async (req, res) => {
+  try {
+    const {
+      platform_whatsapp_provider = 'pool',
+      platform_meta_phone_number_id,
+      platform_meta_access_token,
+      platform_meta_verify_token,
+      platform_meta_app_secret,
+      platform_meta_waba_id
+    } = req.body || {};
+
+    const upserts = [
+      { key: 'platform_whatsapp_provider', value: String(platform_whatsapp_provider || 'pool') }
+    ];
+
+    if (platform_meta_phone_number_id !== undefined) {
+      upserts.push({ key: 'platform_meta_phone_number_id', value: String(platform_meta_phone_number_id || '').trim() });
+    }
+    if (platform_meta_access_token && platform_meta_access_token.trim() !== '') {
+      upserts.push({ key: 'platform_meta_access_token', value: String(platform_meta_access_token).trim() });
+    }
+    if (platform_meta_verify_token !== undefined) {
+      upserts.push({ key: 'platform_meta_verify_token', value: String(platform_meta_verify_token || '').trim() });
+    }
+    if (platform_meta_app_secret !== undefined) {
+      upserts.push({ key: 'platform_meta_app_secret', value: String(platform_meta_app_secret || '').trim() });
+    }
+    if (platform_meta_waba_id !== undefined) {
+      upserts.push({ key: 'platform_meta_waba_id', value: String(platform_meta_waba_id || '').trim() });
+    }
+
+    const { error } = await supabase.from('system_settings').upsert(upserts, { onConflict: 'key' });
+    if (error) throw error;
+
+    await auditPlatform(req, 'platform.whatsapp_meta.update', 'system_setting', 'global', null, { provider: platform_whatsapp_provider });
+
+    sendSuccess(res, { message: 'تم حفظ إعدادات واتساب ميتا الرسمية للمنصة بنجاح' });
+  } catch (err) {
+    logger.error('[Platform] Error saving Meta WhatsApp config:', err.message);
+    apiError(res, 500, 'Failed to save platform WhatsApp settings', 'HTTP_500');
+  }
+});
+
+// POST /api/platform/whatsapp/meta/test-connection
+router.post('/whatsapp/meta/test-connection', verifyPlatformAdmin, async (req, res) => {
+  let { phoneNumberId, accessToken } = req.body || {};
+
+  if (!phoneNumberId || !accessToken) {
+    const { data: dbSettings } = await supabase
+      .from('system_settings')
+      .select('key, value')
+      .in('key', ['platform_meta_phone_number_id', 'platform_meta_access_token']);
+
+    const map = Object.fromEntries((dbSettings || []).map(r => [r.key, r.value]));
+    phoneNumberId = phoneNumberId || map.platform_meta_phone_number_id || process.env.META_WHATSAPP_PHONE_NUMBER_ID;
+    accessToken = accessToken || map.platform_meta_access_token || process.env.META_WHATSAPP_ACCESS_TOKEN;
+  }
+
+  if (!phoneNumberId || !accessToken) {
+    return apiError(res, 400, 'يرجى إدخال Phone Number ID و Access Token للاختبار.', 'MISSING_CREDENTIALS');
+  }
+
+  try {
+    const metaWhatsAppService = require('../services/metaWhatsAppService');
+    const testResult = await metaWhatsAppService.testConnection({
+      phoneNumberId,
+      accessToken
+    });
+
+    sendSuccess(res, {
+      ...testResult,
+      message: `تم الاتصال بنجاح بـ Meta Cloud API للمنصة! الرقم المسجل: ${testResult.displayPhoneNumber} (${testResult.verifiedName || 'حساب رسمي نشط'})`
+    });
+  } catch (err) {
+    logger.error('[Platform] Meta connection test failed:', err.message);
+    apiError(res, 400, err.message || 'فشل الاتصال بـ Meta Cloud API', 'CONNECTION_FAILED');
+  }
+});
+
 // Payment-proof retention controls. The platform default lives in
 // system_settings; this endpoint manages an explicit per-store exception.
 router.get('/stores/:id/proof-retention', verifyPlatformAdmin, async (req, res) => {
@@ -1189,29 +1313,152 @@ router.get('/stores/options', verifyPlatformAdmin, async (req, res) => {
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 5), 50) : 25;
     const search = sanitizeIlikeTerm(req.query.search);
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : '';
+    const storeIdParam = typeof req.query.store_id === 'string' ? req.query.store_id.trim() : '';
+
     let query = supabase
       .from('stores')
       .select('id,name,subdomain,custom_domain,is_active,status,site_settings(logo_url)')
       .order('name', { ascending: true })
       .limit(limit + 1);
-    if (search) query = query.or(`name.ilike.%${search}%,subdomain.ilike.%${search}%,custom_domain.ilike.%${search}%`);
+
+    if (storeIdParam) {
+      query = query.eq('id', storeIdParam);
+    } else if (search) {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(search);
+      if (isUuid) {
+        query = query.or(`id.eq.${search},name.ilike.%${search}%,subdomain.ilike.%${search}%`);
+      } else {
+        query = query.or(`name.ilike.%${search}%,subdomain.ilike.%${search}%,custom_domain.ilike.%${search}%`);
+      }
+    }
     if (cursor) query = query.gt('name', cursor);
     const { data, error } = await query;
     if (error) throw error;
-    const rows = (data || []).map(store => ({
-      id: store.id,
-      name: store.name,
-      subdomain: store.subdomain,
-      custom_domain: store.custom_domain,
-      is_active: store.is_active,
-      status: store.status,
-      logo_url: store.site_settings?.logo_url || null
-    }));
+    const rows = (data || []).map(store => {
+      const settingsObj = Array.isArray(store.site_settings) ? store.site_settings[0] : store.site_settings;
+      return {
+        id: store.id,
+        name: store.name,
+        subdomain: store.subdomain,
+        custom_domain: store.custom_domain,
+        is_active: store.is_active,
+        status: store.status,
+        logo_url: settingsObj?.logo_url || null
+      };
+    });
     const items = rows.slice(0, limit);
     sendSuccess(res, { items, nextCursor: rows.length > limit ? items[items.length - 1]?.name || null : null });
   } catch (err) {
     logger.error('Failed to retrieve store options:', err.message);
     apiError(res, 500, 'Failed to retrieve store options', `HTTP_500`);
+  }
+});
+
+// GET /api/platform/storage/analytics
+// Comprehensive platform infrastructure storage diagnostics (PostgreSQL Database + Cloudflare R2 + Tenants Leaderboard)
+router.get('/storage/analytics', verifyPlatformAdmin, async (req, res) => {
+  try {
+    // 1. Fetch database storage metrics via optimized PostgreSQL RPC
+    const { data: dbMetrics, error: dbErr } = await supabase.rpc('get_platform_storage_metrics');
+    if (dbErr) throw dbErr;
+
+    // 2. Scan Cloudflare R2 object storage
+    const r2Stats = {
+      total_bytes: 0,
+      total_files: 0,
+      categories: {},
+      store_breakdown: {},
+      configured: Boolean(process.env.R2_BUCKET_NAME && process.env.R2_ACCOUNT_ID),
+      bucket_name: process.env.R2_BUCKET_NAME || null,
+      cdn_url: process.env.CDN_URL || 'https://media.egparts.store'
+    };
+
+    if (r2Stats.configured) {
+      try {
+        let continuationToken;
+        do {
+          const result = await s3Client.send(new ListObjectsV2Command({
+            Bucket: process.env.R2_BUCKET_NAME,
+            ContinuationToken: continuationToken
+          }));
+
+          for (const item of result.Contents || []) {
+            const size = Number(item.Size) || 0;
+            r2Stats.total_files += 1;
+            r2Stats.total_bytes += size;
+
+            const parts = item.Key.split('/');
+            if (parts[0] === 'stores' && parts[1]) {
+              const storeId = parts[1];
+              if (!r2Stats.store_breakdown[storeId]) {
+                r2Stats.store_breakdown[storeId] = { bytes: 0, files: 0 };
+              }
+              r2Stats.store_breakdown[storeId].bytes += size;
+              r2Stats.store_breakdown[storeId].files += 1;
+
+              const category = parts[3] || parts[2] || 'other';
+              r2Stats.categories[category] = (r2Stats.categories[category] || 0) + size;
+            } else {
+              const cat = parts[0] || 'system';
+              r2Stats.categories[cat] = (r2Stats.categories[cat] || 0) + size;
+            }
+          }
+          continuationToken = result.IsTruncated ? result.NextContinuationToken : undefined;
+        } while (continuationToken);
+      } catch (r2Err) {
+        logger.warn('[PlatformStorageAnalytics] R2 scan error:', r2Err.message);
+      }
+    }
+
+    // 3. Fetch plan storage quotas for tenants
+    const { data: planLimits } = await supabase
+      .from('feature_limits')
+      .select('plan_id, feature_key, limit_value')
+      .eq('feature_key', 'storage_bytes');
+
+    const planLimitMap = {};
+    (planLimits || []).forEach(pl => {
+      planLimitMap[pl.plan_id] = Number(pl.limit_value) || 0;
+    });
+
+    // 4. Merge tenant database metrics with Cloudflare R2 storage
+    const enrichedTenants = (dbMetrics?.tenants || []).map(tenant => {
+      const storeR2 = r2Stats.store_breakdown[tenant.store_id] || { bytes: 0, files: 0 };
+      const quotaBytes = planLimitMap[tenant.plan_code] || (1024 * 1024 * 1024); // default 1GB
+      const totalTenantBytes = storeR2.bytes;
+      const usagePercent = quotaBytes > 0 ? Math.min(Math.round((totalTenantBytes / quotaBytes) * 100), 100) : 0;
+
+      return {
+        ...tenant,
+        r2_bytes: storeR2.bytes,
+        r2_files: storeR2.files,
+        quota_bytes: quotaBytes,
+        usage_percent: usagePercent
+      };
+    });
+
+    // Sort tenants by storage consumed, then products count
+    enrichedTenants.sort((a, b) => b.r2_bytes - a.r2_bytes || b.products_count - a.products_count);
+
+    sendSuccess(res, {
+      database: {
+        total_bytes: dbMetrics?.database_bytes || 0,
+        tables: dbMetrics?.tables || []
+      },
+      r2: {
+        configured: r2Stats.configured,
+        total_bytes: r2Stats.total_bytes,
+        total_files: r2Stats.total_files,
+        categories: r2Stats.categories,
+        cdn_url: r2Stats.cdn_url,
+        bucket_name: r2Stats.bucket_name
+      },
+      tenants: enrichedTenants,
+      refreshed_at: new Date().toISOString()
+    });
+  } catch (err) {
+    logger.error('Failed to retrieve platform storage analytics:', err.message);
+    apiError(res, 500, 'Unable to load storage analytics.', 'HTTP_500');
   }
 });
 

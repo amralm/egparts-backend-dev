@@ -145,17 +145,17 @@ async function cleanupResolvedAbuseReports() {
 }
 
 /**
- * Purge frontend error logs older than 30 days.
+ * Purge frontend error logs older than 48 hours (Zero DB Bloat).
  */
 async function cleanupClientErrorLogs() {
   const now = new Date();
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
 
   try {
     const { data, error } = await supabase
       .from('client_error_logs')
       .delete()
-      .lt('created_at', thirtyDaysAgo)
+      .lt('created_at', fortyEightHoursAgo)
       .select('id');
 
     if (error) {
@@ -283,7 +283,8 @@ async function cleanupStaleImpersonationSessions() {
 }
 
 /**
- * Purge orphaned WhatsApp sessions belonging to removed or inactive accounts.
+ * Purge orphaned WhatsApp sessions belonging to removed or inactive accounts,
+ * and permanently purge dead Baileys lid-mapping bloat keys.
  */
 async function cleanupOrphanedWhatsAppSessions() {
   try {
@@ -292,8 +293,9 @@ async function cleanupOrphanedWhatsAppSessions() {
       .select('id');
 
     const validIds = (validAccounts || []).map((a) => a.id).filter(Boolean);
+    let deletedSessions = [];
     if (validIds.length > 0) {
-      const { data: deletedSessions, error } = await supabase
+      const { data, error } = await supabase
         .from('whatsapp_sessions')
         .delete()
         .not('whatsapp_account_id', 'in', `(${validIds.join(',')})`)
@@ -301,14 +303,48 @@ async function cleanupOrphanedWhatsAppSessions() {
 
       if (error) {
         logger.warn(`[RetentionService] WhatsApp sessions cleanup error: ${error.message}`);
-        return { purgedOrphanSessions: 0 };
+      } else {
+        deletedSessions = data || [];
       }
-      return { purgedOrphanSessions: deletedSessions?.length || 0 };
     }
-    return { purgedOrphanSessions: 0 };
+
+    // Always purge dead Baileys bloat keys (lid-mapping, sender-key, app-state-sync)
+    await Promise.allSettled([
+      supabase.from('whatsapp_sessions').delete().like('id', '%:lid-mapping-%'),
+      supabase.from('whatsapp_sessions').delete().like('id', '%:sender-key-%'),
+      supabase.from('whatsapp_sessions').delete().like('id', '%:app-state-sync-%')
+    ]);
+
+    return { purgedOrphanSessions: deletedSessions?.length || 0 };
   } catch (err) {
     logger.warn(`[RetentionService] WhatsApp sessions cleanup exception: ${err.message}`);
     return { purgedOrphanSessions: 0 };
+  }
+}
+
+/**
+ * Purge stale cart draft sessions older than 14 days.
+ */
+async function cleanupStaleCartSessions() {
+  const now = new Date();
+  const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const { data, error } = await supabase
+      .from('cart_sessions')
+      .delete()
+      .lt('last_interaction_at', fourteenDaysAgo)
+      .select('id');
+
+    if (error) {
+      // Table might not exist yet if migration pending, warn gracefully
+      logger.warn(`[RetentionService] Stale cart sessions cleanup error: ${error.message}`);
+      return { purged: 0 };
+    }
+    return { purged: data?.length || 0 };
+  } catch (err) {
+    logger.warn(`[RetentionService] Stale cart sessions cleanup exception: ${err.message}`);
+    return { purged: 0 };
   }
 }
 
@@ -329,6 +365,7 @@ async function runMasterRetentionCleanup() {
     loginLogsResult,
     impersonationResult,
     whatsappSessionsResult,
+    cartSessionsResult,
   ] = await Promise.all([
     runProofRetentionCleanup().catch((err) => ({ error: err.message })),
     cleanupResolvedSupportTickets().catch((err) => ({ error: err.message })),
@@ -339,6 +376,7 @@ async function runMasterRetentionCleanup() {
     cleanupUserLoginLogs().catch((err) => ({ error: err.message })),
     cleanupStaleImpersonationSessions().catch((err) => ({ error: err.message })),
     cleanupOrphanedWhatsAppSessions().catch((err) => ({ error: err.message })),
+    cleanupStaleCartSessions().catch((err) => ({ error: err.message })),
   ]);
 
   const durationMs = Date.now() - startTime;
@@ -357,6 +395,7 @@ async function runMasterRetentionCleanup() {
     loginLogs: loginLogsResult,
     impersonation: impersonationResult,
     whatsappSessions: whatsappSessionsResult,
+    cartSessions: cartSessionsResult,
   };
 
   // Persist run metrics to system_settings for Platform Health monitoring
@@ -372,6 +411,29 @@ async function runMasterRetentionCleanup() {
   return summary;
 }
 
+let retentionCronTimer = null;
+const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000; // Run daily
+
+function startRetentionCron() {
+  if (retentionCronTimer) return;
+  logger.info('[RetentionService] Initializing background retention cleanup cron (daily schedule)...');
+  // Delay first run slightly after boot (45 seconds) so database/server boot is completely smooth
+  setTimeout(() => {
+    runMasterRetentionCleanup().catch((err) => logger.warn('[RetentionService] Initial cleanup run failed:', err.message));
+  }, 45000);
+
+  retentionCronTimer = setInterval(() => {
+    runMasterRetentionCleanup().catch((err) => logger.warn('[RetentionService] Periodic cleanup run failed:', err.message));
+  }, RETENTION_INTERVAL_MS);
+}
+
+function stopRetentionCron() {
+  if (retentionCronTimer) {
+    clearInterval(retentionCronTimer);
+    retentionCronTimer = null;
+  }
+}
+
 module.exports = {
   runMasterRetentionCleanup,
   cleanupResolvedSupportTickets,
@@ -382,4 +444,7 @@ module.exports = {
   cleanupUserLoginLogs,
   cleanupStaleImpersonationSessions,
   cleanupOrphanedWhatsAppSessions,
+  cleanupStaleCartSessions,
+  startRetentionCron,
+  stopRetentionCron,
 };

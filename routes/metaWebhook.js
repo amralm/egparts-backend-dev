@@ -73,7 +73,13 @@ router.post('/', async (req, res) => {
     // 2. Process Inbound Messages (if any)
     const messages = value.messages || [];
     for (const msg of messages) {
-      logger.info(`[MetaWebhook] Inbound customer message from ${msg.from}: ${msg.text?.body || msg.type}`);
+      const text = (msg.text?.body || '').trim();
+      logger.info(`[MetaWebhook] Inbound customer message from ${msg.from}: ${text || msg.type}`);
+      const abandonedCartService = require('../services/abandonedCartService');
+      if (abandonedCartService.isOptOutMessage(text)) {
+        await abandonedCartService.optOutCustomer(msg.from).catch(() => {});
+        logger.info(`[MetaWebhook] Customer ${msg.from} requested opt-out ("${text}"). Registered successfully.`);
+      }
     }
   } catch (err) {
     logger.error('[MetaWebhook] Error processing webhook event:', err.message);

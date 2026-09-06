@@ -129,6 +129,15 @@ class WhatsappService {
           get: async (type, ids) => {
             const data = {};
             if (!ids || ids.length === 0) return data;
+            if (
+              type === 'sender-key' ||
+              type === 'sender-key-memory' ||
+              type === 'app-state-sync-key' ||
+              type === 'app-state-sync-version' ||
+              type.startsWith('lid-mapping')
+            ) {
+              return data;
+            }
 
             try {
               const fullIds = ids.map(id => `${this.sessionId}:${type}-${id}`);
@@ -160,6 +169,17 @@ class WhatsappService {
             const deletes = [];
 
             for (const category in data) {
+              // 🚀 LEAN SESSION ENGINE: Drop bloat keys (groups, broadcasts, and contacts address-book LIDs)
+              if (
+                category === 'sender-key' ||
+                category === 'sender-key-memory' ||
+                category === 'app-state-sync-key' ||
+                category === 'app-state-sync-version' ||
+                category.startsWith('lid-mapping')
+              ) {
+                continue;
+              }
+
               for (const id in data[category]) {
                 const value = data[category][id];
                 const key = `${this.sessionId}:${category}-${id}`;
@@ -258,7 +278,9 @@ class WhatsappService {
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 25000,
         emitOwnEvents: false,
-        syncFullHistory: false
+        syncFullHistory: false,
+        markOnlineOnConnect: false,
+        shouldIgnoreJid: (jid) => Boolean(jid && (jid.endsWith('@g.us') || jid.endsWith('@broadcast')))
       });
       this.connectionState = 'connecting';
 
@@ -330,6 +352,33 @@ class WhatsappService {
       });
 
       this.sock.ev.on('creds.update', saveCreds);
+
+      this.sock.ev.on('messages.upsert', async ({ messages }) => {
+        try {
+          if (!messages || !Array.isArray(messages)) return;
+          for (const msg of messages) {
+            if (msg.key?.fromMe) continue;
+            const remoteJid = msg.key?.remoteJid || '';
+            if (remoteJid.endsWith('@g.us') || remoteJid.endsWith('@broadcast')) continue;
+
+            const text = (
+              msg.message?.conversation ||
+              msg.message?.extendedTextMessage?.text ||
+              ''
+            ).trim();
+
+            const abandonedCartService = require('./abandonedCartService');
+            if (abandonedCartService.isOptOutMessage(text)) {
+              const fromPhone = remoteJid.split('@')[0];
+              const storeId = await this.resolveStoreId().catch(() => null);
+              await abandonedCartService.optOutCustomer(fromPhone, storeId);
+              logger.info(`[WhatsAppService] Customer ${fromPhone} requested opt-out ("${text}"). Registered successfully.`);
+            }
+          }
+        } catch (msgErr) {
+          logger.debug('[WhatsAppService] Inbound message handling error:', msgErr.message);
+        }
+      });
     } catch (err) {
       logger.error('Error during WhatsApp initialization:', err.message);
     } finally {

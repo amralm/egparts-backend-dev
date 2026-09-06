@@ -487,7 +487,7 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
             fraud_alert: `Amount mismatch: expected ${expectedAmountCents} EGP cents, received ${receivedAmountCents} ${receivedCurrency}`
           }
         }).eq('id', order.id);
-        return res.status(400).json({ error: 'Amount or currency mismatch' });
+        return apiError(res, 400, 'Amount or currency mismatch', 'AMOUNT_CURRENCY_MISMATCH');
       }
 
       // Update order payment status

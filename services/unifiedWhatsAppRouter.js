@@ -17,11 +17,28 @@ class UnifiedWhatsAppRouter {
    */
   async resolveProvider(storeId) {
     if (!storeId) {
-      // Platform level fallback to global env or pool
-      const globalProvider = process.env.WHATSAPP_PROVIDER || 'pool';
+      // Platform level: check system_settings first, with graceful fallback to env
+      let map = {};
+      try {
+        const { data: dbSettings } = await supabase
+          .from('system_settings')
+          .select('key, value')
+          .in('key', [
+            'platform_whatsapp_provider',
+            'platform_meta_phone_number_id',
+            'platform_meta_access_token'
+          ]);
+        if (dbSettings) {
+          map = Object.fromEntries(dbSettings.map(r => [r.key, r.value]));
+        }
+      } catch (err) {
+        logger.warn('[UnifiedWhatsAppRouter] Error reading platform settings from DB:', err.message);
+      }
+
+      const globalProvider = map.platform_whatsapp_provider || process.env.WHATSAPP_PROVIDER || 'pool';
       const metaConfig = {
-        phoneNumberId: process.env.META_WHATSAPP_PHONE_NUMBER_ID,
-        accessToken: process.env.META_WHATSAPP_ACCESS_TOKEN
+        phoneNumberId: map.platform_meta_phone_number_id || process.env.META_WHATSAPP_PHONE_NUMBER_ID,
+        accessToken: map.platform_meta_access_token || process.env.META_WHATSAPP_ACCESS_TOKEN
       };
       return {
         provider: metaConfig.phoneNumberId && metaConfig.accessToken ? globalProvider : 'pool',

@@ -91,6 +91,9 @@ const billingRoutes = require('./routes/billing');
 const courierShippingRoutes = require('./routes/courierShipping');
 const metaWebhookRoutes = require('./routes/metaWebhook');
 const metaAdminRoutes = require('./routes/metaAdmin');
+const cartRoutes = require('./routes/cart');
+const abandonedCartWorker = require('./services/abandonedCartWorker');
+const retentionService = require('./services/retentionService');
 const healthCollector = require('./services/healthCollector');
 const whatsappService = require('./services/whatsappService');
 const whatsappPoolService = require('./services/whatsappPoolService');
@@ -714,6 +717,7 @@ app.use('/api/billing', billingRoutes);
 app.use('/api/shipping/couriers', courierShippingRoutes);
 app.use('/api/whatsapp/meta/webhook', metaWebhookRoutes);
 app.use('/api/whatsapp/meta/admin', metaAdminRoutes);
+app.use('/api/cart', cartRoutes);
 
 // âœ… WhatsApp Auth Routes
 app.post('/api/auth/qr-login', async (req, res) => {
@@ -1068,6 +1072,10 @@ const server = app.listen(PORT, async () => {
   const { startProofRetentionJob } = require('./services/proofRetentionJob');
   startProofRetentionJob();
 
+  // Start automated retention cleanup and abandoned cart recovery worker
+  retentionService.startRetentionCron();
+  abandonedCartWorker.start();
+
 
   // Periodic cleanup of expired oauth exchanges (every 10 minutes)
   oauthCleanupInterval = setInterval(async () => {
@@ -1092,6 +1100,8 @@ const shutdown = async (signal) => {
   domainValidator.stopDomainCheckCron();
   stopPaymentExpiryJob();
   stopProofRetentionJob();
+  abandonedCartWorker.stop();
+  retentionService.stopRetentionCron();
   require('./services/staleReservationCleanup').stopCleanupJob();
 
   if (oauthCleanupInterval) {

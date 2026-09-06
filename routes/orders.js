@@ -12,6 +12,7 @@ const { validateBody } = require('../middleware/requestValidation');
 const { createOrderSchema, whatsappOrderSchema, orderStatusSchema } = require('../schemas/orderSchemas');
 const { normalizePaymentMethod } = require('../schemas/canonicalSchemas');
 const { calculateCouponDiscount } = require('../services/couponService');
+const abandonedCartService = require('../services/abandonedCartService');
 const logger = require('../utils/logger');
 
 const PLAN_UPGRADE_CHAIN = {
@@ -475,6 +476,9 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
     }
 
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
+    abandonedCartService.markConverted(req.store.id, customerPhone).catch((err) => {
+      logger.warn(`[Orders] Failed to mark cart converted: ${err.message}`);
+    });
     sendSuccess(res, { checkout: result || null });
   } catch (error) {
     await subscriptionLimitService.rollbackFeatureUsage(reservationKey).catch(() => {});
@@ -668,6 +672,9 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
     }
 
     await subscriptionLimitService.commitFeatureUsage(reservationKey);
+    abandonedCartService.markConverted(req.store.id, phone).catch((err) => {
+      logger.warn(`[Orders] Failed to mark cart converted: ${err.message}`);
+    });
     const order = Array.isArray(data) ? data[0] : data;
     if (!order?.id) {
       logger.error('Unexpected RPC response payload:', data);
