@@ -110,15 +110,21 @@ const PLAN_FEATURE_MAP = {
 // Public & merchant view of subscription plans
 router.get('/plans', async (req, res) => {
   try {
-    const { data: plans, error } = await supabase
-      .from('plans')
-      .select('id, code, display_name, description, price_monthly, price_yearly, trial_days, trial_enabled, sort_order, is_public')
-      .eq('is_public', true)
-      .order('sort_order', { ascending: true });
+    const [plansRes, promoRes] = await Promise.all([
+      supabase
+        .from('plans')
+        .select('id, code, display_name, description, price_monthly, price_yearly, trial_days, trial_enabled, sort_order, is_public')
+        .eq('is_public', true)
+        .order('sort_order', { ascending: true }),
+      supabase
+        .from('system_settings')
+        .select('key, value')
+        .like('key', 'pricing_%')
+    ]);
 
-    if (error) throw error;
+    if (plansRes.error) throw plansRes.error;
 
-    const mapped = (plans || []).map(p => ({
+    const mapped = (plansRes.data || []).map(p => ({
       ...p,
       features: PLAN_FEATURE_MAP[p.code] || {
         products_limit: 50,
@@ -130,7 +136,37 @@ router.get('/plans', async (req, res) => {
       }
     }));
 
-    sendSuccess(res, { plans: mapped });
+    // Process promotional settings
+    const promoMap = {};
+    (promoRes.data || []).forEach(row => {
+      promoMap[row.key] = row.value;
+    });
+
+    const isOfferEnabled = promoMap.pricing_starter_free_offer_enabled === 'true';
+    const countdownEnd = promoMap.pricing_starter_free_countdown_end || null;
+    let isExpired = false;
+    if (countdownEnd) {
+      const parsedEnd = new Date(countdownEnd).getTime();
+      if (!isNaN(parsedEnd) && parsedEnd <= Date.now()) {
+        isExpired = true;
+      }
+    }
+
+    const promo_offer = {
+      starter_free_offer: {
+        enabled: isOfferEnabled && !isExpired,
+        is_active: isOfferEnabled,
+        is_expired: isExpired,
+        original_price: parseFloat(promoMap.pricing_starter_free_original_price) || 499,
+        offer_price: parseFloat(promoMap.pricing_starter_free_offer_price) || 0,
+        countdown_end: countdownEnd,
+        badge_text: promoMap.pricing_starter_free_badge_text || '🔥 عرض إطلاق مجاني لفترة محدودة',
+        banner_enabled: promoMap.pricing_starter_free_banner_enabled === 'true',
+        banner_text: promoMap.pricing_starter_free_banner_text || '🔥 عرض إطلاق حصري: اشترك في باقة Starter مجاناً الآن قبل انتهاء العداد التنازلي!'
+      }
+    };
+
+    sendSuccess(res, { plans: mapped, promo_offer });
   } catch (err) {
     logger.error('[billing] failed to fetch plans:', err.message);
     apiError(res, 500, 'Unable to load plans', 'HTTP_500');
