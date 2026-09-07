@@ -71,13 +71,16 @@ async function canAccessStorageScope(req, storeId, isPlatform) {
   const userId = req.user?.sub;
   if (!userId) return false;
 
+  // Super Admins always have access to all storage scopes across the entire platform
+  const { data: superAdmin } = await supabase
+    .from('super_admins')
+    .select('user_id')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (superAdmin) return true;
+
   if (isPlatform) {
-    const { data } = await supabase
-      .from('super_admins')
-      .select('user_id')
-      .eq('user_id', userId)
-      .maybeSingle();
-    return !!data;
+    return false;
   }
 
   if (!storeId) return false;
