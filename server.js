@@ -70,6 +70,7 @@ const limitsRoutes = require('./routes/limits');
 const aiRoutes = require('./routes/ai');
 const couponRoutes = require('./routes/coupons');
 const shippingZoneRoutes = require('./routes/shippingZones');
+const deliveryDriverRoutes = require('./routes/deliveryDrivers');
 const adminReviewRoutes = require('./routes/adminReviews');
 const tenantSecurityRoutes = require('./routes/tenantSecurity');
 const adminBannerRoutes = require('./routes/adminBanners');
@@ -716,6 +717,7 @@ app.use('/api/platform/admin/reports', platformReportsRoutes.adminReportsRouter 
 app.use('/api/pos', posRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/shipping/couriers', courierShippingRoutes);
+app.use('/api/shipping/drivers', deliveryDriverRoutes);
 app.use('/api/whatsapp/meta/webhook', metaWebhookRoutes);
 app.use('/api/whatsapp/meta/admin', metaAdminRoutes);
 app.use('/api/cart', cartRoutes);

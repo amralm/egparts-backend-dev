@@ -77,14 +77,14 @@ router.put('/settings', verifyPermission('settings.update'), async (req, res) =>
 });
 
 /**
- * 3. Dispatch Order with Courier (creates delivery & AWB)
+ * 3. Dispatch Order with Courier / Delivery Driver
  */
 router.post('/dispatch/:orderId', verifyPermission('orders.update_status'), async (req, res) => {
   const storeId = requireStore(req, res);
   if (!storeId) return;
 
   const { orderId } = req.params;
-  const { provider = 'bosta', customTrackingNumber, notes } = req.body || {};
+  const { provider = 'bosta', customTrackingNumber, notes, driverId } = req.body || {};
 
   try {
     const result = await courierManager.dispatchOrder({
@@ -92,16 +92,39 @@ router.post('/dispatch/:orderId', verifyPermission('orders.update_status'), asyn
       storeId,
       provider,
       customTrackingNumber,
-      notes
+      notes,
+      driverId
     });
+
+    const successMessage = provider === 'driver'
+      ? `تم إسناد الطلب لمندوب التوصيل (${result.driver?.name || ''}) بنجاح وتجهيز رسالة الواتساب.`
+      : `تم إسناد الطلب لشركة الشحن (${provider.toUpperCase()}) بنجاح وتوليد رقم التتبع.`;
 
     sendSuccess(res, {
       ...result,
-      message: `تم إسناد الطلب لشركة الشحن (${provider.toUpperCase()}) بنجاح وتوليد رقم التتبع.`
+      message: successMessage
     });
   } catch (err) {
     logger.error(`[CourierShipping] Dispatch failed for order ${orderId}:`, err.message);
     apiError(res, 400, err.message || 'فشل إسناد الطلب لشركة الشحن', 'DISPATCH_FAILED');
+  }
+});
+
+/**
+ * 3b. Unassign Courier / Driver from Order
+ */
+router.post('/unassign/:orderId', verifyPermission('orders.update_status'), async (req, res) => {
+  const storeId = requireStore(req, res);
+  if (!storeId) return;
+
+  const { orderId } = req.params;
+
+  try {
+    const result = await courierManager.unassignOrder(orderId, storeId);
+    sendSuccess(res, result);
+  } catch (err) {
+    logger.error(`[CourierShipping] Unassign failed for order ${orderId}:`, err.message);
+    apiError(res, err.statusCode || 400, err.message || 'فشل إلغاء إسناد الشحن', err.code || 'UNASSIGN_FAILED');
   }
 });
 

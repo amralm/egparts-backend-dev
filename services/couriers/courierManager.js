@@ -2,6 +2,7 @@
 
 const { supabase } = require('../supabase');
 const bostaService = require('./bostaService');
+const deliveryDriverService = require('../deliveryDriverService');
 const { sendOrderDeliveredInvoiceWhatsApp } = require('../orderInvoiceNotifier');
 const logger = require('../../utils/logger');
 
@@ -56,7 +57,7 @@ class CourierManager {
   /**
    * Dispatch Order with Courier
    */
-  async dispatchOrder({ orderId, storeId, provider = 'bosta', customTrackingNumber, notes }) {
+  async dispatchOrder({ orderId, storeId, provider = 'bosta', customTrackingNumber, notes, driverId }) {
     // 1. Fetch target order
     const { data: order, error: orderErr } = await supabase
       .from('orders')
@@ -69,8 +70,8 @@ class CourierManager {
       throw new Error('الطلب غير موجود أو لا ينتمي لهذا المتجر.');
     }
 
-    // Guard: Prevent double dispatching if already shipped
-    if (order.courier_order_id && order.status === 'shipped') {
+    // Guard: Prevent double dispatching if already shipped (unless re-assigning driver)
+    if (order.courier_order_id && order.status === 'shipped' && provider !== 'driver') {
       return {
         success: true,
         alreadyDispatched: true,
@@ -96,6 +97,89 @@ class CourierManager {
         pickupAddress: settings.pickup_address,
         notes
       });
+    } else if (provider === 'driver') {
+      const targetDriverId = driverId || customTrackingNumber;
+      if (!targetDriverId) {
+        throw new Error('يرجى تحديد مندوب التوصيل المسند إليه الطلب.');
+      }
+      const driver = await deliveryDriverService.getDriverById(storeId, targetDriverId);
+      if (!driver) {
+        throw new Error('لم يتم العثور على المندوب المحدد.');
+      }
+
+      const tracking = `DRV-${order.order_number || order.id.slice(0, 8)}-${Date.now().toString().slice(-4)}`;
+
+      // Fetch store name for professional WhatsApp message
+      const { data: storeRow } = await supabase
+        .from('stores')
+        .select('name')
+        .eq('id', storeId)
+        .maybeSingle();
+      const storeName = storeRow?.name || 'المتجر';
+
+      // Customer name and phone
+      const customerName = (order.customer_name || order.user_name || order.name || 'عميل المتجر').trim();
+      let cleanPhone = String(order.phone || '').replace(/\D/g, '');
+      if (cleanPhone.startsWith('20') && cleanPhone.length === 12) {
+        cleanPhone = `0${cleanPhone.slice(2)}`;
+      }
+
+      // Location URL (GPS link or Google Maps query)
+      let mapsUrl = order.location_url;
+      if (!mapsUrl && (order.address || order.city)) {
+        mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${order.city || ''} ${order.address || ''}`.trim())}`;
+      }
+
+      // Products itemized
+      const itemsList = Array.isArray(order.items) && order.items.length > 0
+        ? order.items.map(item => `• ${item.name || 'منتج'} (الكمية: ${item.qty || item.quantity || 1})`).join('\n')
+        : '• بضائع متنوعة';
+
+      const isAlreadyPaid = order.payment_status === 'paid';
+      const codAmount = isAlreadyPaid ? 0 : parseFloat(order.total || order.total_amount || 0);
+
+      const whatsappText = `🛵 *أوردر جديد للتوصيل - ${storeName}*\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `📦 *رقم الطلب:* #${order.order_number || order.id.slice(0, 8)}\n` +
+        `👤 *العميل:* ${customerName}\n` +
+        `📞 *تليفون العميل:* ${cleanPhone || 'غير مسجل'}\n` +
+        `📍 *العنوان:* ${order.city ? `${order.city} - ` : ''}${order.address || 'غير محدد'}\n` +
+        (mapsUrl ? `🗺️ *رابط اللوكيشن:* ${mapsUrl}\n` : '') +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `🛍️ *المنتجات المطلوبة:*\n${itemsList}\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        (notes ? `📝 *ملاحظات التوصيل:* ${notes}\n` : '') +
+        (isAlreadyPaid
+          ? `✅ *حالة الدفع:* مدفوع مسبقاً (لا تحصّل أي مبالغ من العميل)\n`
+          : `💰 *المطلوب تحصيله (COD):* ${codAmount.toFixed(2)} ج.م (شامل التوصيل)\n`) +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `بالتوفيق يا ${driver.name.trim().startsWith('كابتن') ? driver.name.trim() : `كابتن ${driver.name.trim()}`} 🚀`;
+
+      let driverCleanPhone = String(driver.phone || '').replace(/\D/g, '');
+      if (driverCleanPhone.startsWith('0') && driverCleanPhone.length === 11) {
+        driverCleanPhone = `2${driverCleanPhone}`;
+      } else if (!driverCleanPhone.startsWith('2') && driverCleanPhone.length === 10) {
+        driverCleanPhone = `20${driverCleanPhone}`;
+      }
+
+      const whatsappUrl = `https://wa.me/${driverCleanPhone}?text=${encodeURIComponent(whatsappText)}`;
+
+      dispatchResult = {
+        success: true,
+        provider: 'driver',
+        deliveryId: `DRIVER-${driver.id}`,
+        trackingNumber: tracking,
+        trackingUrl: mapsUrl || null,
+        awbUrl: null,
+        driver: {
+          id: driver.id,
+          name: driver.name,
+          phone: driver.phone,
+          vehicleType: driver.vehicle_type
+        },
+        whatsappText,
+        whatsappUrl
+      };
     } else if (provider === 'manual') {
       // Manual / Private delivery driver
       const tracking = customTrackingNumber || `AWB-${order.order_number || order.id.slice(0, 8)}-${Date.now().toString().slice(-4)}`;
@@ -115,10 +199,13 @@ class CourierManager {
     const updateFields = {
       courier_name: dispatchResult.provider,
       courier_order_id: dispatchResult.deliveryId,
-      courier_status: 'created',
+      courier_status: dispatchResult.provider === 'driver' ? 'out_for_delivery' : 'created',
       tracking_number: dispatchResult.trackingNumber,
       tracking_url: dispatchResult.trackingUrl || null,
       awb_url: dispatchResult.awbUrl || null,
+      delivery_driver_id: dispatchResult.driver?.id || null,
+      delivery_driver_name: dispatchResult.driver?.name || null,
+      delivery_driver_phone: dispatchResult.driver?.phone || null,
       updated_at: new Date().toISOString()
     };
 
@@ -141,14 +228,18 @@ class CourierManager {
     }
 
     // 3. Log event in order_logs
-    await supabase.from('order_logs').insert([{
-      order_id: orderId,
-      store_id: storeId,
-      admin_id: null,
-      old_status: order.status,
-      new_status: updateFields.status || order.status,
-      note: `تم إنشاء شحنة عبر ${provider.toUpperCase()} برقم تتبع (${dispatchResult.trackingNumber})`
-    }]).catch((e) => logger.warn('[CourierManager] Log warning:', e.message));
+    try {
+      await supabase.from('order_logs').insert([{
+        order_id: orderId,
+        store_id: storeId,
+        admin_id: null,
+        old_status: order.status,
+        new_status: updateFields.status || order.status,
+        note: `تم إنشاء شحنة عبر ${provider.toUpperCase()} برقم تتبع (${dispatchResult.trackingNumber})`
+      }]);
+    } catch (e) {
+      logger.warn('[CourierManager] Log warning:', e.message);
+    }
 
     return {
       success: true,
@@ -156,7 +247,10 @@ class CourierManager {
       trackingNumber: dispatchResult.trackingNumber,
       trackingUrl: dispatchResult.trackingUrl,
       awbUrl: dispatchResult.awbUrl,
-      courierName: provider
+      courierName: provider,
+      driver: dispatchResult.driver || null,
+      whatsappUrl: dispatchResult.whatsappUrl || null,
+      whatsappText: dispatchResult.whatsappText || null
     };
   }
 
@@ -314,6 +408,74 @@ class CourierManager {
     }
 
     return { ignored: true };
+  }
+
+  /**
+   * Unassign shipping courier/driver from order
+   */
+  async unassignOrder(orderId, storeId) {
+    const { data: order, error: orderErr } = await supabase
+      .from('orders')
+      .select('id, order_number, status, courier_name, delivery_driver_name')
+      .eq('id', orderId)
+      .eq('store_id', storeId)
+      .maybeSingle();
+
+    if (orderErr) throw orderErr;
+    if (!order) {
+      const err = new Error('الطلب غير موجود');
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const previousDriver = order.delivery_driver_name || order.courier_name;
+
+    const updateFields = {
+      courier_name: null,
+      courier_order_id: null,
+      courier_status: null,
+      tracking_number: null,
+      tracking_url: null,
+      awb_url: null,
+      delivery_driver_id: null,
+      delivery_driver_name: null,
+      delivery_driver_phone: null,
+      updated_at: new Date().toISOString()
+    };
+
+    // If order was shipped, revert to confirmed
+    if (order.status === 'shipped') {
+      updateFields.status = 'confirmed';
+    }
+
+    const { data: updatedOrder, error: updateErr } = await supabase
+      .from('orders')
+      .update(updateFields)
+      .eq('id', orderId)
+      .eq('store_id', storeId)
+      .select('*')
+      .single();
+
+    if (updateErr) throw updateErr;
+
+    // Log unassignment in order_logs
+    try {
+      await supabase.from('order_logs').insert([{
+        order_id: orderId,
+        store_id: storeId,
+        old_status: order.status,
+        new_status: updateFields.status || order.status,
+        note: `تم إلغاء إسناد الشحن (${previousDriver || 'غير محدد'}) وإعادة الطلب للمتابعة.`
+      }]);
+    } catch (logErr) {
+      logger.warn('[CourierManager] Log unassign error:', logErr.message);
+    }
+
+    return {
+      success: true,
+      order: updatedOrder,
+      message: 'تم إلغاء إسناد الشحن وإعادة الطلب بنجاح.'
+    };
   }
 }
 
