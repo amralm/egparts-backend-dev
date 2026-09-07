@@ -13,6 +13,7 @@ const { createOrderSchema, whatsappOrderSchema, orderStatusSchema } = require('.
 const { normalizePaymentMethod } = require('../schemas/canonicalSchemas');
 const { calculateCouponDiscount } = require('../services/couponService');
 const abandonedCartService = require('../services/abandonedCartService');
+const { sendOrderDeliveredInvoiceWhatsApp } = require('../services/orderInvoiceNotifier');
 const logger = require('../utils/logger');
 
 const PLAN_UPGRADE_CHAIN = {
@@ -315,8 +316,13 @@ router.patch('/admin/:id/status', verifyPermission('orders.update_status'), vali
         : `Payment status updated via Admin: ${payment_status}`
     }]);
 
+    // Automatic WhatsApp Vector PDF Invoice on Delivery
+    if (status === 'delivered' && oldOrder.status !== 'delivered') {
+      sendOrderDeliveredInvoiceWhatsApp(id, req.store.id).catch((invErr) => {
+        logger.warn(`[orders] Auto-dispatch delivered invoice failed for ${id}:`, invErr.message);
+      });
+    }
 
-    // Duplicate manual WhatsApp notification removed since it is handled by DB triggers
     sendSuccess(res, { order });
   } catch (error) {
     console.error('Admin order status update error:', error.message);

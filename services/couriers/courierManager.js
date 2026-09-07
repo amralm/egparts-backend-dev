@@ -2,6 +2,7 @@
 
 const { supabase } = require('../supabase');
 const bostaService = require('./bostaService');
+const { sendOrderDeliveredInvoiceWhatsApp } = require('../orderInvoiceNotifier');
 const logger = require('../../utils/logger');
 
 class CourierManager {
@@ -293,6 +294,13 @@ class CourierManager {
       }
 
       await supabase.from('orders').update(updatePayload).eq('id', order.id);
+
+      // Auto-dispatch delivered PDF invoice on WhatsApp
+      if (updatePayload.status === 'delivered' && order.status !== 'delivered') {
+        sendOrderDeliveredInvoiceWhatsApp(order.id, order.store_id).catch((invErr) => {
+          logger.warn(`[CourierManager] Auto-dispatch delivered invoice failed for ${order.id}:`, invErr.message);
+        });
+      }
 
       await supabase.from('order_logs').insert([{
         order_id: order.id,

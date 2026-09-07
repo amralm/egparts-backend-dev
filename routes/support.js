@@ -51,22 +51,41 @@ async function handleListCustomerTickets(req, res) {
   }
 }
 
-// Post ticket message (Customer or Merchant)
-async function handleAddTicketMessage(req, res) {
+// Customer sends message on ticket
+async function handleCustomerAddTicketMessage(req, res) {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_CONTEXT_REQUIRED');
-  const { message, attachments, isInternalNote } = req.body || {};
-  
-  const isMerchant = await supportService.isStaffMember(req.user?.sub, req.store.id);
+  const { message, attachments } = req.body || {};
 
   try {
     const msg = await supportService.addTicketMessage({
       ticketId: req.params.id,
       storeId: req.store.id,
-      senderType: isMerchant ? 'merchant' : 'customer',
+      senderType: 'customer',
       senderId: req.user?.sub || null,
       message,
       attachments,
-      isInternalNote: isMerchant ? Boolean(isInternalNote) : false
+      isInternalNote: false // STRICT: Customers can never post internal notes
+    });
+    return sendSuccess(res, { message: msg }, 201);
+  } catch (err) {
+    return apiError(res, 400, err.message, 'MESSAGE_SEND_FAILED');
+  }
+}
+
+// Store Staff sends message or internal note on ticket
+async function handleStoreAddTicketMessage(req, res) {
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+  const { message, attachments, isInternalNote } = req.body || {};
+
+  try {
+    const msg = await supportService.addTicketMessage({
+      ticketId: req.params.id,
+      storeId: req.store.id,
+      senderType: 'merchant',
+      senderId: req.user?.sub || null,
+      message,
+      attachments,
+      isInternalNote: Boolean(isInternalNote)
     });
     return sendSuccess(res, { message: msg }, 201);
   } catch (err) {
@@ -106,11 +125,11 @@ async function handleUpdateTicketStatus(req, res) {
   }
 }
 
-// Store Admin gets single ticket
+// Store Admin gets single ticket (includes staff internal notes)
 async function handleGetStoreTicketDetails(req, res) {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_CONTEXT_REQUIRED');
   try {
-    const ticket = await supportService.getTicketDetails(req.params.id, req.store.id, null, true);
+    const ticket = await supportService.getTicketDetails(req.params.id, req.store.id, null, true, true);
     if (!ticket) return apiError(res, 404, 'التذكرة غير موجودة', 'TICKET_NOT_FOUND');
     return sendSuccess(res, { ticket });
   } catch (err) {
@@ -118,12 +137,13 @@ async function handleGetStoreTicketDetails(req, res) {
   }
 }
 
-// Customer gets single ticket details
+// Customer gets single ticket details (NEVER returns staff internal notes)
 async function handleGetCustomerTicketDetails(req, res) {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_CONTEXT_REQUIRED');
   try {
     const isMerchant = await supportService.isStaffMember(req.user?.sub, req.store.id);
-    const ticket = await supportService.getTicketDetails(req.params.id, req.store.id, req.user?.sub || null, isMerchant);
+    // STRICT ZERO-TRUST: includeInternalNotes is ALWAYS false on customer endpoints
+    const ticket = await supportService.getTicketDetails(req.params.id, req.store.id, req.user?.sub || null, isMerchant, false);
     if (!ticket) return apiError(res, 404, 'التذكرة غير موجودة', 'TICKET_NOT_FOUND');
     return sendSuccess(res, { ticket });
   } catch (err) {
@@ -136,22 +156,22 @@ const customerRouter = express.Router();
 customerRouter.post('/tickets', optionalAuth, ticketLimiter, handleCreateTicket);
 customerRouter.get('/tickets/my', verifyUser, handleListCustomerTickets);
 customerRouter.get('/tickets/:id', optionalAuth, handleGetCustomerTicketDetails);
-customerRouter.post('/tickets/:id/messages', optionalAuth, ticketLimiter, handleAddTicketMessage);
+customerRouter.post('/tickets/:id/messages', optionalAuth, ticketLimiter, handleCustomerAddTicketMessage);
 customerRouter.post('/', optionalAuth, ticketLimiter, handleCreateTicket);
 customerRouter.get('/my', verifyUser, handleListCustomerTickets);
 customerRouter.get('/:id', optionalAuth, handleGetCustomerTicketDetails);
-customerRouter.post('/:id/messages', optionalAuth, ticketLimiter, handleAddTicketMessage);
+customerRouter.post('/:id/messages', optionalAuth, ticketLimiter, handleCustomerAddTicketMessage);
 
 // ── Merchant Admin Router (Mounted at /api/admin/support) ─────────────
 const adminRouter = express.Router();
 adminRouter.get('/tickets', verifyPermission('support.view'), handleListStoreTickets);
 adminRouter.get('/tickets/:id', verifyPermission('support.view'), handleGetStoreTicketDetails);
 adminRouter.patch('/tickets/:id/status', verifyPermission('support.manage'), handleUpdateTicketStatus);
-adminRouter.post('/tickets/:id/messages', verifyPermission('support.manage'), ticketLimiter, handleAddTicketMessage);
+adminRouter.post('/tickets/:id/messages', verifyPermission('support.manage'), ticketLimiter, handleStoreAddTicketMessage);
 adminRouter.get('/', verifyPermission('support.view'), handleListStoreTickets);
 adminRouter.get('/:id', verifyPermission('support.view'), handleGetStoreTicketDetails);
 adminRouter.patch('/:id/status', verifyPermission('support.manage'), handleUpdateTicketStatus);
-adminRouter.post('/:id/messages', verifyPermission('support.manage'), ticketLimiter, handleAddTicketMessage);
+adminRouter.post('/:id/messages', verifyPermission('support.manage'), ticketLimiter, handleStoreAddTicketMessage);
 
 // ── Combined Root Router ──────────────────────────────────────────────
 const rootRouter = express.Router();
@@ -160,11 +180,11 @@ const rootRouter = express.Router();
 rootRouter.get('/admin/tickets', verifyPermission('support.view'), handleListStoreTickets);
 rootRouter.get('/admin/tickets/:id', verifyPermission('support.view'), handleGetStoreTicketDetails);
 rootRouter.patch('/admin/tickets/:id/status', verifyPermission('support.manage'), handleUpdateTicketStatus);
-rootRouter.post('/admin/tickets/:id/messages', verifyPermission('support.manage'), ticketLimiter, handleAddTicketMessage);
+rootRouter.post('/admin/tickets/:id/messages', verifyPermission('support.manage'), ticketLimiter, handleStoreAddTicketMessage);
 
 rootRouter.post('/tickets', optionalAuth, ticketLimiter, handleCreateTicket);
 rootRouter.get('/tickets/my', verifyUser, handleListCustomerTickets);
-rootRouter.post('/tickets/:id/messages', optionalAuth, ticketLimiter, handleAddTicketMessage);
+rootRouter.post('/tickets/:id/messages', optionalAuth, ticketLimiter, handleCustomerAddTicketMessage);
 rootRouter.get('/tickets/:id', optionalAuth, handleGetCustomerTicketDetails);
 
 rootRouter.customerRouter = customerRouter;

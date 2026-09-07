@@ -105,7 +105,7 @@ async function listCustomerTickets(userId, storeId) {
   return data || [];
 }
 
-async function getTicketDetails(ticketId, storeId, userId = null, isMerchant = false) {
+async function getTicketDetails(ticketId, storeId, userId = null, isMerchant = false, includeInternalNotes = false) {
   let query = supabase
     .from('store_support_tickets')
     .select(`
@@ -130,7 +130,10 @@ async function getTicketDetails(ticketId, storeId, userId = null, isMerchant = f
     .eq('ticket_id', ticketId)
     .order('created_at', { ascending: true });
 
-  if (!isMerchant) {
+  // STRICT ZERO-TRUST ISOLATION:
+  // Internal notes are strictly staff-only and must NEVER be retrieved
+  // unless explicitly requested by an authenticated staff admin endpoint (includeInternalNotes === true).
+  if (!includeInternalNotes) {
     msgQuery = msgQuery.eq('is_internal_note', false);
   }
 

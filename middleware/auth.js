@@ -231,6 +231,10 @@ const verifyAdmin = (req, res, next) => {
     const userId = req.user?.sub;
     const storeId = req.store?.id;
 
+    if (req.user?.role === 'cashier') {
+      return apiError(res, 403, 'Forbidden: Cashier cannot perform store admin operations', 'CASHIER_SCOPE_RESTRICTED');
+    }
+
     try {
       const [{ data: superAdmin, error: saErr }, { data: storeAdmin, error: saStoreErr }] = await Promise.all([
         supabase.from('super_admins').select('user_id').eq('user_id', userId).maybeSingle(),
@@ -346,11 +350,43 @@ const verifyPermission = (permissionName) => {
         return apiError(res, 403, 'Forbidden: Tenant context required', `HTTP_403`);
       }
 
+      // Zero-Trust Session Scoping
       const isCashierSession = decoded.role === 'cashier' || req.headers['x-pos-session-role'] === 'cashier';
+      const isManagerPinSession = decoded.role === 'manager' && decoded.pin_verified === true;
+      const storeHasPin = Boolean(req.store?.pos_manager_pin_hash);
+
+      // 1. Cashier session strict isolation:
+      if (isCashierSession) {
+        const cashierAllowedPermissions = [
+          'tenant.orders.read', 'orders.read', 'orders.view',
+          'tenant.orders.write', 'orders.create', 'orders.write',
+          'tenant.products.read', 'products.view', 'products.read'
+        ];
+        const hasCashierPerm = expandedPerms.some((p) => cashierAllowedPermissions.includes(p));
+        if (!hasCashierPerm) {
+          return apiError(res, 403, 'غير مصرح: هذا الإجراء مخصص لمدير المتجر فقط ولا يملكه الكاشير', 'CASHIER_SCOPE_RESTRICTED');
+        }
+        return next();
+      }
+
+      // 2. Zero-Trust PIN Gate:
+      // If the store has a configured manager PIN, and user is attempting sensitive store management
+      // (settings, finances, reports, staff management, product catalog mutations),
+      // require cryptographic Manager PIN verification.
+      if (storeHasPin && req.isImpersonated !== true && !isManagerPinSession) {
+        const publicStoreOperations = [
+          'tenant.orders.read', 'orders.read', 'orders.view',
+          'tenant.products.read', 'products.view', 'products.read'
+        ];
+        const requiresElevation = expandedPerms.some((p) => !publicStoreOperations.includes(p));
+        if (requiresElevation) {
+          return apiError(res, 403, 'يتعين إدخال رمز PIN المدير للوصول إلى لوحة التحكم أو تعديل البيانات الحساسة', 'PIN_VERIFICATION_REQUIRED');
+        }
+      }
 
       const storePermissions = await resolveStorePermissions(userId, storeId, {
         impersonated: req.isImpersonated === true,
-        role: isCashierSession ? 'cashier' : decoded.role
+        role: decoded.role
       });
 
       const hasStorePerm = expandedPerms.some((p) => storePermissions.includes(p));

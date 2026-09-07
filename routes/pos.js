@@ -5,7 +5,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { supabase } = require('../services/supabase');
-const { verifyPermission } = require('../middleware/auth');
+const { verifyUser, verifyPermission } = require('../middleware/auth');
 const { sendSuccess } = require('../utils/apiResponse');
 const { apiError } = require('../utils/apiError');
 const logger = require('../utils/logger');
@@ -733,7 +733,7 @@ router.get('/shifts/history', verifyPermission(['tenant.orders.read', 'orders.vi
 
 // ── POST /api/pos/switch-cashier ──
 // Fast PIN authentication for Cashier & Manager on POS Terminal
-router.post('/switch-cashier', verifyPermission(['tenant.orders.read', 'orders.view', 'tenant.products.read', 'products.view', 'orders.read']), async (req, res) => {
+router.post('/switch-cashier', verifyUser, async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   const parseResult = switchCashierSchema.safeParse(req.body);
@@ -753,13 +753,30 @@ router.post('/switch-cashier', verifyPermission(['tenant.orders.read', 'orders.v
       .maybeSingle();
 
     if (storeRow?.pos_manager_pin_hash && storeRow.pos_manager_pin_hash === pinHash) {
+      let managerToken = null;
+      if (process.env.SUPABASE_JWT_SECRET) {
+        try {
+          managerToken = jwt.sign({
+            sub: req.user?.sub || 'manager',
+            store_id: req.store.id,
+            role: 'manager',
+            pin_verified: true,
+            scope: 'manager_full',
+            parent_user_id: req.user?.sub
+          }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
+        } catch (tokenErr) {
+          logger.warn('[pos] could not sign manager token:', tokenErr.message);
+        }
+      }
+
       return sendSuccess(res, {
         mode: 'manager',
         cashier: {
           id: req.user?.sub || 'manager',
           name: 'مدير المتجر',
           role: 'owner'
-        }
+        },
+        session_token: managerToken
       }, { message: 'تم فتح لوحة تحكم المدير بنجاح' });
     }
 
@@ -789,6 +806,8 @@ router.post('/switch-cashier', verifyPermission(['tenant.orders.read', 'orders.v
           store_id: req.store.id,
           role: 'cashier',
           cashier_name: cashier.name,
+          pin_verified: true,
+          scope: 'cashier_pos_only',
           parent_user_id: req.user?.sub
         }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
       } catch (tokenErr) {
@@ -839,7 +858,27 @@ router.post('/terminal/unlock', verifyPermission(['tenant.orders.read', 'orders.
       return apiError(res, 401, 'رمز PIN المدير غير صحيح', 'INVALID_MANAGER_PIN');
     }
 
-    sendSuccess(res, { unlocked: true }, { message: 'تم إلغاء قفل الإدارة بنجاح' });
+    let managerToken = null;
+    if (process.env.SUPABASE_JWT_SECRET) {
+      try {
+        managerToken = jwt.sign({
+          sub: req.user?.sub || 'manager',
+          store_id: req.store.id,
+          role: 'manager',
+          pin_verified: true,
+          scope: 'manager_full',
+          parent_user_id: req.user?.sub
+        }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
+      } catch (tokenErr) {
+        logger.warn('[pos] could not sign manager unlock token:', tokenErr.message);
+      }
+    }
+
+    sendSuccess(res, {
+      unlocked: true,
+      mode: 'manager',
+      session_token: managerToken
+    }, { message: 'تم إلغاء قفل الإدارة بنجاح' });
   } catch (err) {
     logger.error('[pos] terminal unlock failed:', err.message);
     apiError(res, 500, 'فشل إلغاء قفل الـ POS', 'HTTP_500');

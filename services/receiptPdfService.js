@@ -86,9 +86,21 @@ async function generateReceiptPdf({ order, store, cashierName = 'الكاشير'
 
     const subtotal = Number(order.subtotal || order.total || 0).toFixed(2);
     const discount = Number(order.discount || order.discount_amount || 0).toFixed(2);
+    const shippingFee = Number(order.shipping_fee || 0).toFixed(2);
+    const hasShipping = Number(shippingFee) > 0;
     const total = Number(order.total || order.total_amount || 0).toFixed(2);
-    const payMethod = order.payment_method === 'card' ? 'بطاقة بنكية / فيزا' : 'نقداً (كاش)';
-    const customerName = (order.customer_name || order.metadata?.customer_name || 'عميل نقدي')
+    
+    let payMethod = 'نقداً (كاش)';
+    if (order.payment_method === 'card') payMethod = 'بطاقة بنكية / فيزا';
+    else if (order.payment_method === 'wallet') payMethod = 'محفظة إلكترونية';
+    else if (order.payment_method === 'cod') payMethod = 'الدفع عند الاستلام (COD)';
+
+    const isOnline = Boolean(order.shipping_fee !== undefined && order.shipping_fee !== null && cashierName === 'متجر إلكتروني');
+    const invoiceTitle = isOnline ? 'فاتورة مبيعات إلكترونية معتمدة' : 'إيصال مبيعات نقدية (POS)';
+    const operatorLabel = isOnline ? 'قناة الطلب:' : 'الكاشير:';
+    const operatorValue = isOnline ? 'متجر إلكتروني (أونلاين)' : cashierName;
+
+    const customerName = (order.customer_name || order.customer?.name || order.metadata?.customer_name || 'عميل المتجر')
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     // Render items rows
@@ -112,7 +124,11 @@ async function generateReceiptPdf({ order, store, cashierName = 'الكاشير'
     // Dynamic positioning for totals, barcode, QR code, and footer
     const totalsY = yPos + 10;
     const hasDiscount = Number(discount) > 0;
-    const totalBoxY = hasDiscount ? totalsY + 62 : totalsY + 42;
+    let extraTotalsOffset = 0;
+    if (hasDiscount) extraTotalsOffset += 22;
+    if (hasShipping) extraTotalsOffset += 22;
+
+    const totalBoxY = totalsY + 42 + extraTotalsOffset;
     const payMethodY = totalBoxY + 58;
     const barcodeY = payMethodY + 25;
     const barcodeHeight = 56;
@@ -146,7 +162,7 @@ async function generateReceiptPdf({ order, store, cashierName = 'الكاشير'
       <!-- Top Header & Store Name -->
       <rect x="0" y="0" width="${width}" height="6" fill="#10B981"/>
       <text x="300" y="45" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="22" font-weight="bold" fill="#111827" text-anchor="middle">${storeName}</text>
-      <text x="300" y="70" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="14" font-weight="bold" fill="#059669" text-anchor="middle">إيصال مبيعات نقدية (POS)</text>
+      <text x="300" y="70" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="14" font-weight="bold" fill="#059669" text-anchor="middle">${invoiceTitle}</text>
       
       <!-- Metadata Box -->
       <line x1="40" y1="85" x2="560" y2="85" stroke="#E5E7EB" stroke-width="1.5" stroke-dasharray="4,4"/>
@@ -157,8 +173,8 @@ async function generateReceiptPdf({ order, store, cashierName = 'الكاشير'
       <text x="220" y="110" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#6B7280" text-anchor="end">التاريخ:</text>
       <text x="50" y="110" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="12" fill="#111827" text-anchor="start">${dateStr}</text>
 
-      <text x="550" y="135" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#6B7280" text-anchor="end">الكاشير:</text>
-      <text x="450" y="135" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" font-weight="bold" fill="#111827" text-anchor="end">${cashierName}</text>
+      <text x="550" y="135" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#6B7280" text-anchor="end">${operatorLabel}</text>
+      <text x="450" y="135" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" font-weight="bold" fill="#111827" text-anchor="end">${operatorValue}</text>
 
       <text x="220" y="135" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#6B7280" text-anchor="end">العميل:</text>
       <text x="50" y="135" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" font-weight="bold" fill="#111827" text-anchor="start">${customerName}</text>
@@ -183,6 +199,11 @@ async function generateReceiptPdf({ order, store, cashierName = 'الكاشير'
       ${hasDiscount ? `
       <text x="550" y="${totalsY + 48}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#EF4444" text-anchor="end">الخصم:</text>
       <text x="50" y="${totalsY + 48}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#EF4444" text-anchor="start">-${discount} ج.م</text>
+      ` : ''}
+
+      ${hasShipping ? `
+      <text x="550" y="${totalsY + (hasDiscount ? 70 : 48)}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#6B7280" text-anchor="end">تكلفة الشحن:</text>
+      <text x="50" y="${totalsY + (hasDiscount ? 70 : 48)}" font-family="Arial, 'Segoe UI', Tahoma, sans-serif" font-size="13" fill="#111827" text-anchor="start">${shippingFee} ج.م</text>
       ` : ''}
 
       <rect x="40" y="${totalBoxY}" width="520" height="42" fill="#ECFDF5" rx="6" stroke="#A7F3D0"/>
