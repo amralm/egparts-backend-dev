@@ -5,10 +5,11 @@ const router = express.Router();
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { supabase } = require('../services/supabase');
-const { verifyUser, verifyPermission } = require('../middleware/auth');
+const { verifyUser, verifyPermission, optionalAuth } = require('../middleware/auth');
 const { sendSuccess } = require('../utils/apiResponse');
 const { apiError } = require('../utils/apiError');
 const logger = require('../utils/logger');
+const rateLimit = require('express-rate-limit');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
 const whatsappPoolService = require('../services/whatsappPoolService');
 const { generateReceiptPdf } = require('../services/receiptPdfService');
@@ -24,6 +25,20 @@ const {
   switchCashierSchema,
   managerPinSchema
 } = require('../schemas/posSchemas');
+
+// Dedicated rate limiter for POS PIN authentication / unlock attempts (15 attempts/minute per IP)
+const posPinLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    code: 'RATE_LIMITED',
+    message: 'تم تجاوز عدد محاولات إدخال الرمز المسموح بها. يرجى الانتظار دقيقة والمحاولة مرة أخرى.',
+    data: null
+  }
+});
 
 function hashPin(storeId, pin) {
   return crypto.createHash('sha256').update(`${storeId}:${String(pin).trim()}`).digest('hex');
@@ -41,14 +56,27 @@ async function resolveStoreOwnerUserId(storeId, currentUserId) {
       if (directRole?.user_id) return directRole.user_id;
     }
 
+    // Resolve true store owner from user_roles
     const { data: storeOwnerRole } = await supabase
+      .from('user_roles')
+      .select('user_id, roles!inner(name, role_type)')
+      .eq('store_id', storeId)
+      .eq('roles.role_type', 'tenant')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (storeOwnerRole?.user_id) return storeOwnerRole.user_id;
+
+    // Secondary fallback: first user assigned to this store
+    const { data: anyStoreUser } = await supabase
       .from('user_roles')
       .select('user_id')
       .eq('store_id', storeId)
       .limit(1)
       .maybeSingle();
 
-    if (storeOwnerRole?.user_id) return storeOwnerRole.user_id;
+    if (anyStoreUser?.user_id) return anyStoreUser.user_id;
   } catch (err) {
     logger.warn('[pos] resolveStoreOwnerUserId failed:', err.message);
   }
@@ -805,7 +833,7 @@ router.get('/shifts/history', verifyPermission(['tenant.orders.read', 'orders.vi
 
 // ── POST /api/pos/switch-cashier ──
 // Fast PIN authentication for Cashier & Manager on POS Terminal
-router.post('/switch-cashier', verifyUser, async (req, res) => {
+router.post('/switch-cashier', posPinLimiter, optionalAuth, async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   const parseResult = switchCashierSchema.safeParse(req.body);
@@ -905,7 +933,7 @@ router.post('/switch-cashier', verifyUser, async (req, res) => {
 
 // ── POST /api/pos/terminal/unlock ──
 // Unlock manager mode from POS Terminal using manager PIN
-router.post('/terminal/unlock', verifyPermission(['tenant.orders.read', 'orders.view', 'orders.read']), async (req, res) => {
+router.post('/terminal/unlock', posPinLimiter, optionalAuth, async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   const parseResult = managerPinSchema.safeParse(req.body);
