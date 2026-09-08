@@ -4,10 +4,11 @@ const { z } = require('zod');
 
 const posOrderItemSchema = z.object({
   id: z.string().uuid({ message: 'معرف المنتج غير صالح' }),
+  variant_id: z.string().uuid({ message: 'معرف النسخة غير صالح' }).nullable().optional(),
   qty: z.coerce.number().int().min(1, { message: 'الكمية يجب أن تكون 1 على الأقل' }),
   price: z.coerce.number().min(0, { message: 'السعر غير صالح' }).optional(),
   name: z.string().trim().optional()
-});
+}).strip();
 
 const posOrderSchema = z.object({
   items: z.array(posOrderItemSchema).min(1, { message: 'السلة فارغة. يرجى إضافة منتج واحد على الأقل.' }),
@@ -22,11 +23,12 @@ const posOrderSchema = z.object({
 
 const posReturnItemSchema = z.object({
   id: z.string().uuid({ message: 'معرف المنتج غير صالح' }),
+  variant_id: z.string().uuid({ message: 'معرف النسخة غير صالح' }).nullable().optional(),
   qty: z.coerce.number().int().min(1, { message: 'الكمية المرتجعة يجب أن تكون 1 على الأقل' }),
   price: z.coerce.number().min(0, { message: 'السعر غير صالح' }).optional(),
   condition: z.enum(['sound', 'damaged']).default('sound'),
   name: z.string().trim().optional()
-});
+}).strip();
 
 const posReturnSchema = z.object({
   order_id: z.string().uuid({ message: 'معرف الفاتورة غير صالح' }),

@@ -107,7 +107,10 @@ async function generateReceiptPdf({ order, store, cashierName = 'الكاشير'
     let yPos = 220;
     const itemRowHeight = 32;
     const itemRowsSvg = items.map((item) => {
-      const name = (item.name || item.title || 'صنف').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const variantTitle = item.variant_title_snapshot || item.variant_title || '';
+      const baseName = item.name || item.title || 'صنف';
+      const fullName = variantTitle ? `${baseName} (${variantTitle})` : baseName;
+      const name = fullName.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const qty = item.qty || item.quantity || 1;
       const price = Number(item.price || item.unit_price || 0).toFixed(2);
       const lineTotal = (qty * price).toFixed(2);

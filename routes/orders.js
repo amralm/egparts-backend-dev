@@ -91,6 +91,8 @@ function enrichOrderItems(order) {
       return {
         ...item,
         id: item.id || item.product_id,
+        variant_id: item.variant_id || null,
+        variant_title_snapshot: item.variant_title_snapshot || item.variant_title || null,
         title: title,
         name: item.name || title,
         qty: Number(item.qty ?? item.quantity ?? 1),
@@ -427,9 +429,11 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
 
   try {
     const productIds = items.map((item) => item?.id).filter(Boolean);
+    const variantIds = items.map((item) => item?.variant_id).filter(Boolean);
+
     const { data: tenantProducts, error: productError } = await supabase
       .from('products')
-      .select('id, price')
+      .select('id, name, price, has_variants')
       .in('id', productIds)
       .eq('store_id', req.store.id)
       .eq('is_active', true)
@@ -442,10 +446,44 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
       return apiError(res, 400, 'Invalid cart items', `HTTP_400`);
     }
 
-    const normalizedItems = items.map(item => ({ id: item.id, qty: Number(item.qty ?? item.quantity ?? 0) }));
+    let tenantVariants = [];
+    if (variantIds.length > 0) {
+      const { data: varData, error: varError } = await supabase
+        .from('product_variants')
+        .select('id, product_id, title, price, is_active, is_archived')
+        .in('id', variantIds)
+        .eq('store_id', req.store.id)
+        .eq('is_active', true)
+        .eq('is_archived', false);
+      if (varError) throw varError;
+      tenantVariants = varData || [];
+    }
+
+    const normalizedItems = items.map(item => ({
+      id: item.id,
+      variant_id: item.variant_id || null,
+      qty: Number(item.qty ?? item.quantity ?? 0)
+    }));
+
     if (normalizedItems.some(item => !item.id || !Number.isInteger(item.qty) || item.qty < 1)) {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
       return apiError(res, 400, 'Invalid cart quantities', `HTTP_400`);
+    }
+
+    // Validate that products with has_variants have valid variant_id
+    for (const nit of normalizedItems) {
+      const parentProd = (tenantProducts || []).find(p => String(p.id) === String(nit.id));
+      if (parentProd?.has_variants) {
+        if (!nit.variant_id) {
+          await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+          return apiError(res, 400, `الرجاء اختيار مواصفات المنتج: ${parentProd.name}`, 'VARIANT_REQUIRED');
+        }
+        const matchedVar = tenantVariants.find(v => String(v.id) === String(nit.variant_id) && String(v.product_id) === String(parentProd.id));
+        if (!matchedVar) {
+          await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+          return apiError(res, 400, `النسخة المختارة من "${parentProd.name}" غير متوفرة`, 'VARIANT_NOT_FOUND');
+        }
+      }
     }
 
     if (paymentMethod === 'cod') {
@@ -458,7 +496,12 @@ router.post('/whatsapp-checkout', verifyUser, orderRateLimiter, validateBody(wha
       if (storeSiteSettings?.cod_max_threshold_enabled) {
         const maxThreshold = Number(storeSiteSettings.cod_max_threshold) || 1000;
         const productsMap = new Map((tenantProducts || []).map(p => [String(p.id), Number(p.price || 0)]));
-        const estimatedSubtotal = normalizedItems.reduce((sum, it) => sum + (productsMap.get(String(it.id)) || 0) * it.qty, 0);
+        const variantsMap = new Map(tenantVariants.map(v => [String(v.id), Number(v.price)]));
+        const estimatedSubtotal = normalizedItems.reduce((sum, it) => {
+          const varPrice = it.variant_id ? variantsMap.get(String(it.variant_id)) : null;
+          const price = varPrice != null ? varPrice : (productsMap.get(String(it.id)) || 0);
+          return sum + price * it.qty;
+        }, 0);
         if (estimatedSubtotal > maxThreshold) {
           await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
           return apiError(
@@ -596,10 +639,11 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
     let calculatedSubtotal = 0;
     const itemsWithPrices = [];
     const productIds = items.map(item => item.id);
+    const variantIds = items.map(item => item.variant_id).filter(Boolean);
     
     const { data: products, error: prodError } = await supabase
       .from('products')
-      .select('id, name, price, cost_price, stock_quantity')
+      .select('id, name, price, cost_price, stock_quantity, has_variants')
       .in('id', productIds)
       .eq('store_id', req.store.id);
 
@@ -608,26 +652,69 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
       throw new Error('Could not fetch product prices');
     }
 
+    let variants = [];
+    if (variantIds.length > 0) {
+      const { data: varData, error: varError } = await supabase
+        .from('product_variants')
+        .select('id, product_id, title, price, cost_price, stock_quantity, is_active, is_archived')
+        .in('id', variantIds)
+        .eq('store_id', req.store.id)
+        .eq('is_active', true)
+        .eq('is_archived', false);
+
+      if (varError) {
+        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+        throw new Error('Could not fetch variant prices');
+      }
+      variants = varData || [];
+    }
+
     for (const item of items) {
       const dbProduct = products.find(p => p.id === item.id);
       if (!dbProduct) {
         await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
         return apiError(res, 404, 'المنتج غير موجود أو غير متاح في هذا المتجر', 'PRODUCT_NOT_FOUND');
       }
-      if ((dbProduct.stock_quantity || 0) < item.qty) {
-        await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-        return apiError(res, 400, `عذراً، الكمية المتاحة من "${dbProduct.name}" غير كافية لإتمام طلبك`, 'INSUFFICIENT_STOCK');
+
+      let itemPrice = Number(dbProduct.price) || 0;
+      let itemCost = Number(dbProduct.cost_price) || 0;
+      let itemTitle = dbProduct.name;
+      let selectedVariantId = null;
+
+      if (dbProduct.has_variants) {
+        if (!item.variant_id) {
+          await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+          return apiError(res, 400, `الرجاء اختيار مواصفات المنتج: ${dbProduct.name}`, 'VARIANT_REQUIRED');
+        }
+        const dbVariant = variants.find(v => v.id === item.variant_id && v.product_id === dbProduct.id);
+        if (!dbVariant) {
+          await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+          return apiError(res, 400, `النسخة المختارة من "${dbProduct.name}" غير متوفرة`, 'VARIANT_NOT_FOUND');
+        }
+        if ((dbVariant.stock_quantity || 0) < item.qty) {
+          await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+          return apiError(res, 400, `عذراً، الكمية المتاحة من "${dbProduct.name} - ${dbVariant.title}" غير كافية لإتمام طلبك`, 'INSUFFICIENT_STOCK');
+        }
+        if (dbVariant.price != null) itemPrice = Number(dbVariant.price);
+        if (dbVariant.cost_price != null) itemCost = Number(dbVariant.cost_price);
+        itemTitle = `${dbProduct.name} (${dbVariant.title})`;
+        selectedVariantId = dbVariant.id;
+      } else {
+        if ((dbProduct.stock_quantity || 0) < item.qty) {
+          await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+          return apiError(res, 400, `عذراً، الكمية المتاحة من "${dbProduct.name}" غير كافية لإتمام طلبك`, 'INSUFFICIENT_STOCK');
+        }
       }
 
-      const itemPrice = Number(dbProduct.price) || 0;
       calculatedSubtotal += itemPrice * item.qty;
       itemsWithPrices.push({
         id: dbProduct.id,
-        title: dbProduct.name,
+        variant_id: selectedVariantId,
+        title: itemTitle,
         qty: item.qty,
         price: itemPrice,
-        unit_cost_snapshot: dbProduct.cost_price || 0,
-        gross_profit: (itemPrice - (dbProduct.cost_price || 0)) * item.qty
+        unit_cost_snapshot: itemCost,
+        gross_profit: (itemPrice - itemCost) * item.qty
       });
     }
 
@@ -706,6 +793,7 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
         p_user_id: userId,
         p_items: itemsWithPrices.map(item => ({
           id: item.id,
+          variant_id: item.variant_id || null,
           qty: Number(item.qty || 1),
           title: item.title,
           name: item.title,

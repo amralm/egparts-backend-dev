@@ -38,9 +38,28 @@ router.get('/products', verifyPermission(['tenant.orders.read', 'orders.view', '
     const { q, category_id, category } = req.query;
     const catFilter = category || category_id;
 
+    let matchedVariantId = null;
+    let barcodeProductId = null;
+    if (q && q.trim()) {
+      const normBarcode = q.trim().toLowerCase();
+      const { data: regMatch } = await supabase
+        .from('store_barcode_registry')
+        .select('entity_type, entity_id, product_id')
+        .eq('store_id', req.store.id)
+        .eq('normalized_barcode', normBarcode)
+        .maybeSingle();
+
+      if (regMatch) {
+        barcodeProductId = regMatch.product_id;
+        if (regMatch.entity_type === 'variant') {
+          matchedVariantId = regMatch.entity_id;
+        }
+      }
+    }
+
     let query = supabase
       .from('products')
-      .select('id, name, price, stock_quantity, stock, image, category, part_number, is_active, is_deleted, specs')
+      .select('id, name, price, stock_quantity, stock, image, category, part_number, is_active, is_deleted, specs, has_variants, options_summary')
       .eq('store_id', req.store.id)
       .eq('is_active', true)
       .eq('is_deleted', false)
@@ -51,7 +70,9 @@ router.get('/products', verifyPermission(['tenant.orders.read', 'orders.view', '
       query = query.eq('category', catFilter);
     }
 
-    if (q && q.trim()) {
+    if (barcodeProductId) {
+      query = query.eq('id', barcodeProductId);
+    } else if (q && q.trim()) {
       const searchTerm = q.trim();
       query = query.or(`name.ilike.%${searchTerm}%,part_number.ilike.%${searchTerm}%,category.ilike.%${searchTerm}%`);
     }
@@ -59,11 +80,31 @@ router.get('/products', verifyPermission(['tenant.orders.read', 'orders.view', '
     const { data: products, error } = await query;
     if (error) throw error;
 
+    const variantProductIds = (products || []).filter(p => p.has_variants).map(p => p.id);
+    let variantsByProduct = {};
+    if (variantProductIds.length > 0) {
+      const { data: dbVariants } = await supabase
+        .from('product_variants')
+        .select('id, product_id, title, price, stock_quantity, sku, barcode, combination_key, is_active')
+        .in('product_id', variantProductIds)
+        .eq('store_id', req.store.id)
+        .eq('is_active', true)
+        .eq('is_archived', false)
+        .order('created_at', { ascending: true });
+
+      (dbVariants || []).forEach(v => {
+        if (!variantsByProduct[v.product_id]) variantsByProduct[v.product_id] = [];
+        variantsByProduct[v.product_id].push(v);
+      });
+    }
+
     const normalized = (products || []).map(p => ({
       ...p,
       stock_quantity: p.stock_quantity !== null && p.stock_quantity !== undefined ? p.stock_quantity : (p.stock || 0),
       sku: p.part_number || '',
-      barcode: p.specs?.barcode || p.part_number || ''
+      barcode: p.specs?.barcode || p.part_number || '',
+      variants: variantsByProduct[p.id] || [],
+      matched_variant_id: barcodeProductId && p.id === barcodeProductId ? matchedVariantId : null
     }));
 
     sendSuccess(res, { products: normalized });
@@ -147,7 +188,12 @@ router.post('/orders', verifyPermission(['tenant.orders.write', 'orders.create',
     });
 
     // 2. Execute atomic RPC (sanitizing items to strip any client-sent price)
-    const sanitizedItems = items.map(it => ({ id: it.id, qty: Number(it.qty), name: it.name || undefined }));
+    const sanitizedItems = items.map(it => ({
+      id: it.id,
+      variant_id: it.variant_id || null,
+      qty: Number(it.qty),
+      name: it.name || undefined
+    }));
     const { data: rpcResult, error: rpcError } = await supabase.rpc('create_pos_order_atomic', {
       p_store_id: req.store.id,
       p_user_id: userId,

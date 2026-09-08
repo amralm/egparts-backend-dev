@@ -104,10 +104,10 @@ router.post('/cart/validate', async (req, res) => {
   const storeId = requireStore(req, res);
   if (!storeId) return;
   try {
-    const items = req.body?.items || [];
-    const ids = req.body?.ids || items.map(i => i?.id || i).filter(Boolean);
-    const products = await storefrontService.validateCart(storeId, ids);
-    sendSuccess(res, { products });
+    const rawItems = req.body?.items || req.body?.ids || [];
+    const items = rawItems.map(i => (typeof i === 'object' && i !== null ? { id: i.id, variant_id: i.variant_id } : { id: i, variant_id: null })).filter(i => i.id);
+    const { products, variants } = await storefrontService.validateCart(storeId, items);
+    sendSuccess(res, { products, variants });
   } catch (err) {
     logger.error('[storefront] cart validate failed:', err.message);
     apiError(res, 500, 'Unable to validate cart.', `HTTP_500`);

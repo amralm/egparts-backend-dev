@@ -2,7 +2,39 @@ const { z } = require('zod');
 
 const mediaKey = z.string().trim().max(2000);
 
-const productSchema = z.object({
+const productOptionValueSchema = z.object({
+  id: z.string().uuid().optional(),
+  value: z.string().trim().min(1).max(80),
+  sort_order: z.coerce.number().int().min(0).max(1000).optional().default(0)
+}).strip();
+
+const productOptionSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().trim().min(1).max(80),
+  sort_order: z.coerce.number().int().min(0).max(1000).optional().default(0),
+  values: z.array(z.union([z.string().trim().min(1).max(80), productOptionValueSchema])).min(1).max(25)
+}).strip();
+
+const productVariantSchema = z.object({
+  id: z.string().uuid().optional(),
+  title: z.string().trim().min(1).max(160),
+  sku: z.preprocess((v) => v === '' ? null : v, z.string().trim().max(120).nullable().optional().default(null)),
+  barcode: z.preprocess((v) => v === '' ? null : v, z.string().trim().max(120).nullable().optional().default(null)),
+  price: z.preprocess((value) => value === '' || value === null || value === undefined ? null : value, z.coerce.number().finite().min(0).max(1_000_000_000).nullable()).optional().default(null),
+  old_price: z.preprocess((value) => value === '' || value === null || value === undefined ? null : value, z.coerce.number().finite().min(0).max(1_000_000_000).nullable()).optional().default(null),
+  cost_price: z.preprocess((value) => value === '' || value === null || value === undefined ? null : value, z.coerce.number().finite().min(0).max(1_000_000_000).nullable()).optional().default(null),
+  stock_quantity: z.coerce.number().int().min(0).max(100_000_000).default(0),
+  image: mediaKey.optional().default(''),
+  option_values: z.record(z.string(), z.string()).optional(),
+  option_value_ids: z.array(z.string().uuid()).optional().default([]),
+  is_active: z.boolean().optional().default(true),
+  is_archived: z.boolean().optional().default(false)
+}).strip().refine((data) => data.old_price === null || data.price === null || data.old_price >= data.price, {
+  message: 'old_price must be greater than or equal to price',
+  path: ['old_price']
+});
+
+const baseProductSchema = z.object({
   name: z.string().trim().min(1).max(240),
   price: z.preprocess((value) => value === '' || value === null || value === undefined ? null : value, z.coerce.number().finite().min(0).max(1_000_000_000).nullable()).optional().default(null),
   stock_quantity: z.coerce.number().int().min(0).max(100_000_000),
@@ -15,8 +47,42 @@ const productSchema = z.object({
   is_original: z.boolean().optional().default(true),
   is_active: z.boolean().optional().default(true),
   specs: z.record(z.string().trim().max(160), z.union([z.string().trim().max(1000), z.number(), z.boolean()])).optional().default({}),
-  compatibility: z.array(z.string().trim().max(200)).max(200).optional().default([])
+  compatibility: z.array(z.string().trim().max(200)).max(200).optional().default([]),
+  has_variants: z.boolean().optional().default(false),
+  options: z.array(productOptionSchema).max(5).optional().default([]),
+  variants: z.array(productVariantSchema).max(100).optional().default([])
 }).strip();
+
+const productSchema = baseProductSchema.refine((data) => {
+  if (data.has_variants && (!data.variants || data.variants.length === 0)) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'Products with variants enabled must contain at least one variant',
+  path: ['variants']
+}).refine((data) => data.old_price === null || data.price === null || data.old_price >= data.price, {
+  message: 'old_price must be greater than or equal to price',
+  path: ['old_price']
+});
+
+const updateProductSchema = baseProductSchema.partial().refine((data) => {
+  if (data.has_variants && (!data.variants || data.variants.length === 0)) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'Products with variants enabled must contain at least one variant',
+  path: ['variants']
+}).refine((data) => {
+  if (data.old_price !== undefined && data.price !== undefined) {
+    return data.old_price === null || data.price === null || data.old_price >= data.price;
+  }
+  return true;
+}, {
+  message: 'old_price must be greater than or equal to price',
+  path: ['old_price']
+});
 
 const bannerSchema = z.object({
   title: z.string().trim().max(160).optional().default(''),
@@ -65,4 +131,4 @@ const couponValidationSchema = z.object({
   })).optional().default([])
 }).strip();
 
-module.exports = { productSchema, bannerSchema, shippingZoneSchema, couponSchema, couponValidationSchema };
+module.exports = { productSchema, updateProductSchema, baseProductSchema, productOptionSchema, productVariantSchema, bannerSchema, shippingZoneSchema, couponSchema, couponValidationSchema };

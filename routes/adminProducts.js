@@ -7,7 +7,7 @@ const { verifyPermission } = require('../middleware/auth');
 const productAdminService = require('../services/productAdminService');
 const subscriptionLimitService = require('../services/subscriptionLimitService');
 const { validateBody } = require('../middleware/requestValidation');
-const { productSchema } = require('../schemas/catalogSchemas');
+const { productSchema, updateProductSchema } = require('../schemas/catalogSchemas');
 
 function requireStore(req, res) {
   if (!req.store?.id) {
@@ -26,6 +26,18 @@ router.get('/', verifyPermission('products.view'), async (req, res) => {
   } catch (err) {
     logger.error('[admin-products] list failed:', err.message, err.details, err.hint);
     apiError(res, 500, 'Unable to load products.', `HTTP_500`);
+  }
+});
+
+router.get('/:id', verifyPermission('products.view'), async (req, res) => {
+  const storeId = requireStore(req, res);
+  if (!storeId) return;
+  try {
+    const detail = await productAdminService.getProductDetail(storeId, req.params.id);
+    sendSuccess(res, detail);
+  } catch (err) {
+    logger.error('[admin-products] get detail failed:', err.message);
+    apiError(res, err.statusCode || 500, err.message || 'Unable to load product detail.', 'PRODUCT_DETAIL_FAILED');
   }
 });
 
@@ -51,7 +63,7 @@ router.post('/', verifyPermission('products.create'), validateBody(productSchema
   }
 });
 
-router.put('/:id', verifyPermission('products.update'), validateBody(productSchema.partial()), async (req, res) => {
+router.put('/:id', verifyPermission('products.update'), validateBody(updateProductSchema), async (req, res) => {
   const storeId = requireStore(req, res);
   if (!storeId) return;
   try {

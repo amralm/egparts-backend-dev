@@ -13,12 +13,13 @@ const orderStatusValueSchema = z.enum(contract.order_statuses);
 const paymentStatusValueSchema = z.enum(contract.payment_statuses);
 const itemSchema = z.object({
   id: z.union([z.string().trim().min(1).max(contract.fields.item_id_max), z.number().int().positive()]),
+  variant_id: z.string().uuid().nullable().optional(),
   qty: z.number().int().positive().max(contract.fields.item_quantity_max).optional(),
   quantity: z.number().int().positive().max(contract.fields.item_quantity_max).optional(),
   title: z.string().trim().max(255).optional(),
   name: z.string().trim().max(255).optional(),
   price: z.number().nonnegative().optional()
-}).passthrough().refine((item) => item.qty !== undefined || item.quantity !== undefined, {
+}).strip().refine((item) => item.qty !== undefined || item.quantity !== undefined, {
   message: 'qty is required',
   path: ['qty']
 });

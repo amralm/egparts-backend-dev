@@ -172,15 +172,29 @@ async function getSocialProofProducts(storeId) {
   return data || [];
 }
 
-async function validateCart(storeId, ids = []) {
-  if (!ids.length) return [];
-  const { data, error } = await supabase
+async function validateCart(storeId, items = []) {
+  if (!items.length) return { products: [], variants: [] };
+  const productIds = items.map(i => (typeof i === 'object' && i !== null ? i.id : i)).filter(Boolean);
+  const variantIds = items.map(i => (typeof i === 'object' && i !== null ? i.variant_id : null)).filter(Boolean);
+
+  const { data: products, error } = await supabase
     .from('products')
-    .select('id, is_active, is_deleted, stock_quantity, price')
-    .in('id', ids)
+    .select('id, is_active, is_deleted, stock_quantity, price, has_variants')
+    .in('id', productIds)
     .eq('store_id', storeId);
   if (error) throw error;
-  return data || [];
+
+  let variants = [];
+  if (variantIds.length > 0) {
+    const { data: varData } = await supabase
+      .from('product_variants')
+      .select('id, product_id, is_active, is_archived, stock_quantity, price')
+      .in('id', variantIds)
+      .eq('store_id', storeId);
+    variants = varData || [];
+  }
+
+  return { products: products || [], variants: variants || [] };
 }
 
 module.exports = {
