@@ -132,7 +132,10 @@ class CourierManager {
 
       // Products itemized
       const itemsList = Array.isArray(order.items) && order.items.length > 0
-        ? order.items.map(item => `• ${item.name || 'منتج'} (الكمية: ${item.qty || item.quantity || 1})`).join('\n')
+        ? order.items.map(item => {
+            const variant = (item.variant_title_snapshot || item.variant_title || item.selected_size) ? ` [${item.variant_title_snapshot || item.variant_title || item.selected_size}]` : '';
+            return `• ${item.name || 'منتج'}${variant} (الكمية: ${item.qty || item.quantity || 1})`;
+          }).join('\n')
         : '• بضائع متنوعة';
 
       const isAlreadyPaid = order.payment_status === 'paid';
