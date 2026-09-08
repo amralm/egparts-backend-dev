@@ -203,7 +203,8 @@ router.post('/orders', verifyPermission(['tenant.orders.write', 'orders.create',
 
   const parseResult = posOrderSchema.safeParse(req.body);
   if (!parseResult.success) {
-    return apiError(res, 400, parseResult.error.errors[0]?.message || 'بيانات الطلب غير صالحة', 'VALIDATION_ERROR');
+    const errorMsg = parseResult.error?.issues?.[0]?.message || parseResult.error?.errors?.[0]?.message || 'بيانات الطلب غير صالحة';
+    return apiError(res, 400, errorMsg, 'VALIDATION_ERROR');
   }
 
   const {
@@ -838,7 +839,8 @@ router.post('/switch-cashier', posPinLimiter, optionalAuth, async (req, res) => 
 
   const parseResult = switchCashierSchema.safeParse(req.body);
   if (!parseResult.success) {
-    return apiError(res, 400, parseResult.error.errors[0]?.message || 'رمز PIN غير صالح', 'VALIDATION_ERROR');
+    const errorMsg = parseResult.error?.issues?.[0]?.message || parseResult.error?.errors?.[0]?.message || 'رمز PIN غير صالح';
+    return apiError(res, 400, errorMsg, 'VALIDATION_ERROR');
   }
 
   const { pin } = parseResult.data;
@@ -938,7 +940,8 @@ router.post('/terminal/unlock', posPinLimiter, optionalAuth, async (req, res) =>
 
   const parseResult = managerPinSchema.safeParse(req.body);
   if (!parseResult.success) {
-    return apiError(res, 400, parseResult.error.errors[0]?.message || 'رمز PIN غير صالح', 'VALIDATION_ERROR');
+    const errorMsg = parseResult.error?.issues?.[0]?.message || parseResult.error?.errors?.[0]?.message || 'رمز PIN غير صالح';
+    return apiError(res, 400, errorMsg, 'VALIDATION_ERROR');
   }
 
   const { pin } = parseResult.data;
@@ -994,7 +997,8 @@ router.post('/terminal/manager-pin', verifyPermission(['settings.update', 'tenan
 
   const parseResult = managerPinSchema.safeParse(req.body);
   if (!parseResult.success) {
-    return apiError(res, 400, parseResult.error.errors[0]?.message || 'رمز PIN غير صالح', 'VALIDATION_ERROR');
+    const errorMsg = parseResult.error?.issues?.[0]?.message || parseResult.error?.errors?.[0]?.message || 'رمز PIN غير صالح';
+    return apiError(res, 400, errorMsg, 'VALIDATION_ERROR');
   }
 
   const { pin } = parseResult.data;
