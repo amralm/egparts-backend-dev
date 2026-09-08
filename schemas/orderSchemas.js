@@ -12,7 +12,13 @@ const commonOrderFields = {
   idempotencyKey: z.string().trim().min(contract.fields.idempotency_key_min).max(contract.fields.idempotency_key_max),
   location_url: z.string().url().max(contract.fields.location_url_max).nullable().optional(),
   address_id: z.string().uuid().nullable().optional(),
-  addressId: z.string().uuid().nullable().optional()
+  addressId: z.string().uuid().nullable().optional(),
+  location_id: z.string().trim().max(120).nullable().optional(),
+  locationId: z.string().trim().max(120).nullable().optional(),
+  latitude: z.coerce.number().min(-90).max(90).nullable().optional(),
+  lat: z.coerce.number().min(-90).max(90).nullable().optional(),
+  longitude: z.coerce.number().min(-180).max(180).nullable().optional(),
+  lng: z.coerce.number().min(-180).max(180).nullable().optional()
 };
 
 const createOrderSchema = z.object(commonOrderFields).strip();

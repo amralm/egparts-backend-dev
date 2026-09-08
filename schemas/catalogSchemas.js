@@ -31,7 +31,13 @@ const bannerSchema = z.object({
 
 const shippingZoneSchema = z.object({
   city_name: z.string().trim().min(2).max(120),
-  shipping_fee: z.coerce.number().finite().min(0).max(100000)
+  shipping_fee: z.coerce.number().finite().min(0).max(100000),
+  location_id: z.string().trim().max(120).nullable().optional(),
+  scope_type: z.enum(['CITY', 'MARKAZ', 'GOVERNORATE', 'CUSTOM', 'ALL_EGYPT']).optional().default('CITY'),
+  is_fallback: z.boolean().optional().default(false),
+  priority: z.coerce.number().int().min(-100).max(1000).optional().default(0),
+  estimated_days: z.string().trim().max(50).optional().default('2-3 أيام'),
+  is_active: z.boolean().optional().default(true)
 }).strip();
 
 const couponSchema = z.object({

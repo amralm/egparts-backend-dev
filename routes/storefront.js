@@ -120,7 +120,7 @@ router.get('/shipping-zones', async (req, res) => {
   try {
     const { data } = await require('../services/supabase').supabase
       .from('shipping_zones')
-      .select('id, city_name, shipping_fee')
+      .select('id, city_name, shipping_fee, location_id, scope_type, is_fallback, priority')
       .eq('store_id', storeId)
       .order('city_name', { ascending: true });
     sendSuccess(res, { zones: data || [] });

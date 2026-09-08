@@ -15,6 +15,7 @@ const { calculateCouponDiscount } = require('../services/couponService');
 const abandonedCartService = require('../services/abandonedCartService');
 const { sendOrderDeliveredInvoiceWhatsApp } = require('../services/orderInvoiceNotifier');
 const logger = require('../utils/logger');
+const shippingZoneEngine = require('../services/location/shippingZoneEngine');
 
 const PLAN_UPGRADE_CHAIN = {
   free: 'basic',
@@ -630,14 +631,27 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
       });
     }
 
-    const { data: zone } = await supabase.from('shipping_zones').select('shipping_fee').eq('city_name', city).eq('store_id', req.store.id).maybeSingle();
-    let calculatedShippingFee = zone ? Number(zone.shipping_fee) || 0 : 0;
+    // Authoritative Geospatial & Shipping Zone Containment Engine
+    const targetLocationId = req.body?.location_id || req.body?.locationId || null;
+    const reqLat = req.body?.latitude ?? req.body?.lat ?? null;
+    const reqLng = req.body?.longitude ?? req.body?.lng ?? null;
 
-    // Fallback: if city not in zones, use "محافظة أخرى"
-    if (!zone) {
-      const { data: fallback } = await supabase.from('shipping_zones').select('shipping_fee').eq('city_name', 'محافظة أخرى').eq('store_id', req.store.id).maybeSingle();
-      if (fallback) calculatedShippingFee = Number(fallback.shipping_fee) || 0;
+    const coverage = await shippingZoneEngine.evaluateCoverage({
+      storeId: req.store.id,
+      locationId: targetLocationId,
+      lat: reqLat,
+      lng: reqLng,
+      cityName: city
+    });
+
+    if (!coverage.allowed) {
+      await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
+      return apiError(res, 400, coverage.message || 'نعتذر، المتجر لا يوفر الشحن لهذا الموقع حالياً.', 'SHIPPING_OUT_OF_COVERAGE', {
+        details: coverage
+      });
     }
+
+    let calculatedShippingFee = Number(coverage.fee) || 0;
 
     // Free shipping & COD threshold settings
     const { data: storeSiteSettings } = await supabase
@@ -708,7 +722,11 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
         p_metadata: {
           user_agent: req.headers['user-agent'],
           address_id: savedAddress?.id || null,
-          location_url: location_url || null
+          location_url: location_url || null,
+          shipping_location_id: coverage.matchedZone?.location_id || null,
+          shipping_scope: coverage.matchedZone?.scope_type || null,
+          canonical_location_id: coverage.resolvedLocation?.id || null,
+          shipping_resolution: coverage.resolutionMethod || null
         },
         p_store_id: req.store.id,
         p_location_url: location_url || null
