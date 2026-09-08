@@ -29,6 +29,32 @@ function hashPin(storeId, pin) {
   return crypto.createHash('sha256').update(`${storeId}:${String(pin).trim()}`).digest('hex');
 }
 
+async function resolveStoreOwnerUserId(storeId, currentUserId) {
+  try {
+    if (currentUserId && currentUserId !== 'manager') {
+      const { data: directRole } = await supabase
+        .from('user_roles')
+        .select('user_id')
+        .eq('store_id', storeId)
+        .eq('user_id', currentUserId)
+        .maybeSingle();
+      if (directRole?.user_id) return directRole.user_id;
+    }
+
+    const { data: storeOwnerRole } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .eq('store_id', storeId)
+      .limit(1)
+      .maybeSingle();
+
+    if (storeOwnerRole?.user_id) return storeOwnerRole.user_id;
+  } catch (err) {
+    logger.warn('[pos] resolveStoreOwnerUserId failed:', err.message);
+  }
+  return currentUserId || 'manager';
+}
+
 // ── GET /api/pos/products ──
 // Fast, indexed product search and catalog for POS tablet cashier
 router.get('/products', verifyPermission(['tenant.orders.read', 'orders.view', 'tenant.products.read', 'products.view', 'orders.read']), async (req, res) => {
@@ -799,16 +825,17 @@ router.post('/switch-cashier', verifyUser, async (req, res) => {
       .maybeSingle();
 
     if (storeRow?.pos_manager_pin_hash && storeRow.pos_manager_pin_hash === pinHash) {
+      const ownerUserId = await resolveStoreOwnerUserId(req.store.id, req.user?.sub);
       let managerToken = null;
       if (process.env.SUPABASE_JWT_SECRET) {
         try {
           managerToken = jwt.sign({
-            sub: req.user?.sub || 'manager',
+            sub: ownerUserId,
             store_id: req.store.id,
             role: 'manager',
             pin_verified: true,
             scope: 'manager_full',
-            parent_user_id: req.user?.sub
+            parent_user_id: ownerUserId
           }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
         } catch (tokenErr) {
           logger.warn('[pos] could not sign manager token:', tokenErr.message);
@@ -904,16 +931,17 @@ router.post('/terminal/unlock', verifyPermission(['tenant.orders.read', 'orders.
       return apiError(res, 401, 'رمز PIN المدير غير صحيح', 'INVALID_MANAGER_PIN');
     }
 
+    const ownerUserId = await resolveStoreOwnerUserId(req.store.id, req.user?.sub);
     let managerToken = null;
     if (process.env.SUPABASE_JWT_SECRET) {
       try {
         managerToken = jwt.sign({
-          sub: req.user?.sub || 'manager',
+          sub: ownerUserId,
           store_id: req.store.id,
           role: 'manager',
           pin_verified: true,
           scope: 'manager_full',
-          parent_user_id: req.user?.sub
+          parent_user_id: ownerUserId
         }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
       } catch (tokenErr) {
         logger.warn('[pos] could not sign manager unlock token:', tokenErr.message);
@@ -963,6 +991,12 @@ router.post('/terminal/manager-pin', verifyPermission(['settings.update', 'tenan
       .eq('id', req.store.id);
 
     if (error) throw error;
+
+    const { tenantCache } = require('../utils/cache');
+    if (tenantCache) {
+      if (req.store.subdomain) tenantCache.delete(req.store.subdomain);
+      if (req.store.custom_domain) tenantCache.delete(req.store.custom_domain);
+    }
 
     sendSuccess(res, { updated: true }, { message: 'تم حفظ رمز PIN المدير بنجاح' });
   } catch (err) {
