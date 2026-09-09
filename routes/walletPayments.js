@@ -592,6 +592,11 @@ router.get('/order-proof/:orderId', verifyPermission('payments.view'), async (re
         proof_expires_at: activeIntent.metadata?.proof?.proof_expires_at || null,
         proof_available: Boolean(proofUrl),
         proof_url: proofUrl,
+        lifecycle_status: activeIntent.metadata?.proof?.lifecycle_status || null,
+        deleted_reason: activeIntent.metadata?.proof?.deleted_reason || null,
+        deleted_at: activeIntent.metadata?.proof?.deleted_at || null,
+        rejection_reason: activeIntent.metadata?.rejection_reason || null,
+        rejected_at: activeIntent.metadata?.rejected_at || null,
       }
     });
 

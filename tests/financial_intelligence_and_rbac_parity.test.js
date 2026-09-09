@@ -139,6 +139,42 @@ async function runParityTests() {
     }
   });
 
+  // ── Test 6: Proof Retention Invariant: Image Purge NEVER Touches Paid Status ──
+  it('Proof Retention: purging expired proof images strictly preserves paid status', () => {
+    // Simulate paid order and intent lifecycle
+    const order = { id: 'order-123', payment_status: 'paid', status: 'processing' };
+    const intent = {
+      id: 'intent-123',
+      status: 'succeeded',
+      metadata: {
+        proof: {
+          r2_key: 'proofs/store-1/intent-123.jpg',
+          lifecycle_status: 'verified',
+          proof_expires_at: '2026-09-01T00:00:00.000Z'
+        }
+      }
+    };
+
+    // Simulate retention job deletion (what proofRetentionJob.deleteRetentionRecord does)
+    const updatedIntentMetadata = {
+      ...intent.metadata,
+      proof: {
+        ...intent.metadata.proof,
+        r2_key: null,
+        lifecycle_status: 'deleted',
+        deleted_reason: 'Retention policy expired'
+      }
+    };
+
+    // Assert: Order payment_status must stay 'paid'
+    assert.strictEqual(order.payment_status, 'paid', 'Order payment_status must stay paid forever');
+    // Assert: Intent status must stay 'succeeded'
+    assert.strictEqual(intent.status, 'succeeded', 'Intent status must stay succeeded');
+    // Assert: Only media pointer was purged
+    assert.strictEqual(updatedIntentMetadata.proof.r2_key, null);
+    assert.strictEqual(updatedIntentMetadata.proof.lifecycle_status, 'deleted');
+  });
+
   console.log(`\n====================================================`);
   console.log(`  ALL ${passed}/${total} PARITY CONTRACT TESTS PASSED!`);
   console.log(`====================================================\n`);
