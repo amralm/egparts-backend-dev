@@ -500,9 +500,10 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
         .select('id', { count: 'exact', head: true })
         .eq('store_id', req.store.id),
       supabase
-        .from('user_roles')
-        .select('user_id', { count: 'exact', head: true })
-        .eq('store_id', req.store.id),
+        .from('store_staff')
+        .select('id', { count: 'exact', head: true })
+        .eq('store_id', req.store.id)
+        .eq('is_active', true),
       supabase
         .from('otp_audit_logs')
         .select('id', { count: 'exact', head: true })
@@ -544,12 +545,29 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
       'whatsapp_enabled', 'whatsapp_accounts_max', 'whatsapp_messages_month', 'whatsapp_concurrency',
       'products', 'orders_per_month', 'custom_domains', 'coupons', 'payment_gateways',
       'copilot_messages_day', 'ai_requests_month', 'api_requests_day', 'otp_messages_month',
-      'storage_bytes', 'uploaded_images', 'banner_images', 'branches', 'staff_users'
+      'storage_bytes', 'uploaded_images', 'banner_images', 'branches', 'employees', 'staff_users'
     ]);
 
     // Fetch OTP limits from otp_messages_month or fallback to whatsapp_notifications
     const otpLimit = limits['otp_messages_month']?.max_value ?? 
                      limits['whatsapp_notifications']?.max_value ?? 1000;
+
+    function resolveLimit(featureObj, fallbackLimit = 1) {
+      if (!featureObj) return { limit: null, is_unlimited: true };
+      const isUnl = featureObj.is_unlimited === true || featureObj.max_value === -1 || featureObj.max_value === null;
+      return {
+        limit: isUnl ? null : (featureObj.max_value ?? fallbackLimit),
+        is_unlimited: isUnl
+      };
+    }
+
+    const prodLim = resolveLimit(limits['products'], null);
+    const branchLim = resolveLimit(limits['branches'], 1);
+    const staffLim = resolveLimit(limits['employees'] || limits['staff_users'], 1);
+    const storageLim = resolveLimit(limits['storage_bytes'], null);
+    const imgLim = resolveLimit(limits['uploaded_images'], null);
+    const ordersLim = resolveLimit(limits['orders_per_month'], null);
+    const bannerLim = resolveLimit(limits['banner_images'], null);
 
     sendSuccess(res, {
       store: {
@@ -574,18 +592,18 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
         failed_this_month: failedOtp.count || 0,
         daily_limit: parseInt(process.env.OTP_DAILY_PHONE_LIMIT || '5', 10),
         monthly_limit: otpLimit,
-        is_unlimited: otpLimit === null
+        is_unlimited: otpLimit === null || otpLimit === -1
       },
       limits: {
         products: {
           usage: productsCountResult.count || 0,
-          limit: limits['products']?.max_value ?? null,
-          is_unlimited: !limits['products'] || limits['products'].max_value === null
+          limit: prodLim.limit,
+          is_unlimited: prodLim.is_unlimited
         },
         branches: {
           usage: branchesCountResult.count || 0,
-          limit: limits['branches']?.max_value ?? 1,
-          is_unlimited: limits['branches']?.max_value === null
+          limit: branchLim.limit,
+          is_unlimited: branchLim.is_unlimited
         },
         coupons: {
           usage: couponsCountResult.count || 0,
@@ -594,21 +612,21 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
         },
         staff_users: {
           usage: staffCountResult.count || 0,
-          limit: limits['staff_users']?.max_value ?? 1,
-          is_unlimited: limits['staff_users']?.max_value === null
+          limit: staffLim.limit,
+          is_unlimited: staffLim.is_unlimited
         },
         custom_domain: {
           enabled: entitlementState.features.custom_domains?.allowed === true
         },
         storage_bytes: {
           usage: Math.max(Number(entitlementState.features.storage_bytes?.usage || 0), Number(usagesMap['storage_bytes'] || 0)),
-          limit: limits['storage_bytes']?.max_value ?? null,
-          is_unlimited: !limits['storage_bytes'] || limits['storage_bytes'].max_value === null
+          limit: storageLim.limit,
+          is_unlimited: storageLim.is_unlimited
         },
         uploaded_images: {
           usage: Number(entitlementState.features.uploaded_images?.usage ?? (usagesMap['uploaded_images'] || 0)),
-          limit: limits['uploaded_images']?.max_value ?? null,
-          is_unlimited: !limits['uploaded_images'] || limits['uploaded_images'].max_value === null
+          limit: imgLim.limit,
+          is_unlimited: imgLim.is_unlimited
         },
         api_requests_day: {
           usage: Number(entitlementState.features.api_requests_day?.usage ?? (usagesMap['api_requests_day'] || 0)),
@@ -633,13 +651,13 @@ app.get('/api/store-usage', publicTelemetryLimiter, async (req, res) => {
         },
         orders_per_month: {
           usage: Math.max(ordersCountResult.count || 0, Number(entitlementState.features.orders_per_month?.usage || 0)),
-          limit: limits['orders_per_month']?.max_value ?? null,
-          is_unlimited: !limits['orders_per_month'] || limits['orders_per_month'].max_value === null
+          limit: ordersLim.limit,
+          is_unlimited: ordersLim.is_unlimited
         },
         banner_images: {
           usage: bannersCountResult.count || 0,
-          limit: limits['banner_images']?.max_value ?? null,
-          is_unlimited: !limits['banner_images'] || limits['banner_images'].max_value === null
+          limit: bannerLim.limit,
+          is_unlimited: bannerLim.is_unlimited
         },
         whatsapp_notifications: {
           enabled: entitlementState.features.whatsapp_enabled?.allowed === true,
