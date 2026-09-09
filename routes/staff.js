@@ -53,11 +53,15 @@ router.get('/', verifyPermission(['staff.read', 'tenant.owner', 'settings.view',
       quota: {
         active_count: activeCount,
         total_count: staffList?.length || 0,
-        limit: limitState.limit ?? null,
+        limit: limitState.is_unlimited ? null : (limitState.limit ?? null),
         remaining: limitState.remaining ?? null,
         is_unlimited: Boolean(limitState.is_unlimited),
         plan_name: limitState.plan?.name || 'الباقة الحالية'
-      }
+      },
+      count: activeCount,
+      limit: limitState.is_unlimited ? null : (limitState.limit ?? null),
+      is_unlimited: Boolean(limitState.is_unlimited),
+      plan: limitState.plan
     });
   } catch (err) {
     logger.error('[staff] List staff failed:', err.message);
