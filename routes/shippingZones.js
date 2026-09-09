@@ -5,7 +5,7 @@ const { verifyPermission } = require('../middleware/auth');
 const shippingZoneService = require('../services/shippingZoneService');
 const logger = require('../utils/logger');
 const { validateBody } = require('../middleware/requestValidation');
-const { shippingZoneSchema } = require('../schemas/catalogSchemas');
+const { shippingZoneSchema, updateShippingZoneSchema } = require('../schemas/catalogSchemas');
 
 const router = express.Router();
 
@@ -49,7 +49,7 @@ router.post('/', verifyPermission('shipping.manage'), validateBody(shippingZoneS
   }
 });
 
-router.put('/:id', verifyPermission('shipping.manage'), validateBody(shippingZoneSchema), async (req, res) => {
+router.put('/:id', verifyPermission('shipping.manage'), validateBody(updateShippingZoneSchema), async (req, res) => {
   const storeId = getStoreId(req, res);
   if (!storeId) return;
 

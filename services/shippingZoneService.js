@@ -16,6 +16,12 @@ function parseZone(payload) {
   return zoneSchema.parse(payload || {});
 }
 
+const updateZoneSchema = zoneSchema.partial();
+
+function parseUpdateZone(payload) {
+  return updateZoneSchema.parse(payload || {});
+}
+
 async function listZones(storeId) {
   const { data, error } = await supabase
     .from('shipping_zones')
@@ -40,7 +46,12 @@ async function createZone(storeId, payload) {
 }
 
 async function updateZone(storeId, zoneId, payload) {
-  const parsed = parseZone(payload);
+  const parsed = parseUpdateZone(payload);
+  if (Object.keys(parsed).length === 0) {
+    const err = new Error('No valid update fields provided');
+    err.statusCode = 400;
+    throw err;
+  }
   const { data, error } = await supabase
     .from('shipping_zones')
     .update(parsed)

@@ -106,6 +106,8 @@ const shippingZoneSchema = z.object({
   is_active: z.boolean().optional().default(true)
 }).strip();
 
+const updateShippingZoneSchema = shippingZoneSchema.partial();
+
 const couponSchema = z.object({
   code: z.string().trim().min(2).max(64).regex(/^[A-Z0-9_-]+$/i),
   discount_percentage: z.coerce.number().finite().min(0).max(100).optional().default(0),
@@ -131,4 +133,4 @@ const couponValidationSchema = z.object({
   })).optional().default([])
 }).strip();
 
-module.exports = { productSchema, updateProductSchema, baseProductSchema, productOptionSchema, productVariantSchema, bannerSchema, shippingZoneSchema, couponSchema, couponValidationSchema };
+module.exports = { productSchema, updateProductSchema, baseProductSchema, productOptionSchema, productVariantSchema, bannerSchema, shippingZoneSchema, updateShippingZoneSchema, couponSchema, couponValidationSchema };
