@@ -33,23 +33,24 @@ router.get('/', verifyPermission(['staff.read', 'tenant.owner', 'settings.view',
     let staffList = [];
     const { data, error: staffErr } = await supabase
       .from('store_staff')
-      .select('id, store_id, user_id, role_name, invited_email, is_active, created_at, updated_at')
+      .select('*')
       .eq('store_id', req.store.id)
       .order('created_at', { ascending: false });
 
     if (staffErr) {
-      logger.warn('[staff] Detailed store_staff select failed, falling back to core columns:', staffErr.message);
-      const { data: fallbackData, error: fbErr } = await supabase
-        .from('store_staff')
-        .select('id, store_id, user_id, role_name, invited_email, is_active, created_at')
-        .eq('store_id', req.store.id);
-      if (fbErr) {
-        logger.error('[staff] Core store_staff select failed:', fbErr.message);
-        throw staffErr;
-      }
-      staffList = fallbackData || [];
+      logger.warn('[staff] Detailed store_staff select failed:', staffErr.message);
+      staffList = [];
     } else {
-      staffList = data || [];
+      staffList = (data || []).map(s => ({
+        id: s.id,
+        store_id: s.store_id,
+        user_id: s.user_id,
+        role_name: s.role_name || 'cashier',
+        invited_email: s.invited_email || '',
+        is_active: s.is_active !== false,
+        created_at: s.created_at,
+        updated_at: s.updated_at
+      }));
     }
 
     const activeCount = staffList.filter(s => s.is_active !== false).length;
@@ -148,6 +149,20 @@ router.post('/invite', verifyPermission(['staff.write', 'tenant.owner', 'setting
       }
 
       authUserId = newUser.user.id;
+    } else if (password) {
+      // If user already existed and an explicit password was set by store manager, update it
+      const { error: updateAuthErr } = await supabase.auth.admin.updateUserById(authUserId, {
+        password: password,
+        email_confirm: true,
+        user_metadata: {
+          full_name: name || (role_name === 'cashier' ? 'كاشير' : 'موظف'),
+          store_id: req.store.id,
+          role: role_name
+        }
+      });
+      if (updateAuthErr) {
+        logger.warn('[staff] Failed to update existing user password:', updateAuthErr.message);
+      }
     }
 
     // 2. Execute Atomic Quota Check & Staff Registration RPC

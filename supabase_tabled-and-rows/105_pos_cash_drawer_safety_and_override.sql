@@ -44,6 +44,7 @@ AS $function$
 DECLARE
   v_order record;
   v_item jsonb;
+  v_order_item jsonb;
   v_product record;
   v_qty integer;
   v_price numeric;
