@@ -1391,14 +1391,26 @@ router.post('/validate-admin', async (req, res) => {
       }
     }
 
-    const resolvedRole = superAdmin ? 'super_admin' : (storeAdmin?.roles?.name || (storeAdmin ? 'owner' : null));
+    let roleName = storeAdmin?.roles?.name;
+    if (!roleName && storeAdmin?.role_id) {
+      try {
+        const { data: roleData } = await supabase.from('roles').select('name').eq('id', storeAdmin.role_id).maybeSingle();
+        if (roleData?.name) roleName = roleData.name;
+      } catch (roleErr) {
+        logger.warn('Failed to resolve role by role_id:', roleErr.message);
+      }
+    }
+
+    const resolvedRole = superAdmin ? 'super_admin' : (roleName || (storeAdmin ? 'viewer' : null));
+    const isCashier = resolvedRole === 'cashier';
+    const isStoreAdmin = !!superAdmin || (!!storeAdmin && !isCashier);
 
     sendSuccess(res, { 
       isSuperAdmin: !!superAdmin,
-      isStoreAdmin: !!storeAdmin || !!superAdmin,
+      isStoreAdmin: isStoreAdmin,
       isAuthorized: !!(superAdmin || storeAdmin),
       role: resolvedRole,
-      isCashier: resolvedRole === 'cashier'
+      isCashier: isCashier
     });
   } catch (err) {
     logger.error('Admin validation endpoint error:', err.message);
