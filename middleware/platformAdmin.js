@@ -19,13 +19,28 @@ async function loadPlatformUser(req, res) {
     const decoded = await verifyBearerToken(authHeader.split(' ')[1]);
     req.user = decoded;
 
-    const { data: superAdmin, error } = await supabase
+    let { data: superAdmin, error } = await supabase
       .from('super_admins')
       .select('user_id')
       .eq('user_id', decoded.sub)
       .maybeSingle();
 
-    if (error) {
+    if (!superAdmin) {
+      try {
+        const { createClient } = require('@supabase/supabase-js');
+        const userClient = createClient(
+          process.env.SUPABASE_URL,
+          process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_iBH2KZATTthSn3Mds3M_wg_UG5ls8pu',
+          { global: { headers: { Authorization: authHeader } } }
+        );
+        const uSuper = await userClient.from('super_admins').select('user_id').eq('user_id', decoded.sub).maybeSingle();
+        if (uSuper?.data) superAdmin = uSuper.data;
+      } catch (fallbackErr) {
+        logger.warn('Platform user fallback lookup failed:', fallbackErr.message);
+      }
+    }
+
+    if (error && !superAdmin) {
       logger.error('loadPlatformUser DB error:', error.message);
       apiError(res, 500, 'Internal Server Error', `HTTP_500`);
       return null;

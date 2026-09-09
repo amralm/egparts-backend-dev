@@ -1361,18 +1361,41 @@ router.post('/validate-admin', async (req, res) => {
     const decoded = await verifyBearerToken(token);
     const userId = decoded.sub;
 
-    const [{ data: superAdmin }, { data: storeAdmin }] = await Promise.all([
+    let [{ data: superAdmin }, { data: storeAdmin }] = await Promise.all([
       supabase.from('super_admins').select('user_id').eq('user_id', userId).maybeSingle(),
       scopedStoreId
         ? supabase.from('user_roles').select('role_id, roles(name)').eq('user_id', userId).eq('store_id', scopedStoreId).limit(1).maybeSingle()
         : Promise.resolve({ data: null })
     ]);
 
+    // Fallback: If server client returned null (e.g. if server service key is restricted by RLS),
+    // query using user-scoped client authenticated with caller's verified Bearer JWT
+    if (!superAdmin && !storeAdmin) {
+      try {
+        const { createClient } = require('@supabase/supabase-js');
+        const userClient = createClient(
+          process.env.SUPABASE_URL,
+          process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_iBH2KZATTthSn3Mds3M_wg_UG5ls8pu',
+          { global: { headers: { Authorization: authHeader } } }
+        );
+        const [uSuper, uStore] = await Promise.all([
+          userClient.from('super_admins').select('user_id').eq('user_id', userId).maybeSingle(),
+          scopedStoreId
+            ? userClient.from('user_roles').select('role_id, roles(name)').eq('user_id', userId).eq('store_id', scopedStoreId).limit(1).maybeSingle()
+            : Promise.resolve({ data: null })
+        ]);
+        if (uSuper?.data) superAdmin = uSuper.data;
+        if (uStore?.data) storeAdmin = uStore.data;
+      } catch (fallbackErr) {
+        logger.warn('User client fallback validation failed:', fallbackErr.message);
+      }
+    }
+
     const resolvedRole = superAdmin ? 'super_admin' : (storeAdmin?.roles?.name || (storeAdmin ? 'owner' : null));
 
     sendSuccess(res, { 
       isSuperAdmin: !!superAdmin,
-      isStoreAdmin: !!storeAdmin,
+      isStoreAdmin: !!storeAdmin || !!superAdmin,
       isAuthorized: !!(superAdmin || storeAdmin),
       role: resolvedRole,
       isCashier: resolvedRole === 'cashier'

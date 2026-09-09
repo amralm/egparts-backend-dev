@@ -1,10 +1,45 @@
 const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = process.env.SUPABASE_URL;
-// SUPABASE_SERVICE_KEY is the canonical name used by the runtime. Keep the
-// role-suffixed name as a compatibility fallback for existing Render services.
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+function resolveServiceKey() {
+  const envKeys = [
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    process.env.SUPABASE_SERVICE_KEY
+  ].filter(Boolean);
+
+  for (const k of envKeys) {
+    try {
+      const parts = k.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+        if (payload.role === 'service_role') return k;
+      }
+    } catch {}
+  }
+  return envKeys[0] || null;
+}
+
+function resolveAnonKey() {
+  const envKeys = [
+    process.env.SUPABASE_ANON_KEY,
+    process.env.VITE_SUPABASE_ANON_KEY
+  ].filter(Boolean);
+
+  for (const k of envKeys) {
+    try {
+      const parts = k.split('.');
+      if (parts.length === 3) {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+        if (payload.role === 'anon') return k;
+      }
+    } catch {}
+  }
+  return envKeys[0] || null;
+}
+
+const supabaseServiceKey = resolveServiceKey();
+const supabaseAnonKey = resolveAnonKey();
 
 if (!supabaseUrl || !supabaseServiceKey) {
   throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY (or SUPABASE_SERVICE_ROLE_KEY) are required');
