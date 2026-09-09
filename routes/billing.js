@@ -160,9 +160,9 @@ router.get('/plans', async (req, res) => {
         original_price: parseFloat(promoMap.pricing_starter_free_original_price) || 499,
         offer_price: parseFloat(promoMap.pricing_starter_free_offer_price) || 0,
         countdown_end: countdownEnd,
-        badge_text: promoMap.pricing_starter_free_badge_text || '🔥 عرض إطلاق مجاني لفترة محدودة',
+        badge_text: promoMap.pricing_starter_free_badge_text || 'عرض إطلاق مجاني لفترة محدودة',
         banner_enabled: promoMap.pricing_starter_free_banner_enabled === 'true',
-        banner_text: promoMap.pricing_starter_free_banner_text || '🔥 عرض إطلاق حصري: اشترك في باقة Starter مجاناً الآن قبل انتهاء العداد التنازلي!'
+        banner_text: promoMap.pricing_starter_free_banner_text || 'عرض إطلاق حصري: اشترك في باقة Starter مجاناً الآن قبل انتهاء العداد التنازلي!'
       }
     };
 

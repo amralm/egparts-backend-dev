@@ -39,4 +39,4 @@ class ExecutionContext {
   }
 }
 
-module.exports = ExecutionContext;\n
+module.exports = ExecutionContext;

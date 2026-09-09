@@ -44,4 +44,4 @@ class CommandBus {
   }
 }
 
-module.exports = CommandBus;\n
+module.exports = CommandBus;

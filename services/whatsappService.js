@@ -15,7 +15,7 @@ const path = require('path');
 const { default: PQueue } = require('p-queue');
 const { supabase } = require('./supabase');
 
-// ✅ Initialize Supabase for Session Storage
+//  Initialize Supabase for Session Storage
 class WhatsappService {
   constructor(options = {}) {
     this.sock = null;
@@ -47,7 +47,7 @@ class WhatsappService {
     });
   }
 
-  // ✅ High-Performance DB-backed Auth State with Batch Queries
+  //  High-Performance DB-backed Auth State with Batch Queries
   async resolveStoreId() {
     if (this.storeId) return this.storeId;
 
@@ -169,7 +169,7 @@ class WhatsappService {
             const deletes = [];
 
             for (const category in data) {
-              // 🚀 LEAN SESSION ENGINE: Drop bloat keys (groups, broadcasts, and contacts address-book LIDs)
+              //  LEAN SESSION ENGINE: Drop bloat keys (groups, broadcasts, and contacts address-book LIDs)
               if (
                 category === 'sender-key' ||
                 category === 'sender-key-memory' ||
@@ -240,7 +240,7 @@ class WhatsappService {
     this.connectionState = 'connecting';
 
     try {
-      logger.info(`🔐 Initializing WhatsApp with Supabase persistent storage...`);
+      logger.info(` Initializing WhatsApp with Supabase persistent storage...`);
       
       // Clean up any old socket listeners before creating a new one
       if (this.sock) {
@@ -323,7 +323,7 @@ class WhatsappService {
 
           // 2. Restart required (status 515) — happens right after QR scan or pairing! Must restart immediately.
           if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
-            logger.info('🔄 Restart required by WhatsApp protocol (handshake completed). Reconnecting immediately...');
+            logger.info(' Restart required by WhatsApp protocol (handshake completed). Reconnecting immediately...');
             await this.lastSavePromise.catch(() => {});
             setTimeout(() => { if (!this.isShutdown) this.initialize(); }, 1000);
             return;
@@ -339,7 +339,7 @@ class WhatsappService {
             logger.error('Max reconnection attempts reached. Please use /qr/reset to start fresh.');
           }
         } else if (connection === 'open') {
-          logger.info('✅ WhatsApp connection opened successfully (Persistent)');
+          logger.info(' WhatsApp connection opened successfully (Persistent)');
           this.isReady = true;
           this.reconnectAttempts = 0;
           this.lastQR = null;
@@ -386,7 +386,7 @@ class WhatsappService {
     }
   }
 
-  // ✅ New Method: Request Pairing Code via Phone Number
+  //  New Method: Request Pairing Code via Phone Number
   async requestPairingCode(phoneNumber) {
     if (this.pairingRequestPromise) return this.pairingRequestPromise;
     this.pairingRequestPromise = this._requestPairingCode(phoneNumber);
@@ -462,7 +462,7 @@ class WhatsappService {
     }
   }
 
-  // ✅ New Method: Get Connection Status
+  //  New Method: Get Connection Status
   getStatus() {
     if (this.isReady) return 'connected';
     if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) return 'failed';
@@ -470,7 +470,7 @@ class WhatsappService {
     return 'disconnected';
   }
 
-  // ✅ Send via Queue with automatic retries
+  //  Send via Queue with automatic retries
   async sendMessage(to, text, retries = 3) {
     return this.queue.add(async () => {
       let lastError;
@@ -504,7 +504,7 @@ class WhatsappService {
     });
   }
 
-  // ✅ Send Document (PDF, etc.) via Queue with automatic retries
+  //  Send Document (PDF, etc.) via Queue with automatic retries
   async sendDocument(to, buffer, fileName, caption = '', retries = 3) {
     return this.queue.add(async () => {
       let lastError;

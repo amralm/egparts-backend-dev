@@ -356,7 +356,7 @@ async function cleanupStaleCartSessions() {
  */
 async function runMasterRetentionCleanup() {
   const startTime = Date.now();
-  logger.info('🚀 [MasterRetention] Starting comprehensive platform garbage collection...');
+  logger.info(' [MasterRetention] Starting comprehensive platform garbage collection...');
 
   const [
     proofsResult,
@@ -383,7 +383,7 @@ async function runMasterRetentionCleanup() {
   ]);
 
   const durationMs = Date.now() - startTime;
-  logger.info(`✅ [MasterRetention] Platform garbage collection completed in ${durationMs}ms`);
+  logger.info(` [MasterRetention] Platform garbage collection completed in ${durationMs}ms`);
 
   const summary = {
     success: true,

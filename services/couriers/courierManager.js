@@ -141,22 +141,22 @@ class CourierManager {
       const isAlreadyPaid = order.payment_status === 'paid';
       const codAmount = isAlreadyPaid ? 0 : parseFloat(order.total || order.total_amount || 0);
 
-      const whatsappText = `🛵 *أوردر جديد للتوصيل - ${storeName}*\n` +
+      const whatsappText = `*أوردر جديد للتوصيل - ${storeName}*\n` +
         `━━━━━━━━━━━━━━━━━━━\n` +
-        `📦 *رقم الطلب:* #${order.order_number || order.id.slice(0, 8)}\n` +
-        `👤 *العميل:* ${customerName}\n` +
-        `📞 *تليفون العميل:* ${cleanPhone || 'غير مسجل'}\n` +
-        `📍 *العنوان:* ${order.city ? `${order.city} - ` : ''}${order.address || 'غير محدد'}\n` +
-        (mapsUrl ? `🗺️ *رابط اللوكيشن:* ${mapsUrl}\n` : '') +
+        `*رقم الطلب:* #${order.order_number || order.id.slice(0, 8)}\n` +
+        `*العميل:* ${customerName}\n` +
+        `*تليفون العميل:* ${cleanPhone || 'غير مسجل'}\n` +
+        `*العنوان:* ${order.city ? `${order.city} - ` : ''}${order.address || 'غير محدد'}\n` +
+        (mapsUrl ? `*رابط اللوكيشن:* ${mapsUrl}\n` : '') +
         `━━━━━━━━━━━━━━━━━━━\n` +
-        `🛍️ *المنتجات المطلوبة:*\n${itemsList}\n` +
+        `*المنتجات المطلوبة:*\n${itemsList}\n` +
         `━━━━━━━━━━━━━━━━━━━\n` +
-        (notes ? `📝 *ملاحظات التوصيل:* ${notes}\n` : '') +
+        (notes ? `*ملاحظات التوصيل:* ${notes}\n` : '') +
         (isAlreadyPaid
-          ? `✅ *حالة الدفع:* مدفوع مسبقاً (لا تحصّل أي مبالغ من العميل)\n`
-          : `💰 *المطلوب تحصيله (COD):* ${codAmount.toFixed(2)} ج.م (شامل التوصيل)\n`) +
+          ? `*حالة الدفع:* مدفوع مسبقاً (لا تحصّل أي مبالغ من العميل)\n`
+          : `*المطلوب تحصيله (COD):* ${codAmount.toFixed(2)} ج.م (شامل التوصيل)\n`) +
         `━━━━━━━━━━━━━━━━━━━\n` +
-        `بالتوفيق يا ${driver.name.trim().startsWith('كابتن') ? driver.name.trim() : `كابتن ${driver.name.trim()}`} 🚀`;
+        `بالتوفيق يا ${driver.name.trim().startsWith('كابتن') ? driver.name.trim() : `كابتن ${driver.name.trim()}`}`;
 
       let driverCleanPhone = String(driver.phone || '').replace(/\D/g, '');
       if (driverCleanPhone.startsWith('0') && driverCleanPhone.length === 11) {

@@ -19,7 +19,7 @@ class NotificationWorker {
   }
 
   start() {
-    logger.info('🚀 Notification Worker started...');
+    logger.info(' Notification Worker started...');
     this.interval = setInterval(() => this.processQueue(), this.POLL_INTERVAL);
     // Initial run
     this.processQueue();
@@ -28,7 +28,7 @@ class NotificationWorker {
   stop() {
     if (this.interval) {
       clearInterval(this.interval);
-      logger.info('🛑 Notification Worker stopped.');
+      logger.info(' Notification Worker stopped.');
     }
   }
 
@@ -62,7 +62,7 @@ class NotificationWorker {
         return;
       }
 
-      logger.info(`🔄 Processing ${jobs.length} locked notification jobs...`);
+      logger.info(` Processing ${jobs.length} locked notification jobs...`);
 
       for (const job of jobs) {
         await this.handleJob(job);
@@ -122,7 +122,7 @@ class NotificationWorker {
         })
         .eq('id', job.id);
 
-      logger.info(`✅ Job ${job.id} sent successfully`);
+      logger.info(` Job ${job.id} sent successfully`);
 
     } catch (err) {
       const nextRetry = new Date();
@@ -130,7 +130,7 @@ class NotificationWorker {
       const minutes = Math.pow(2, (job.retry_count || 0)) * 5;
       nextRetry.setMinutes(nextRetry.getMinutes() + minutes);
 
-      logger.error(`❌ Job ${job.id} failed. Retrying in ${minutes}m:`, err.message);
+      logger.error(` Job ${job.id} failed. Retrying in ${minutes}m:`, err.message);
 
       await supabase
         .from('notification_queue')

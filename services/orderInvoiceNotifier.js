@@ -85,7 +85,7 @@ async function sendOrderDeliveredInvoiceWhatsApp(orderId, storeId, options = {})
     });
 
     // 5. Build official delivery caption
-    const caption = `تم تسليم طلبكم رقم ${formattedOrderNumber} بنجاح! 🎉\nمرفق فاتورة الشراء الرسمية المعتمدة.\nنشكركم لاختياركم ${storeName}.`;
+    const caption = `تم تسليم طلبكم رقم ${formattedOrderNumber} بنجاح.\nمرفق فاتورة الشراء الرسمية المعتمدة.\nنشكركم لاختياركم ${storeName}.`;
 
     // 6. Dispatch PDF document via Unified WhatsApp Router
     await unifiedWhatsAppRouter.sendDocument(
@@ -110,7 +110,7 @@ async function sendOrderDeliveredInvoiceWhatsApp(orderId, storeId, options = {})
       logger.warn('[orderInvoiceNotifier] Non-blocking order_log insert failure:', logErr.message);
     });
 
-    logger.info(`[orderInvoiceNotifier] ✅ Delivered PDF invoice dispatched for Order #${formattedOrderNumber} to ${recipientPhone}`);
+    logger.info(`[orderInvoiceNotifier]  Delivered PDF invoice dispatched for Order #${formattedOrderNumber} to ${recipientPhone}`);
     return { success: true };
   } catch (err) {
     logger.error('[orderInvoiceNotifier] Error sending delivered invoice:', err.message);

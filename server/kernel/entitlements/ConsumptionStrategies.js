@@ -54,4 +54,4 @@ const strategies = {
   'metered': new MeteredStrategy()
 };
 
-module.exports = strategies;\n
+module.exports = strategies;

@@ -38,4 +38,4 @@ class ValidationEngine {
   }
 }
 
-module.exports = ValidationEngine;\n
+module.exports = ValidationEngine;

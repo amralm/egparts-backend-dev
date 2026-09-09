@@ -239,7 +239,7 @@ function stopDomainCheckCron() {
   if (checkIntervalRef) {
     clearInterval(checkIntervalRef);
     checkIntervalRef = null;
-    logger.info('🛑 Centralized Custom Domain background validator stopped.');
+    logger.info(' Centralized Custom Domain background validator stopped.');
   }
 }
 

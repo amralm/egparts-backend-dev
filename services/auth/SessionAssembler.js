@@ -20,7 +20,7 @@ class SessionAssembler {
       .map((r) => r.store_roles?.code)
       .filter(Boolean);
 
-    // ✅ Resolve real permissions from the Membership layer.
+    //  Resolve real permissions from the Membership layer.
     // Previously this was always []. Now we fetch actual granted permissions
     // for this user in this store so the frontend can gate UI correctly.
     let permissions = [];
@@ -49,7 +49,7 @@ class SessionAssembler {
       },
       authorization: {
         roles,
-        permissions, // ✅ Now populated with real permission names
+        permissions, //  Now populated with real permission names
       },
       entitlements,
       metadata: {

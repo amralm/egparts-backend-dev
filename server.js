@@ -88,6 +88,7 @@ const seoRoutes = require('./routes/seo');
 const supportRoutes = require('./routes/support');
 const platformReportsRoutes = require('./routes/platformReports');
 const posRoutes = require('./routes/pos');
+const staffRoutes = require('./routes/staff');
 const billingRoutes = require('./routes/billing');
 const courierShippingRoutes = require('./routes/courierShipping');
 const metaWebhookRoutes = require('./routes/metaWebhook');
@@ -715,6 +716,7 @@ app.use('/api/platform-reports', platformReportsRoutes.publicReportsRouter || pl
 app.use('/api/platform/reports', platformReportsRoutes.publicReportsRouter || platformReportsRoutes);
 app.use('/api/platform/admin/reports', platformReportsRoutes.adminReportsRouter || platformReportsRoutes);
 app.use('/api/pos', posRoutes);
+app.use('/api/staff', staffRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/shipping/couriers', courierShippingRoutes);
 app.use('/api/shipping/drivers', deliveryDriverRoutes);

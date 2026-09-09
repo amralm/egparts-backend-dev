@@ -138,4 +138,4 @@ class ModuleRegistry {
   }
 }
 
-module.exports = ModuleRegistry;\n
+module.exports = ModuleRegistry;

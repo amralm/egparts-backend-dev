@@ -259,7 +259,8 @@ router.post('/orders', verifyPermission(['tenant.orders.write', 'orders.create',
       p_customer_phone: customer_phone || null,
       p_notes: notes || '',
       p_cash_tendered: cash_tendered != null ? Number(cash_tendered) : null,
-      p_change_due: change_due != null ? Number(change_due) : null
+      p_change_due: change_due != null ? Number(change_due) : null,
+      p_customer_user_id: null
     });
 
     if (rpcError) {
@@ -421,14 +422,47 @@ router.post('/returns', verifyPermission(['tenant.orders.write', 'orders.write']
     return apiError(res, 400, parseResult.error.errors[0]?.message || 'بيانات الإرجاع غير صالحة', 'VALIDATION_ERROR');
   }
 
-  const { order_id, items, refund_method, reason } = parseResult.data;
+  const {
+    order_id,
+    items,
+    refund_method,
+    reason,
+    allow_negative_cash,
+    manager_pin,
+    override_reason
+  } = parseResult.data;
   const userId = req.user?.sub || req.user?.id || null;
 
   try {
+    // Manager authorization check if negative cash override requested
+    let isManagerAuthorized = false;
+    if (allow_negative_cash) {
+      const userRole = String(req.user?.role || '').toLowerCase();
+      if (['owner', 'manager', 'admin', 'superadmin'].includes(userRole) || req.isStoreOwner) {
+        isManagerAuthorized = true;
+      } else if (manager_pin) {
+        const pinHash = hashPin(req.store.id, manager_pin);
+        const { data: storeRow } = await supabase
+          .from('stores')
+          .select('pos_manager_pin_hash')
+          .eq('id', req.store.id)
+          .maybeSingle();
+
+        if (storeRow?.pos_manager_pin_hash && storeRow.pos_manager_pin_hash === pinHash) {
+          isManagerAuthorized = true;
+        } else {
+          return apiError(res, 403, 'رمز PIN الخاص بالمدير غير صحيح', 'INVALID_MANAGER_PIN');
+        }
+      } else {
+        return apiError(res, 403, 'تجاوز رصيد الدرج يتطلب مصادقة أو رمز PIN الخاص بالمدير', 'MANAGER_AUTHORIZATION_REQUIRED');
+      }
+    }
+
     const sanitizedReturnItems = items.map(it => ({
       id: it.id,
       product_id: it.id,
       qty: Number(it.qty),
+      price: it.price !== undefined ? Number(it.price) : undefined,
       condition: it.condition || 'sound',
       name: it.name || undefined
     }));
@@ -438,15 +472,20 @@ router.post('/returns', verifyPermission(['tenant.orders.write', 'orders.write']
       p_user_id: userId,
       p_items: sanitizedReturnItems,
       p_refund_method: refund_method,
-      p_reason: reason || 'مرتجع كاشير'
+      p_reason: reason || 'مرتجع كاشير',
+      p_allow_negative_cash: Boolean(allow_negative_cash && isManagerAuthorized),
+      p_override_reason: override_reason || (allow_negative_cash ? 'تصريح استثنائي للمدير' : null)
     });
 
     if (rpcError) {
       logger.error('[pos] atomic return error:', rpcError.message);
+      if (rpcError.message && rpcError.message.includes('INSUFFICIENT_DRAWER_CASH')) {
+        return apiError(res, 400, rpcError.message, 'INSUFFICIENT_DRAWER_CASH');
+      }
       return apiError(res, 400, rpcError.message || 'تعذر إتمام عملية الإرجاع', 'POS_RETURN_FAILED');
     }
 
-    logger.info(`[pos] Return processed: ${rpcResult.return_number} (Store: ${req.store.id}) Refund: ${rpcResult.total_refund} EGP`);
+    logger.info(`[pos] Return processed: ${rpcResult.return_number} (Store: ${req.store.id}) Refund: ${rpcResult.total_refund} EGP Override: ${rpcResult.manager_override}`);
 
     sendSuccess(res, {
       ...rpcResult,
@@ -549,9 +588,12 @@ router.get('/shifts/current', verifyPermission(['tenant.orders.read', 'orders.vi
     const cashSales = Number(shift.cash_sales) || 0;
     const cardSales = Number(shift.card_sales) || 0;
     const totalSales = Number(shift.total_sales) || 0;
+    const cashRefunds = Number(shift.cash_refunds) || 0;
+    const cardRefunds = Number(shift.card_refunds) || 0;
+    const totalRefunds = Number(shift.total_refunds) || 0;
     const payIns = Number(shift.pay_ins) || 0;
     const payOuts = Number(shift.pay_outs) || 0;
-    const expectedCash = openingCash + cashSales + payIns - payOuts;
+    const expectedCash = openingCash + cashSales - cashRefunds + payIns - payOuts;
 
     sendSuccess(res, {
       shift: {
@@ -560,6 +602,9 @@ router.get('/shifts/current', verifyPermission(['tenant.orders.read', 'orders.vi
         cash_sales: cashSales,
         card_sales: cardSales,
         total_sales: totalSales,
+        cash_refunds: cashRefunds,
+        card_refunds: cardRefunds,
+        total_refunds: totalRefunds,
         pay_ins: payIns,
         pay_outs: payOuts,
         expected_cash: expectedCash
@@ -702,7 +747,8 @@ router.post('/shifts/movement', verifyPermission(['tenant.orders.write', 'orders
     if (updateError) throw updateError;
 
     const expectedCash = (Number(updatedShift.opening_cash) || 0) +
-      (Number(updatedShift.cash_sales) || 0) +
+      (Number(updatedShift.cash_sales) || 0) -
+      (Number(updatedShift.cash_refunds) || 0) +
       newPayIns - newPayOuts;
 
     sendSuccess(res, {
@@ -748,9 +794,12 @@ router.post('/shifts/close', verifyPermission(['tenant.orders.write', 'orders.wr
     const cashSales = Number(shift.cash_sales) || 0;
     const cardSales = Number(shift.card_sales) || 0;
     const totalSales = Number(shift.total_sales) || 0;
+    const cashRefunds = Number(shift.cash_refunds) || 0;
+    const cardRefunds = Number(shift.card_refunds) || 0;
+    const totalRefunds = Number(shift.total_refunds) || 0;
     const payIns = Number(shift.pay_ins) || 0;
     const payOuts = Number(shift.pay_outs) || 0;
-    const expectedCash = openingCash + cashSales + payIns - payOuts;
+    const expectedCash = openingCash + cashSales - cashRefunds + payIns - payOuts;
     const actualCash = Number(actual_cash);
     const difference = actualCash - expectedCash;
 
@@ -784,6 +833,9 @@ router.post('/shifts/close', verifyPermission(['tenant.orders.write', 'orders.wr
         cash_sales: cashSales,
         card_sales: cardSales,
         total_sales: totalSales,
+        cash_refunds: cashRefunds,
+        card_refunds: cardRefunds,
+        total_refunds: totalRefunds,
         pay_ins: payIns,
         pay_outs: payOuts,
         expected_cash: expectedCash,
@@ -832,29 +884,291 @@ router.get('/shifts/history', verifyPermission(['tenant.orders.read', 'orders.vi
   }
 });
 
-// ── POST /api/pos/switch-cashier ──
-// Fast PIN authentication for Cashier & Manager on POS Terminal
-router.post('/switch-cashier', posPinLimiter, optionalAuth, async (req, res) => {
+// ── POST /api/pos/switch-cashier & POST /api/pos/switch-staff ──
+// Staff Authentication (Email & Password + Enterprise RBAC, with legacy PIN fallback)
+const handleStaffSwitch = async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   const parseResult = switchCashierSchema.safeParse(req.body);
   if (!parseResult.success) {
-    const errorMsg = parseResult.error?.issues?.[0]?.message || parseResult.error?.errors?.[0]?.message || 'رمز PIN غير صالح';
+    const errorMsg = parseResult.error?.issues?.[0]?.message || parseResult.error?.errors?.[0]?.message || 'بيانات الدخول غير صالحة';
     return apiError(res, 400, errorMsg, 'VALIDATION_ERROR');
   }
 
-  const { pin } = parseResult.data;
-  const pinHash = hashPin(req.store.id, pin);
+  const { email, password, pin } = parseResult.data;
 
-  try {
-    // 1. Check Manager PIN first
-    const { data: storeRow } = await supabase
-      .from('stores')
-      .select('pos_manager_pin_hash, name')
-      .eq('id', req.store.id)
-      .maybeSingle();
+  // 1. Prioritize Email & Password (Enterprise RBAC)
+  if (email && password) {
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password: password
+      });
 
-    if (storeRow?.pos_manager_pin_hash && storeRow.pos_manager_pin_hash === pinHash) {
+      if (authErr || !authData?.user) {
+        return apiError(res, 401, 'البريد الإلكتروني أو كلمة المرور غير صحيحة', 'INVALID_CREDENTIALS');
+      }
+
+      const authUser = authData.user;
+      const userId = authUser.id;
+      const userName = authUser.user_metadata?.full_name || authUser.user_metadata?.name || normalizedEmail.split('@')[0];
+
+      // Check if store owner
+      const { data: storeRow } = await supabase
+        .from('stores')
+        .select('id, owner_id, name')
+        .eq('id', req.store.id)
+        .maybeSingle();
+
+      const isStoreOwner = storeRow && storeRow.owner_id === userId;
+
+      // Check if platform super_admin
+      const { data: roleRows } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId);
+
+      const isSuperAdmin = (roleRows || []).some(r => r.role === 'super_admin');
+
+      // Check store_staff
+      const { data: staffRow } = await supabase
+        .from('store_staff')
+        .select('id, store_id, user_id, role_name, is_active')
+        .eq('store_id', req.store.id)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (!isStoreOwner && !isSuperAdmin && !staffRow) {
+        return apiError(res, 403, 'هذا الحساب ليس لديه صلاحية العمل في هذا المتجر', 'FORBIDDEN_STORE_ACCESS');
+      }
+
+      if (staffRow && !staffRow.is_active) {
+        return apiError(res, 403, 'حساب هذا الموظف معطل حالياً', 'STAFF_INACTIVE');
+      }
+
+      const rawRole = staffRow?.role_name || (isStoreOwner ? 'owner' : isSuperAdmin ? 'super_admin' : 'cashier');
+      const isCashier = rawRole === 'cashier';
+      const mode = isCashier ? 'cashier' : 'manager';
+
+      let sessionToken = null;
+      if (process.env.SUPABASE_JWT_SECRET) {
+        try {
+          sessionToken = jwt.sign({
+            sub: userId,
+            store_id: req.store.id,
+            role: isCashier ? 'cashier' : 'manager',
+            staff_role: rawRole,
+            cashier_name: userName,
+            email: normalizedEmail,
+            scope: isCashier ? 'cashier_pos_only' : 'manager_full'
+          }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
+        } catch (tokenErr) {
+          logger.warn('[pos] could not sign session token:', tokenErr.message);
+        }
+      }
+
+      return sendSuccess(res, {
+        mode,
+        cashier: {
+          id: userId,
+          name: userName,
+          email: normalizedEmail,
+          role: rawRole
+        },
+        session_token: sessionToken,
+        access_token: authData.session?.access_token || null
+      }, { message: `مرحباً بك يا ${userName}` });
+    } catch (authCatchErr) {
+      logger.error('[pos] email/password staff auth failed:', authCatchErr.message);
+      return apiError(res, 500, 'فشل التحقق من بيانات الدخول', 'AUTH_ERROR');
+    }
+  }
+
+  // 2. Fallback to PIN (legacy)
+  if (pin) {
+    const pinHash = hashPin(req.store.id, pin);
+    try {
+      // Check Manager PIN
+      const { data: storeRow } = await supabase
+        .from('stores')
+        .select('pos_manager_pin_hash, name')
+        .eq('id', req.store.id)
+        .maybeSingle();
+
+      if (storeRow?.pos_manager_pin_hash && storeRow.pos_manager_pin_hash === pinHash) {
+        const ownerUserId = await resolveStoreOwnerUserId(req.store.id, req.user?.sub);
+        let managerToken = null;
+        if (process.env.SUPABASE_JWT_SECRET) {
+          try {
+            managerToken = jwt.sign({
+              sub: ownerUserId,
+              store_id: req.store.id,
+              role: 'manager',
+              pin_verified: true,
+              scope: 'manager_full',
+              parent_user_id: ownerUserId
+            }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
+          } catch (tokenErr) {
+            logger.warn('[pos] could not sign manager token:', tokenErr.message);
+          }
+        }
+
+        return sendSuccess(res, {
+          mode: 'manager',
+          cashier: {
+            id: req.user?.sub || 'manager',
+            name: 'مدير المتجر',
+            role: 'owner'
+          },
+          session_token: managerToken
+        }, { message: 'تم فتح لوحة تحكم المدير بنجاح' });
+      }
+
+      // Check Store Cashiers
+      const { data: cashier, error: cashierError } = await supabase
+        .from('pos_cashiers')
+        .select('id, name, phone, role, is_active')
+        .eq('store_id', req.store.id)
+        .eq('pin_hash', pinHash)
+        .maybeSingle();
+
+      if (cashierError) throw cashierError;
+
+      if (!cashier) {
+        return apiError(res, 401, 'رمز الـ PIN غير صحيح', 'INVALID_PIN');
+      }
+
+      if (!cashier.is_active) {
+        return apiError(res, 403, 'حساب هذا الكاشير معطل حالياً', 'CASHIER_INACTIVE');
+      }
+
+      let sessionToken = null;
+      if (process.env.SUPABASE_JWT_SECRET) {
+        try {
+          sessionToken = jwt.sign({
+            sub: cashier.id,
+            store_id: req.store.id,
+            role: 'cashier',
+            cashier_name: cashier.name,
+            pin_verified: true,
+            scope: 'cashier_pos_only',
+            parent_user_id: req.user?.sub
+          }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
+        } catch (tokenErr) {
+          logger.warn('[pos] could not sign cashier token:', tokenErr.message);
+        }
+      }
+
+      return sendSuccess(res, {
+        mode: 'cashier',
+        cashier: {
+          id: cashier.id,
+          name: cashier.name,
+          role: cashier.role
+        },
+        session_token: sessionToken
+      }, { message: `مرحباً بك يا ${cashier.name}` });
+    } catch (err) {
+      logger.error('[pos] switch cashier pin failed:', err.message);
+      return apiError(res, 500, 'فشل التحقق من رمز PIN', 'HTTP_500');
+    }
+  }
+
+  return apiError(res, 400, 'يرجى تقديم بيانات الدخول (البريد وكلمة المرور)', 'MISSING_CREDENTIALS');
+};
+
+router.post('/switch-cashier', posPinLimiter, optionalAuth, handleStaffSwitch);
+router.post('/switch-staff', posPinLimiter, optionalAuth, handleStaffSwitch);
+
+// ── POST /api/pos/terminal/unlock ──
+// Unlock manager mode from POS Terminal using email & password or manager PIN
+router.post('/terminal/unlock', posPinLimiter, optionalAuth, async (req, res) => {
+  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
+
+  const parseResult = managerPinSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    const errorMsg = parseResult.error?.issues?.[0]?.message || parseResult.error?.errors?.[0]?.message || 'بيانات المدير غير صالحة';
+    return apiError(res, 400, errorMsg, 'VALIDATION_ERROR');
+  }
+
+  const { email, password, pin } = parseResult.data;
+
+  // 1. Email & Password manager verification
+  if (email && password) {
+    try {
+      const normalizedEmail = email.trim().toLowerCase();
+      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password: password
+      });
+
+      if (authErr || !authData?.user) {
+        return apiError(res, 401, 'البريد الإلكتروني أو كلمة المرور غير صحيحة', 'INVALID_CREDENTIALS');
+      }
+
+      const userId = authData.user.id;
+
+      // Verify owner or superadmin or store_manager
+      const [{ data: storeRow }, { data: roleRows }, { data: staffRow }] = await Promise.all([
+        supabase.from('stores').select('id, owner_id').eq('id', req.store.id).maybeSingle(),
+        supabase.from('user_roles').select('role').eq('user_id', userId),
+        supabase.from('store_staff').select('id, role_name, is_active').eq('store_id', req.store.id).eq('user_id', userId).maybeSingle()
+      ]);
+
+      const isStoreOwner = storeRow && storeRow.owner_id === userId;
+      const isSuperAdmin = (roleRows || []).some(r => r.role === 'super_admin');
+      const isManagerStaff = staffRow && staffRow.is_active && ['store_manager', 'manager', 'admin'].includes(staffRow.role_name);
+
+      if (!isStoreOwner && !isSuperAdmin && !isManagerStaff) {
+        return apiError(res, 403, 'هذا الحساب لا يملك صلاحية إدارة المتجر لإلغاء القفل', 'NOT_A_MANAGER');
+      }
+
+      let managerToken = null;
+      if (process.env.SUPABASE_JWT_SECRET) {
+        try {
+          managerToken = jwt.sign({
+            sub: userId,
+            store_id: req.store.id,
+            role: 'manager',
+            scope: 'manager_full',
+            parent_user_id: userId
+          }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
+        } catch (tokenErr) {
+          logger.warn('[pos] could not sign manager unlock token:', tokenErr.message);
+        }
+      }
+
+      return sendSuccess(res, {
+        unlocked: true,
+        mode: 'manager',
+        session_token: managerToken,
+        access_token: authData.session?.access_token || null
+      }, { message: 'تم إلغاء قفل الإدارة بنجاح' });
+    } catch (err) {
+      logger.error('[pos] terminal unlock email/pass failed:', err.message);
+      return apiError(res, 500, 'فشل إلغاء قفل الـ POS', 'HTTP_500');
+    }
+  }
+
+  // 2. Legacy PIN fallback
+  if (pin) {
+    const pinHash = hashPin(req.store.id, pin);
+    try {
+      const { data: storeRow } = await supabase
+        .from('stores')
+        .select('pos_manager_pin_hash')
+        .eq('id', req.store.id)
+        .maybeSingle();
+
+      if (!storeRow?.pos_manager_pin_hash) {
+        return apiError(res, 400, 'لم يتم تعيين رمز PIN للمدير بعد. يرجى ضبطه من إعدادات المتجر.', 'NO_MANAGER_PIN_SET');
+      }
+
+      if (storeRow.pos_manager_pin_hash !== pinHash) {
+        return apiError(res, 401, 'رمز PIN المدير غير صحيح', 'INVALID_MANAGER_PIN');
+      }
+
       const ownerUserId = await resolveStoreOwnerUserId(req.store.id, req.user?.sub);
       let managerToken = null;
       if (process.env.SUPABASE_JWT_SECRET) {
@@ -868,126 +1182,22 @@ router.post('/switch-cashier', posPinLimiter, optionalAuth, async (req, res) => 
             parent_user_id: ownerUserId
           }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
         } catch (tokenErr) {
-          logger.warn('[pos] could not sign manager token:', tokenErr.message);
+          logger.warn('[pos] could not sign manager unlock token:', tokenErr.message);
         }
       }
 
       return sendSuccess(res, {
+        unlocked: true,
         mode: 'manager',
-        cashier: {
-          id: req.user?.sub || 'manager',
-          name: 'مدير المتجر',
-          role: 'owner'
-        },
         session_token: managerToken
-      }, { message: 'تم فتح لوحة تحكم المدير بنجاح' });
+      }, { message: 'تم إلغاء قفل الإدارة بنجاح' });
+    } catch (err) {
+      logger.error('[pos] terminal unlock failed:', err.message);
+      return apiError(res, 500, 'فشل إلغاء قفل الـ POS', 'HTTP_500');
     }
-
-    // 2. Check Store Cashiers
-    const { data: cashier, error: cashierError } = await supabase
-      .from('pos_cashiers')
-      .select('id, name, phone, role, is_active')
-      .eq('store_id', req.store.id)
-      .eq('pin_hash', pinHash)
-      .maybeSingle();
-
-    if (cashierError) throw cashierError;
-
-    if (!cashier) {
-      return apiError(res, 401, 'رمز الـ PIN غير صحيح', 'INVALID_PIN');
-    }
-
-    if (!cashier.is_active) {
-      return apiError(res, 403, 'حساب هذا الكاشير معطل حالياً', 'CASHIER_INACTIVE');
-    }
-
-    let sessionToken = null;
-    if (process.env.SUPABASE_JWT_SECRET) {
-      try {
-        sessionToken = jwt.sign({
-          sub: cashier.id,
-          store_id: req.store.id,
-          role: 'cashier',
-          cashier_name: cashier.name,
-          pin_verified: true,
-          scope: 'cashier_pos_only',
-          parent_user_id: req.user?.sub
-        }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
-      } catch (tokenErr) {
-        logger.warn('[pos] could not sign cashier token:', tokenErr.message);
-      }
-    }
-
-    sendSuccess(res, {
-      mode: 'cashier',
-      cashier: {
-        id: cashier.id,
-        name: cashier.name,
-        role: cashier.role
-      },
-      session_token: sessionToken
-    }, { message: `مرحباً بك يا ${cashier.name}` });
-  } catch (err) {
-    logger.error('[pos] switch cashier failed:', err.message);
-    apiError(res, 500, 'فشل التحقق من رمز PIN', 'HTTP_500');
-  }
-});
-
-// ── POST /api/pos/terminal/unlock ──
-// Unlock manager mode from POS Terminal using manager PIN
-router.post('/terminal/unlock', posPinLimiter, optionalAuth, async (req, res) => {
-  if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
-
-  const parseResult = managerPinSchema.safeParse(req.body);
-  if (!parseResult.success) {
-    const errorMsg = parseResult.error?.issues?.[0]?.message || parseResult.error?.errors?.[0]?.message || 'رمز PIN غير صالح';
-    return apiError(res, 400, errorMsg, 'VALIDATION_ERROR');
   }
 
-  const { pin } = parseResult.data;
-  const pinHash = hashPin(req.store.id, pin);
-
-  try {
-    const { data: storeRow } = await supabase
-      .from('stores')
-      .select('pos_manager_pin_hash')
-      .eq('id', req.store.id)
-      .maybeSingle();
-
-    if (!storeRow?.pos_manager_pin_hash) {
-      return apiError(res, 400, 'لم يتم تعيين رمز PIN للمدير بعد. يرجى ضبطه من إعدادات المتجر.', 'NO_MANAGER_PIN_SET');
-    }
-
-    if (storeRow.pos_manager_pin_hash !== pinHash) {
-      return apiError(res, 401, 'رمز PIN المدير غير صحيح', 'INVALID_MANAGER_PIN');
-    }
-
-    const ownerUserId = await resolveStoreOwnerUserId(req.store.id, req.user?.sub);
-    let managerToken = null;
-    if (process.env.SUPABASE_JWT_SECRET) {
-      try {
-        managerToken = jwt.sign({
-          sub: ownerUserId,
-          store_id: req.store.id,
-          role: 'manager',
-          pin_verified: true,
-          scope: 'manager_full',
-          parent_user_id: ownerUserId
-        }, process.env.SUPABASE_JWT_SECRET, { expiresIn: '14h' });
-      } catch (tokenErr) {
-        logger.warn('[pos] could not sign manager unlock token:', tokenErr.message);
-      }
-    }
-
-    sendSuccess(res, {
-      unlocked: true,
-      mode: 'manager',
-      session_token: managerToken
-    }, { message: 'تم إلغاء قفل الإدارة بنجاح' });
-  } catch (err) {
-    logger.error('[pos] terminal unlock failed:', err.message);
-    apiError(res, 500, 'فشل إلغاء قفل الـ POS', 'HTTP_500');
-  }
+  return apiError(res, 400, 'يرجى تقديم بيانات الدخول للمدير', 'MISSING_CREDENTIALS');
 });
 
 // ── POST /api/pos/terminal/manager-pin ──
@@ -1038,15 +1248,20 @@ router.post('/terminal/manager-pin', verifyPermission(['settings.update', 'tenan
 });
 
 // ── GET /api/pos/cashiers ──
-// List all store cashiers for management
-router.get('/cashiers', verifyPermission(['settings.view', 'settings.update', 'tenant.settings.read', 'tenant.settings.write']), async (req, res) => {
+// List all store cashiers and staff for switcher and management
+router.get('/cashiers', verifyPermission(['settings.view', 'settings.update', 'tenant.settings.read', 'tenant.settings.write', 'tenant.orders.read', 'orders.view', 'orders.read']), async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   try {
-    const [{ data: cashiers, error: cashiersErr }, { data: storeRow }] = await Promise.all([
+    const [{ data: cashiers, error: cashiersErr }, { data: staffList }, { data: storeRow }] = await Promise.all([
       supabase
         .from('pos_cashiers')
         .select('id, name, phone, role, is_active, created_at, updated_at')
+        .eq('store_id', req.store.id)
+        .order('created_at', { ascending: true }),
+      supabase
+        .from('store_staff')
+        .select('id, user_id, role_name, invited_email, is_active, created_at')
         .eq('store_id', req.store.id)
         .order('created_at', { ascending: true }),
       supabase
@@ -1058,8 +1273,28 @@ router.get('/cashiers', verifyPermission(['settings.view', 'settings.update', 't
 
     if (cashiersErr) throw cashiersErr;
 
+    const availableStaff = [
+      ...(staffList || []).map(s => ({
+        id: s.id,
+        user_id: s.user_id,
+        name: s.invited_email ? s.invited_email.split('@')[0] : 'موظف',
+        email: s.invited_email,
+        role: s.role_name,
+        is_active: s.is_active
+      })),
+      ...(cashiers || []).filter(c => !(staffList || []).some(s => s.invited_email === c.name)).map(c => ({
+        id: c.id,
+        name: c.name,
+        email: null,
+        role: c.role,
+        is_active: c.is_active
+      }))
+    ];
+
     sendSuccess(res, {
       cashiers: cashiers || [],
+      staff: staffList || [],
+      available_staff: availableStaff,
       has_manager_pin: Boolean(storeRow?.pos_manager_pin_hash)
     });
   } catch (err) {

@@ -20,7 +20,7 @@ class AbandonedCartWorker {
 
   start() {
     if (this.timer) return;
-    logger.info('🚀 [AbandonedCartWorker] Starting abandoned cart recovery worker (15-min intervals)...');
+    logger.info(' [AbandonedCartWorker] Starting abandoned cart recovery worker (15-min intervals)...');
 
     // Initial run delayed 60 seconds after server boot for smooth startup
     setTimeout(() => {
@@ -40,7 +40,7 @@ class AbandonedCartWorker {
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
-      logger.info('🛑 [AbandonedCartWorker] Stopped abandoned cart recovery worker.');
+      logger.info(' [AbandonedCartWorker] Stopped abandoned cart recovery worker.');
     }
   }
 

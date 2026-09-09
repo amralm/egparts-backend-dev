@@ -23,4 +23,4 @@ class IEventBus {
   }
 }
 
-module.exports = IEventBus;\n
+module.exports = IEventBus;

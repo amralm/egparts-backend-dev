@@ -56,4 +56,4 @@ class EntitlementResolver {
   }
 }
 
-module.exports = EntitlementResolver;\n
+module.exports = EntitlementResolver;

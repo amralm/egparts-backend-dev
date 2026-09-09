@@ -77,6 +77,22 @@ class ShippingZoneEngine {
       };
     }
 
+    // 0. GPS Coordinates Egypt Boundary Enforcement
+    if (lat !== undefined && lng !== undefined && lat !== null && lng !== null) {
+      const nLat = Number(lat);
+      const nLng = Number(lng);
+      if (!isNaN(nLat) && !isNaN(nLng)) {
+        if (!isInEgypt(nLat, nLng)) {
+          return {
+            allowed: false,
+            code: 'COORDINATES_OUTSIDE_EGYPT',
+            message: 'الإحداثيات المحددة تقع خارج جمهورية مصر العربية. الشحن متاح داخل مصر فقط.',
+            resolution_method: 'OUTSIDE_EGYPT'
+          };
+        }
+      }
+    }
+
     // 1. Fetch all active zones for the store
     const { data: zones, error } = await supabase
       .from('shipping_zones')

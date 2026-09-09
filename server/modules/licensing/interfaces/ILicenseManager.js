@@ -46,4 +46,4 @@ class ILicenseManager {
   }
 }
 
-module.exports = ILicenseManager;\n
+module.exports = ILicenseManager;

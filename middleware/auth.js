@@ -35,16 +35,31 @@ const logger = require('../utils/logger');
  * @returns {Promise<string[]>} Array of granted permission names
  */
 async function resolveStorePermissions(userId, storeId, options = {}) {
-  // Cashier Role Isolation: restricted strictly to POS and store orders/products view
-  if (options.role === 'cashier') {
-    return [
-      'tenant.orders.read', 'orders.read', 'orders.view',
-      'tenant.orders.write', 'orders.create', 'orders.write',
-      'tenant.products.read', 'products.view', 'products.read'
-    ];
+  // 1. Check store_staff membership and active status
+  try {
+    const { data: staffMember } = await supabase
+      .from('store_staff')
+      .select('role_name, is_active')
+      .eq('store_id', storeId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (staffMember && staffMember.is_active === false) {
+      return []; // Deactivated staff has NO permissions
+    }
+
+    if (staffMember?.role_name === 'cashier') {
+      return [
+        'tenant.orders.read', 'orders.read', 'orders.view',
+        'tenant.orders.write', 'orders.create', 'orders.write',
+        'tenant.products.read', 'products.view', 'products.read'
+      ];
+    }
+  } catch (staffErr) {
+    logger.warn('staff check in resolveStorePermissions failed:', staffErr.message);
   }
 
-  // Check if super_admin first (super admins have full capabilities across all stores)
+  // 2. Check if super_admin (super admins have full capabilities across all stores)
   try {
     const { data: superAdmin } = await supabase
       .from('super_admins')
@@ -236,14 +251,21 @@ const verifyAdmin = (req, res, next) => {
     }
 
     try {
-      const [{ data: superAdmin, error: saErr }, { data: storeAdmin, error: saStoreErr }] = await Promise.all([
+      const [{ data: superAdmin, error: saErr }, { data: storeRole, error: saStoreErr }, { data: staffMember }] = await Promise.all([
         supabase.from('super_admins').select('user_id').eq('user_id', userId).maybeSingle(),
         storeId
           ? supabase.from('user_roles')
-              .select('role_id')
+              .select('role_id, roles(name)')
               .eq('user_id', userId)
               .eq('store_id', storeId)
               .limit(1)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+        storeId
+          ? supabase.from('store_staff')
+              .select('role_name, is_active')
+              .eq('user_id', userId)
+              .eq('store_id', storeId)
               .maybeSingle()
           : Promise.resolve({ data: null, error: null })
       ]);
@@ -251,7 +273,15 @@ const verifyAdmin = (req, res, next) => {
       if (saErr) throw saErr;
       if (saStoreErr) throw saStoreErr;
 
-      if (superAdmin || storeAdmin) return next();
+      if (staffMember && staffMember.is_active === false) {
+        return apiError(res, 403, 'تم تعطيل حساب الموظف من قبل مدير المتجر', 'STAFF_DEACTIVATED');
+      }
+
+      if (staffMember?.role_name === 'cashier' || storeRole?.roles?.name === 'cashier') {
+        return apiError(res, 403, 'Forbidden: Cashier cannot perform store admin operations', 'CASHIER_SCOPE_RESTRICTED');
+      }
+
+      if (superAdmin || (storeRole && storeRole.roles?.name !== 'cashier')) return next();
       return apiError(res, 403, 'Forbidden: Admin access required', `HTTP_403`);
     } catch (err) {
       logger.error('verifyAdmin lookup failed:', err.message);
@@ -350,13 +380,40 @@ const verifyPermission = (permissionName) => {
         return apiError(res, 403, 'Forbidden: Tenant context required', `HTTP_403`);
       }
 
-      // Zero-Trust Session Scoping
-      const isCashierSession = decoded.role === 'cashier' || req.headers['x-pos-session-role'] === 'cashier';
-      const isManagerPinSession = decoded.role === 'manager' && decoded.pin_verified === true;
-      const storeHasPin = Boolean(req.store?.pos_manager_pin_hash);
+      // Zero-Trust Session Scoping & Role Isolation (DB-backed staff verification)
+      const [{ data: staffMember }, { data: userRoleRecord }] = await Promise.all([
+        supabase
+          .from('store_staff')
+          .select('role_name, is_active')
+          .eq('store_id', storeId)
+          .eq('user_id', userId)
+          .maybeSingle(),
+        supabase
+          .from('user_roles')
+          .select('role_id, roles(name)')
+          .eq('store_id', storeId)
+          .eq('user_id', userId)
+          .limit(1)
+          .maybeSingle()
+      ]);
+
+      if (staffMember && staffMember.is_active === false) {
+        return apiError(res, 403, 'تم تعطيل حساب الموظف من قبل مدير المتجر', 'STAFF_DEACTIVATED');
+      }
+
+      const isCashierSession = 
+        decoded.role === 'cashier' || 
+        staffMember?.role_name === 'cashier' || 
+        userRoleRecord?.roles?.name === 'cashier' ||
+        req.headers['x-pos-session-role'] === 'cashier';
 
       // 1. Cashier session strict isolation:
       if (isCashierSession) {
+        // Enforce membership for this store (prevent cross-tenant cashier spoofing)
+        if (!staffMember && userRoleRecord?.roles?.name !== 'cashier') {
+          return apiError(res, 403, 'غير مصرح: الموظف لا ينتمي لهذا المتجر', 'CROSS_TENANT_FORBIDDEN');
+        }
+
         const cashierAllowedPermissions = [
           'tenant.orders.read', 'orders.read', 'orders.view',
           'tenant.orders.write', 'orders.create', 'orders.write',
@@ -366,27 +423,11 @@ const verifyPermission = (permissionName) => {
         if (!hasCashierPerm) {
           return apiError(res, 403, 'غير مصرح: هذا الإجراء مخصص لمدير المتجر فقط ولا يملكه الكاشير', 'CASHIER_SCOPE_RESTRICTED');
         }
-        return next();
-      }
-
-      // 2. Zero-Trust PIN Gate:
-      // If the store has a configured manager PIN, and user is attempting sensitive store management
-      // (settings, finances, reports, staff management, product catalog mutations),
-      // require cryptographic Manager PIN verification.
-      if (storeHasPin && req.isImpersonated !== true && !isManagerPinSession) {
-        const publicStoreOperations = [
-          'tenant.orders.read', 'orders.read', 'orders.view',
-          'tenant.products.read', 'products.view', 'products.read'
-        ];
-        const requiresElevation = expandedPerms.some((p) => !publicStoreOperations.includes(p));
-        if (requiresElevation) {
-          return apiError(res, 403, 'يتعين إدخال رمز PIN المدير للوصول إلى لوحة التحكم أو تعديل البيانات الحساسة', 'PIN_VERIFICATION_REQUIRED');
-        }
       }
 
       const storePermissions = await resolveStorePermissions(userId, storeId, {
         impersonated: req.isImpersonated === true,
-        role: decoded.role
+        role: isCashierSession ? 'cashier' : decoded.role
       });
 
       const hasStorePerm = expandedPerms.some((p) => storePermissions.includes(p));

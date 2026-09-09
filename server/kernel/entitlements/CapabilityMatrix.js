@@ -43,4 +43,4 @@ class CapabilityMatrix {
   }
 }
 
-module.exports = new CapabilityMatrix();\n
+module.exports = new CapabilityMatrix();

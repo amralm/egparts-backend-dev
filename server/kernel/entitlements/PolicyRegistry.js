@@ -22,4 +22,4 @@ class PolicyRegistry {
   }
 }
 
-module.exports = new PolicyRegistry();\n
+module.exports = new PolicyRegistry();

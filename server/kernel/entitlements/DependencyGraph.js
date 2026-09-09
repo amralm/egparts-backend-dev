@@ -89,4 +89,4 @@ class DependencyGraph {
   }
 }
 
-module.exports = DependencyGraph;\n
+module.exports = DependencyGraph;

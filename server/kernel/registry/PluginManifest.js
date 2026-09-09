@@ -48,4 +48,4 @@ class PluginManifest {
   }
 }
 
-module.exports = PluginManifest;\n
+module.exports = PluginManifest;

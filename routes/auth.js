@@ -1364,13 +1364,19 @@ router.post('/validate-admin', async (req, res) => {
     const [{ data: superAdmin }, { data: storeAdmin }] = await Promise.all([
       supabase.from('super_admins').select('user_id').eq('user_id', userId).maybeSingle(),
       scopedStoreId
-        ? supabase.from('user_roles').select('role_id').eq('user_id', userId).eq('store_id', scopedStoreId).limit(1).maybeSingle()
+        ? supabase.from('user_roles').select('role_id, roles(name)').eq('user_id', userId).eq('store_id', scopedStoreId).limit(1).maybeSingle()
         : Promise.resolve({ data: null })
     ]);
 
-    sendSuccess(res, { isSuperAdmin: !!superAdmin,
+    const resolvedRole = superAdmin ? 'super_admin' : (storeAdmin?.roles?.name || (storeAdmin ? 'owner' : null));
+
+    sendSuccess(res, { 
+      isSuperAdmin: !!superAdmin,
       isStoreAdmin: !!storeAdmin,
-      isAuthorized: !!(superAdmin || storeAdmin) });
+      isAuthorized: !!(superAdmin || storeAdmin),
+      role: resolvedRole,
+      isCashier: resolvedRole === 'cashier'
+    });
   } catch (err) {
     logger.error('Admin validation endpoint error:', err.message);
     apiError(res, 401, 'Unauthorized: Invalid token', `HTTP_401`);

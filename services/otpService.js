@@ -18,9 +18,9 @@ class OTPService {
     // In-memory OTP cache used exclusively when DEV_MODE_ENABLED is true for E2E testing agents
     this.devOtpMemoryCache = new Map();
 
-    // ✅ Start periodic cleanup (every 10 minutes)
+    //  Start periodic cleanup (every 10 minutes)
     setInterval(() => this.cleanupExpired(), 10 * 60 * 1000);
-    // ✅ Reclaim idle mutexes every 30 minutes to avoid unbounded memory growth.
+    //  Reclaim idle mutexes every 30 minutes to avoid unbounded memory growth.
     setInterval(() => this.cleanupIdleMutexes(), 30 * 60 * 1000);
   }
 

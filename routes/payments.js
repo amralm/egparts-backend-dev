@@ -99,13 +99,13 @@ async function verifyPaymobHMAC(req, res, next) {
     .update(concatFields.join(''))
     .digest('hex');
 
-  // ✅ Fix: check length equality before timingSafeEqual to prevent runtime throw
+  //  Fix: check length equality before timingSafeEqual to prevent runtime throw
   if (computedHmac.length !== receivedHmac.length) {
     console.error('HMAC length mismatch. Possible forged request.');
     return apiError(res, 401, 'Invalid HMAC signature', `HTTP_401`);
   }
 
-  // ✅ Timing-safe comparison (prevents timing attacks)
+  //  Timing-safe comparison (prevents timing attacks)
   const isValid = crypto.timingSafeEqual(
     Buffer.from(computedHmac, 'hex'),
     Buffer.from(receivedHmac, 'hex')
@@ -449,7 +449,7 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
     }
 
     // âœ… Append Audit Log
-    // ✅ Append Audit Log
+    //  Append Audit Log
     const auditLogs = Array.isArray(order.payment_details?.audit_logs) 
       ? order.payment_details.audit_logs 
       : [];
@@ -473,7 +473,7 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
     };
 
     if (isSuccess) {
-      // 🔒 FINANCIAL INTEGRITY: Verify exact amount and currency to prevent underpayment/tampering
+      //  FINANCIAL INTEGRITY: Verify exact amount and currency to prevent underpayment/tampering
       const expectedAmountCents = Math.round(Number(order.total) * 100);
       const receivedAmountCents = Number(obj.amount_cents);
       const receivedCurrency = String(obj.currency || 'EGP').toUpperCase();
@@ -526,13 +526,13 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
         console.error('[webhook] outbox insert failed (non-fatal):', outboxErr.message);
       }
 
-      console.log(`✅ Order ${order.id} confirmed | Transaction ${paymobTransactionId}`);
+      console.log(` Order ${order.id} confirmed | Transaction ${paymobTransactionId}`);
 
     } else {
       await supabase.from('orders')
         .update({ payment_status: 'failed', payment_details: newPaymentDetails })
         .eq('id', order.id);
-      console.log(`❌ Order ${order.id} payment failed.`);
+      console.log(` Order ${order.id} payment failed.`);
     }
 
     res.sendStatus(200);
@@ -658,7 +658,7 @@ router.get('/verify-redirect', async (req, res) => {
 
     const isSuccess = query.success === 'true' || query.success === true;
 
-    // 🔒 SECURITY CHECK: If HMAC is cryptographically valid and amount matches, confirm payment immediately
+    //  SECURITY CHECK: If HMAC is cryptographically valid and amount matches, confirm payment immediately
     const expectedAmountCents = Math.round(Number(order.total) * 100);
     const queryAmountCents = Number(query.amount_cents);
     const isAmountMatch = !isNaN(queryAmountCents) && queryAmountCents === expectedAmountCents;
@@ -695,7 +695,7 @@ router.get('/verify-redirect', async (req, res) => {
         store: storeData });
     }
 
-    // 🔒 If isSuccess is true but HMAC was not directly verifiable on GET, wait briefly for the cryptographically-signed server-to-server Webhook
+    //  If isSuccess is true but HMAC was not directly verifiable on GET, wait briefly for the cryptographically-signed server-to-server Webhook
     if (isSuccess) {
       for (let attempt = 0; attempt < 5; attempt++) {
         await new Promise(resolve => setTimeout(resolve, 600));

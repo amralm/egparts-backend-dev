@@ -720,8 +720,16 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
 
     // Authoritative Geospatial & Shipping Zone Containment Engine
     const targetLocationId = req.body?.location_id || req.body?.locationId || null;
-    const reqLat = req.body?.latitude ?? req.body?.lat ?? null;
-    const reqLng = req.body?.longitude ?? req.body?.lng ?? null;
+    let reqLat = req.body?.latitude ?? req.body?.lat ?? null;
+    let reqLng = req.body?.longitude ?? req.body?.lng ?? null;
+
+    if ((reqLat == null || reqLng == null) && typeof location_url === 'string' && location_url.trim()) {
+      const match = location_url.match(/([-+]?\d{1,2}\.\d+)\s*[,|\s]\s*([-+]?\d{1,3}\.\d+)/);
+      if (match) {
+        reqLat = parseFloat(match[1]);
+        reqLng = parseFloat(match[2]);
+      }
+    }
 
     const coverage = await shippingZoneEngine.evaluateCoverage({
       storeId: req.store.id,
@@ -733,7 +741,7 @@ router.post('/', verifyUser, validateBody(createOrderSchema), async (req, res) =
 
     if (!coverage.allowed) {
       await subscriptionLimitService.rollbackFeatureUsage(reservationKey);
-      return apiError(res, 400, coverage.message || 'نعتذر، المتجر لا يوفر الشحن لهذا الموقع حالياً.', 'SHIPPING_OUT_OF_COVERAGE', {
+      return apiError(res, 400, coverage.message || 'نعتذر، المتجر لا يوفر الشحن لهذا الموقع حالياً.', coverage.code || 'SHIPPING_OUT_OF_COVERAGE', {
         details: coverage
       });
     }

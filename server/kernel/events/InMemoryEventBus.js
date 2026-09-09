@@ -57,4 +57,4 @@ class InMemoryEventBus extends IEventBus {
   }
 }
 
-module.exports = InMemoryEventBus;\n
+module.exports = InMemoryEventBus;

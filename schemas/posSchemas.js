@@ -34,7 +34,10 @@ const posReturnSchema = z.object({
   order_id: z.string().uuid({ message: 'معرف الفاتورة غير صالح' }),
   items: z.array(posReturnItemSchema).min(1, { message: 'يجب اختيار صنف واحد على الأقل للإرجاع' }),
   refund_method: z.enum(['cash', 'card', 'exchange']).default('cash'),
-  reason: z.string().trim().max(500).default('')
+  reason: z.string().trim().max(500).default(''),
+  allow_negative_cash: z.boolean().default(false),
+  manager_pin: z.string().trim().optional(),
+  override_reason: z.string().trim().max(255).optional()
 }).strip();
 
 const openShiftSchema = z.object({
@@ -73,11 +76,24 @@ const updateCashierSchema = z.object({
 }).strip();
 
 const switchCashierSchema = z.object({
-  pin: z.string().trim().regex(/^\d{4,6}$/, { message: 'رمز PIN يجب أن يتكون من 4 إلى 6 أرقام' })
+  email: z.string().email({ message: 'البريد الإلكتروني غير صالح' }).optional(),
+  password: z.string().min(6, { message: 'كلمة المرور يجب ألا تقل عن 6 أحرف' }).optional(),
+  pin: z.string().trim().regex(/^\d{4,6}$/, { message: 'رمز PIN يجب أن يتكون من 4 إلى 6 أرقام' }).optional()
+}).refine(data => (data.email && data.password) || data.pin, {
+  message: 'يرجى إدخال البريد الإلكتروني وكلمة المرور'
+}).strip();
+
+const switchStaffSchema = z.object({
+  email: z.string().email({ message: 'البريد الإلكتروني غير صالح' }),
+  password: z.string().min(6, { message: 'كلمة المرور يجب ألا تقل عن 6 أحرف' })
 }).strip();
 
 const managerPinSchema = z.object({
-  pin: z.string().trim().regex(/^\d{4,6}$/, { message: 'رمز PIN المدير يجب أن يتكون من 4 إلى 6 أرقام' })
+  email: z.string().email({ message: 'البريد الإلكتروني غير صالح' }).optional(),
+  password: z.string().min(6, { message: 'كلمة المرور يجب ألا تقل عن 6 أحرف' }).optional(),
+  pin: z.string().trim().regex(/^\d{4,6}$/, { message: 'رمز PIN المدير يجب أن يتكون من 4 إلى 6 أرقام' }).optional()
+}).refine(data => (data.email && data.password) || data.pin, {
+  message: 'يرجى إدخال البريد الإلكتروني وكلمة المرور للمدير'
 }).strip();
 
 module.exports = {
@@ -90,5 +106,6 @@ module.exports = {
   createCashierSchema,
   updateCashierSchema,
   switchCashierSchema,
+  switchStaffSchema,
   managerPinSchema
 };
