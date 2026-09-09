@@ -775,19 +775,46 @@ router.post('/shifts/close', verifyPermission(['tenant.orders.write', 'orders.wr
     return apiError(res, 400, parseResult.error.errors[0]?.message || 'بيانات إغلاق الوردية غير صالحة', 'VALIDATION_ERROR');
   }
 
-  const { actual_cash, notes } = parseResult.data;
+  const { shift_id, actual_cash, notes } = parseResult.data;
 
   try {
-    const { data: shift, error: shiftError } = await supabase
-      .from('pos_shifts')
-      .select('*')
-      .eq('store_id', req.store.id)
-      .eq('status', 'open')
-      .order('opened_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    let shift = null;
+    if (shift_id) {
+      const { data: byId, error: byIdErr } = await supabase
+        .from('pos_shifts')
+        .select('*')
+        .eq('id', shift_id)
+        .eq('store_id', req.store.id)
+        .maybeSingle();
 
-    if (shiftError || !shift) {
+      if (byIdErr) {
+        logger.error('[pos] Close shift query by ID failed:', byIdErr.message);
+      } else if (byId) {
+        if (byId.status !== 'open') {
+          return apiError(res, 400, 'الوردية المحددة مغلقة بالفعل مسبقاً', 'SHIFT_ALREADY_CLOSED');
+        }
+        shift = byId;
+      }
+    }
+
+    if (!shift) {
+      const { data: latestOpen, error: shiftError } = await supabase
+        .from('pos_shifts')
+        .select('*')
+        .eq('store_id', req.store.id)
+        .eq('status', 'open')
+        .order('opened_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (shiftError) {
+        logger.error('[pos] Close shift latest open query failed:', shiftError.message);
+        return apiError(res, 500, 'تعذر التحقق من حالة الوردية الحالية', 'SHIFT_QUERY_FAILED');
+      }
+      shift = latestOpen;
+    }
+
+    if (!shift) {
       return apiError(res, 400, 'لا توجد وردية مفتوحة لإغلاقها', 'NO_OPEN_SHIFT');
     }
 

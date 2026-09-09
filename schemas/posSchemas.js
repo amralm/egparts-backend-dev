@@ -52,6 +52,7 @@ const cashMovementSchema = z.object({
 }).strip();
 
 const closeShiftSchema = z.object({
+  shift_id: z.string().uuid({ message: 'معرف الوردية غير صالح' }).optional(),
   actual_cash: z.coerce.number().min(0, { message: 'المبلغ الفعلي في الدرج مطلوب' }),
   notes: z.string().trim().max(1000).default('')
 }).strip();
