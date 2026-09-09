@@ -458,11 +458,12 @@ router.post('/returns', verifyPermission(['tenant.orders.write', 'orders.write']
       }
     }
 
+    // Authoritative refund pricing: client-supplied prices are strictly ignored
+    // to prevent tampering; unit prices are authoritatively determined from the original order in the DB.
     const sanitizedReturnItems = items.map(it => ({
       id: it.id,
       product_id: it.id,
       qty: Number(it.qty),
-      price: it.price !== undefined ? Number(it.price) : undefined,
       condition: it.condition || 'sound',
       name: it.name || undefined
     }));

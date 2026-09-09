@@ -29,43 +29,78 @@ router.get('/', verifyPermission(['staff.read', 'tenant.owner', 'settings.view',
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', 'TENANT_REQUIRED');
 
   try {
-    // 1. Fetch staff members
-    const { data: staffList, error: staffErr } = await supabase
+    // 1. Fetch staff members with fallback columns
+    let staffList = [];
+    const { data, error: staffErr } = await supabase
       .from('store_staff')
       .select('id, store_id, user_id, role_name, invited_email, is_active, created_at, updated_at')
       .eq('store_id', req.store.id)
       .order('created_at', { ascending: false });
 
-    if (staffErr) throw staffErr;
+    if (staffErr) {
+      logger.warn('[staff] Detailed store_staff select failed, falling back to core columns:', staffErr.message);
+      const { data: fallbackData, error: fbErr } = await supabase
+        .from('store_staff')
+        .select('id, store_id, user_id, role_name, invited_email, is_active, created_at')
+        .eq('store_id', req.store.id);
+      if (fbErr) {
+        logger.error('[staff] Core store_staff select failed:', fbErr.message);
+        throw staffErr;
+      }
+      staffList = fallbackData || [];
+    } else {
+      staffList = data || [];
+    }
 
-    // 2. Fetch limit state
-    const limitState = await subscriptionLimitService.checkFeatureLimit(req.store.id, 'employees', 0).catch(() => ({
+    const activeCount = staffList.filter(s => s.is_active !== false).length;
+
+    // 2. Fetch limit state safely with defensive fallback
+    let limitState = {
       allowed: true,
       limit: null,
-      usage: staffList?.length || 0,
-      is_unlimited: true
-    }));
+      usage: activeCount,
+      is_unlimited: true,
+      remaining: null,
+      plan: { name: 'الباقة الحالية' }
+    };
 
-    const activeCount = (staffList || []).filter(s => s.is_active).length;
+    try {
+      const ls = await subscriptionLimitService.checkFeatureLimit(req.store.id, 'employees', 0);
+      if (ls && typeof ls === 'object') {
+        limitState = {
+          allowed: ls.allowed !== false,
+          limit: ls.is_unlimited ? null : (ls.limit ?? null),
+          usage: ls.usage ?? activeCount,
+          is_unlimited: Boolean(ls.is_unlimited),
+          remaining: ls.remaining ?? null,
+          plan: ls.plan || { name: 'الباقة الحالية' }
+        };
+      }
+    } catch (limitErr) {
+      logger.warn('[staff] checkFeatureLimit exception:', limitErr.message);
+    }
+
+    const isUnlimited = Boolean(limitState.is_unlimited);
+    const resolvedLimit = isUnlimited ? null : (limitState.limit ?? null);
 
     sendSuccess(res, {
-      staff: staffList || [],
+      staff: staffList,
       quota: {
         active_count: activeCount,
-        total_count: staffList?.length || 0,
-        limit: limitState.is_unlimited ? null : (limitState.limit ?? null),
+        total_count: staffList.length,
+        limit: resolvedLimit,
         remaining: limitState.remaining ?? null,
-        is_unlimited: Boolean(limitState.is_unlimited),
+        is_unlimited: isUnlimited,
         plan_name: limitState.plan?.name || 'الباقة الحالية'
       },
       count: activeCount,
-      limit: limitState.is_unlimited ? null : (limitState.limit ?? null),
-      is_unlimited: Boolean(limitState.is_unlimited),
+      limit: resolvedLimit,
+      is_unlimited: isUnlimited,
       plan: limitState.plan
     });
   } catch (err) {
     logger.error('[staff] List staff failed:', err.message);
-    apiError(res, 500, 'فشل جلب قائمة الموظفين', 'HTTP_500');
+    apiError(res, 500, err.message || 'فشل جلب قائمة الموظفين', 'HTTP_500');
   }
 });
 
