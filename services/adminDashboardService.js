@@ -164,12 +164,37 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
   const orderIds = orders.map((order) => order.id);
   let orderItems = [];
   if (orderIds.length) {
-    const { data, error } = await supabase
-      .from('order_items')
-      .select('order_id, product_id, quantity, unit_price, unit_cost_snapshot, gross_profit')
-      .in('order_id', orderIds);
-    if (error) throw error;
-    orderItems = data || [];
+    try {
+      const { data, error } = await supabase
+        .from('order_items')
+        .select('order_id, product_id, quantity, unit_price, unit_cost_snapshot, gross_profit')
+        .in('order_id', orderIds);
+      if (!error && data) {
+        orderItems = data;
+      }
+    } catch {
+      orderItems = [];
+    }
+  }
+
+  // Resilient fallback: If order_items table did not contain items for all orders,
+  // extract from the order.items JSON column
+  const trackedOrderIds = new Set(orderItems.map((oi) => oi.order_id));
+  for (const order of orders) {
+    if (!trackedOrderIds.has(order.id) && Array.isArray(order.items)) {
+      for (const item of order.items) {
+        const pid = item.id || item.product_id ? (item.id || item.product_id).toString() : null;
+        if (!pid) continue;
+        orderItems.push({
+          order_id: order.id,
+          product_id: pid,
+          quantity: item.qty || item.quantity || 1,
+          unit_price: parseNum(item.price || item.unit_price),
+          unit_cost_snapshot: item.cost_price !== undefined ? parseNum(item.cost_price) : null,
+          gross_profit: null
+        });
+      }
+    }
   }
 
   const productSales = {};
@@ -304,10 +329,10 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
 
   // ── 2. Payment Methods & Sales Channels Breakdown ──
   const paymentBreakdown = {
-    cod: { count: 0, total: 0, label: 'الدفع عند الاستلام' },
-    card: { count: 0, total: 0, label: 'بطاقات بنكية (Paymob)' },
-    manual_wallet: { count: 0, total: 0, label: 'محافظ إلكترونية / إنستاباي' },
-    pos_cashier: { count: 0, total: 0, label: 'كاشير الفرع (POS)' }
+    cod: { count: 0, total: 0, pending_total: 0, label: 'الدفع عند الاستلام' },
+    card: { count: 0, total: 0, pending_total: 0, label: 'بطاقات بنكية (Paymob)' },
+    manual_wallet: { count: 0, total: 0, pending_total: 0, label: 'محافظ إلكترونية / إنستاباي' },
+    pos_cashier: { count: 0, total: 0, pending_total: 0, label: 'كاشير الفرع (POS)' }
   };
 
   for (const order of orders) {
@@ -324,11 +349,13 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
     }
 
     if (!paymentBreakdown[methodKey]) {
-      paymentBreakdown[methodKey] = { count: 0, total: 0, label: methodKey };
+      paymentBreakdown[methodKey] = { count: 0, total: 0, pending_total: 0, label: methodKey };
     }
     paymentBreakdown[methodKey].count += 1;
     if (order.status === 'delivered') {
       paymentBreakdown[methodKey].total += parseNum(order.total);
+    } else if (order.status !== 'cancelled' && order.status !== 'rejected') {
+      paymentBreakdown[methodKey].pending_total = (paymentBreakdown[methodKey].pending_total || 0) + parseNum(order.total);
     }
   }
 
@@ -337,6 +364,7 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
     label: data.label,
     count: data.count,
     total: Math.round(data.total),
+    pending_total: Math.round(data.pending_total || 0),
     percent: orders.length > 0 ? Math.round((data.count / orders.length) * 100) : 0
   })).sort((a, b) => b.count - a.count);
 
