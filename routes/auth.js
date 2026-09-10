@@ -1361,16 +1361,19 @@ router.post('/validate-admin', async (req, res) => {
     const decoded = await verifyBearerToken(token);
     const userId = decoded.sub;
 
-    let [{ data: superAdmin }, { data: storeAdmin }] = await Promise.all([
+    let [{ data: superAdmin }, { data: storeAdmin }, { data: staffMember }] = await Promise.all([
       supabase.from('super_admins').select('user_id').eq('user_id', userId).maybeSingle(),
       scopedStoreId
         ? supabase.from('user_roles').select('role_id, roles(name)').eq('user_id', userId).eq('store_id', scopedStoreId).limit(1).maybeSingle()
+        : Promise.resolve({ data: null }),
+      scopedStoreId
+        ? supabase.from('store_staff').select('id, role_name, is_active').eq('user_id', userId).eq('store_id', scopedStoreId).maybeSingle()
         : Promise.resolve({ data: null })
     ]);
 
     // Fallback: If server client returned null (e.g. if server service key is restricted by RLS),
     // query using user-scoped client authenticated with caller's verified Bearer JWT
-    if (!superAdmin && !storeAdmin) {
+    if (!superAdmin && !storeAdmin && !staffMember) {
       try {
         const { createClient } = require('@supabase/supabase-js');
         const userClient = createClient(
@@ -1378,14 +1381,18 @@ router.post('/validate-admin', async (req, res) => {
           process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_iBH2KZATTthSn3Mds3M_wg_UG5ls8pu',
           { global: { headers: { Authorization: authHeader } } }
         );
-        const [uSuper, uStore] = await Promise.all([
+        const [uSuper, uStore, uStaff] = await Promise.all([
           userClient.from('super_admins').select('user_id').eq('user_id', userId).maybeSingle(),
           scopedStoreId
             ? userClient.from('user_roles').select('role_id, roles(name)').eq('user_id', userId).eq('store_id', scopedStoreId).limit(1).maybeSingle()
+            : Promise.resolve({ data: null }),
+          scopedStoreId
+            ? userClient.from('store_staff').select('id, role_name, is_active').eq('user_id', userId).eq('store_id', scopedStoreId).maybeSingle()
             : Promise.resolve({ data: null })
         ]);
         if (uSuper?.data) superAdmin = uSuper.data;
         if (uStore?.data) storeAdmin = uStore.data;
+        if (uStaff?.data) staffMember = uStaff.data;
       } catch (fallbackErr) {
         logger.warn('User client fallback validation failed:', fallbackErr.message);
       }
@@ -1401,15 +1408,26 @@ router.post('/validate-admin', async (req, res) => {
       }
     }
 
-    const resolvedRole = superAdmin ? 'super_admin' : (roleName || (storeAdmin ? 'viewer' : null));
-    const isCashier = resolvedRole === 'cashier';
-    const isStoreAdmin = !!superAdmin || (!!storeAdmin && !isCashier);
+    if (staffMember && staffMember.is_active === false) {
+      return apiError(res, 403, 'تم إيقاف حساب الموظف مؤقتاً بواسطة إدارة المتجر.', 'STAFF_INACTIVE');
+    }
+
+    // Resolve role with store_staff and token metadata priority for cashiers
+    const metadataRole = decoded?.user_metadata?.role || decoded?.role;
+    const staffRole = staffMember?.role_name;
+    
+    // Explicit cashier identification
+    const isStaffCashier = staffRole === 'cashier' || roleName === 'cashier' || metadataRole === 'cashier';
+
+    let resolvedRole = superAdmin ? 'super_admin' : (isStaffCashier ? 'cashier' : (roleName || staffRole || (storeAdmin ? 'viewer' : null)));
+    const isCashier = resolvedRole === 'cashier' || isStaffCashier;
+    const isStoreAdmin = !isCashier && (!!superAdmin || !!storeAdmin || staffRole === 'store_manager' || staffRole === 'owner');
 
     sendSuccess(res, { 
-      isSuperAdmin: !!superAdmin,
+      isSuperAdmin: !isCashier && !!superAdmin,
       isStoreAdmin: isStoreAdmin,
-      isAuthorized: !!(superAdmin || storeAdmin),
-      role: resolvedRole,
+      isAuthorized: !!(superAdmin || storeAdmin || staffMember),
+      role: isCashier ? 'cashier' : resolvedRole,
       isCashier: isCashier
     });
   } catch (err) {
