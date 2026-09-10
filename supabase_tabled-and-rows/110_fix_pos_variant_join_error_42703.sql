@@ -1,5 +1,5 @@
 -- 110_fix_pos_variant_join_error_42703.sql
--- Fix PostgreSQL 42703 column pvov.option_id and FOR UPDATE with GROUP BY in create_pos_order_atomic
+-- Fix PostgreSQL 42703 column pvov.option_id, FOR UPDATE with GROUP BY, and null unit_price in create_pos_order_atomic
 
 CREATE OR REPLACE FUNCTION public.create_pos_order_atomic(
   p_store_id uuid,
@@ -111,7 +111,7 @@ BEGIN
           v_product.name, coalesce(v_variant.option_summary, 'Default'), v_variant.stock_quantity;
       END IF;
 
-      v_item_price := COALESCE(v_variant.price, v_product.price);
+      v_item_price := COALESCE(v_variant.price, v_product.price, 0);
       v_item_cost := COALESCE(v_variant.cost_price, v_product.cost_price, 0);
       v_variant_title := v_variant.option_summary;
     ELSE
@@ -124,7 +124,7 @@ BEGIN
           v_product.name, COALESCE(v_product.stock_quantity, v_product.stock, 0);
       END IF;
 
-      v_item_price := v_product.price;
+      v_item_price := COALESCE(v_product.price, 0);
       v_item_cost := COALESCE(v_product.cost_price, 0);
       v_variant_title := NULL;
     END IF;
