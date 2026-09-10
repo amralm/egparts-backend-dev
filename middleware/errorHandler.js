@@ -36,8 +36,8 @@ const errorHandler = (err, req, res, next) => {
     data: null
   };
 
-  // Attach full context if DEV_MODE_ENABLED
-  if (global.DEV_MODE_ENABLED) {
+  // Attach full context if DEV_MODE_ENABLED (strictly disabled in production)
+  if (global.DEV_MODE_ENABLED && process.env.NODE_ENV !== 'production') {
     errorResponse.data = {
       stack: err.stack,
       requestContext: {
