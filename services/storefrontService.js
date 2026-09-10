@@ -51,12 +51,28 @@ async function getSettings(storeId) {
 
   let activeTheme = null;
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.theme_id);
-  
-  if (isUuid) {
+  const THEME_SLUG_TO_UUID = {
+    'midnight': '9d08ec99-ea33-49b8-9d02-0a2c4fd1b594',
+    'ocean': 'c0876cda-6b75-407f-9df0-236d55698f44',
+    'emerald': '36f01357-7449-4cf5-9bd3-e5e38dcdd030',
+    'sunset': 'a6fb14a1-c0fa-478f-8ad6-82a44bd02ee0',
+    'minimal': '9970d99b-d796-4ab5-9370-d6475863313c',
+    'royal-purple': 'ed0ba5c3-e9b0-414e-9406-0072ffc74e36',
+    'golden-luxury': 'f14fd347-5549-425f-b8bf-8032d970bc47',
+    'cyber-teal': '51ef2b1e-b794-451b-871d-1592ec2167cf',
+    'rose-pink': '89eabc48-6412-4082-a277-30acfe1a57c9',
+    'earth-brown': '8e487365-b840-413c-8f6b-11faeacb22ed'
+  };
+
+  const targetThemeUuid = isUuid
+    ? data.theme_id
+    : (THEME_SLUG_TO_UUID[data.theme_id] || '9d08ec99-ea33-49b8-9d02-0a2c4fd1b594');
+
+  if (targetThemeUuid) {
     const { data: themeData, error: themeError } = await supabase
       .from('platform_themes')
       .select('id, name, name_en, light_tokens, dark_tokens')
-      .eq('id', data.theme_id)
+      .eq('id', targetThemeUuid)
       .eq('is_published', true)
       .maybeSingle();
     if (themeError) throw themeError;
