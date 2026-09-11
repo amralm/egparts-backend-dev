@@ -143,7 +143,7 @@ router.get('/:id/tracking', optionalAuth, async (req, res) => {
     } else if (orderNum) {
       queryBuilder = queryBuilder.eq('order_number', orderNum);
     } else {
-      queryBuilder = queryBuilder.eq('id', rawQuery);
+      return apiError(res, 404, 'الطلب غير موجود، يرجى التأكد من الرقم الصحيح', `HTTP_404`);
     }
 
     const { data: order, error: orderError } = await queryBuilder.maybeSingle();
