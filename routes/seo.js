@@ -6,7 +6,7 @@ const PRIMARY_DOMAIN = (process.env.PRIMARY_DOMAIN || 'egpos.store').toLowerCase
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
 function isPrimaryStore(req) {
-  const host = (req.get('host') || '').toLowerCase().split(':')[0];
+  const host = (req.get('x-forwarded-host') || req.get('host') || '').toLowerCase().split(':')[0];
   return (
     !req.store?.id ||
     req.store.id === NIL_UUID ||
@@ -19,7 +19,7 @@ function isPrimaryStore(req) {
 
 // ─── Dynamic robots.txt (AI Search & Bot Friendly) ───────────────────────────
 router.get(['/robots.txt', '/api/seo/robots.txt'], async (req, res) => {
-  const host = req.get('host');
+  const host = req.get('x-forwarded-host') || req.get('host');
   const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
   const baseUrl = `${protocol}://${host}`;
 
@@ -70,7 +70,7 @@ LLMs-txt: ${baseUrl}/llms.txt
 // ─── LLMs.txt for AI Search & Generative Engine Optimization ────────────────
 router.get(['/llms.txt', '/api/seo/llms.txt'], async (req, res) => {
   try {
-    const host = req.get('host');
+    const host = req.get('x-forwarded-host') || req.get('host');
     const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
     const baseUrl = `${protocol}://${host}`;
 
@@ -156,7 +156,7 @@ router.get(['/llms-full.txt', '/api/seo/llms-full.txt'], (req, res) => {
 // ─── Dynamic sitemap.xml ───────────────────────────────────────────────────
 router.get(['/sitemap.xml', '/api/seo/sitemap.xml'], async (req, res) => {
   try {
-    const host = req.get('host');
+    const host = req.get('x-forwarded-host') || req.get('host');
     const protocol = req.protocol === 'https' || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
     const baseUrl = `${protocol}://${host}`;
 
