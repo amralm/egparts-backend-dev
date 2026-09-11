@@ -478,7 +478,7 @@ router.post('/subscribe', verifyUser, async (req, res) => {
           billing_data: {
             first_name: req.user?.user_metadata?.name?.split(' ')[0] || 'Merchant',
             last_name: req.user?.user_metadata?.name?.split(' ')[1] || 'Store',
-            email: req.user?.email || 'admin@egparts.store',
+            email: req.user?.email || `admin@${process.env.PRIMARY_DOMAIN || 'egpos.store'}车`.replace('车', ''),
             phone_number: '01000000000',
             apartment: 'NA', floor: 'NA', street: 'Platform', building: 'NA',
             shipping_method: 'NA', postal_code: 'NA', city: 'Cairo', country: 'EG', state: 'NA'

@@ -197,7 +197,7 @@ class AbandonedCartWorker {
             }
 
             // Build recovery URL
-            const primaryDomain = process.env.PRIMARY_DOMAIN || 'egparts.store';
+            const primaryDomain = process.env.PRIMARY_DOMAIN || 'egpos.store';
             const baseHost = store.custom_domain
               ? `https://${store.custom_domain}`
               : `https://${store.subdomain}.${primaryDomain}`;

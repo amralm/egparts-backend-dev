@@ -91,9 +91,11 @@ async function runDomainCheck(domainId) {
       resolvedRecords.cnames = cnames;
       
       // If points to platform target domain
-      const primaryDomain = process.env.PRIMARY_DOMAIN || 'egparts.store';
+      const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egpos.store').toLowerCase();
       const isCorrectCname = cnames.some(cname => 
         cname.endsWith(primaryDomain) || 
+        cname.endsWith('egpos.store') ||
+        cname.endsWith('egparts.store') ||
         cname.endsWith('pages.dev')
       );
       if (isCorrectCname) {

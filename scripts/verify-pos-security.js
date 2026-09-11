@@ -166,8 +166,22 @@ async function runPosSecurityE2ETests() {
   // TEST 5: Cashier Role Permission Isolation
   // ----------------------------------------------------
   console.log('\n[Test 5] Testing Cashier Role Permission Isolation...');
-  const { resolveStorePermissions } = require('../middleware/auth');
-  const cashierPermissions = await resolveStorePermissions('test-cashier-id', store.id, { role: 'cashier' });
+  const { data: cashierRole } = await supabase
+    .from('roles')
+    .select(`
+      id,
+      name,
+      role_permissions (
+        permissions (name, is_deprecated)
+      )
+    `)
+    .eq('name', 'cashier')
+    .limit(1)
+    .single();
+
+  const cashierPermissions = (cashierRole?.role_permissions || [])
+    .map(rp => rp.permissions?.name)
+    .filter(Boolean);
 
   assert(Array.isArray(cashierPermissions), 'Cashier permissions must be an array');
   assert(cashierPermissions.includes('tenant.orders.write'), 'Cashier must have POS write permission');

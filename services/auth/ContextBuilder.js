@@ -30,10 +30,15 @@ class ContextBuilder {
     // For this implementation, we will query the `stores` or `domains` table.
     // We assume there's a `domains` table or a `custom_domain` column in `stores`.
     
-    // We will do a generic lookup. If you have a specific table for domains, adjust this.
-    const subdomain = hostname.endsWith('.egparts.store')
-      ? hostname.slice(0, -'.egparts.store'.length)
-      : hostname;
+    const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egpos.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0].split(':')[0];
+    let subdomain = hostname;
+    if (hostname.endsWith(`.${primaryDomain}`)) {
+      subdomain = hostname.slice(0, -(`.${primaryDomain}`).length);
+    } else if (hostname.endsWith('.egpos.store')) {
+      subdomain = hostname.slice(0, -('.egpos.store').length);
+    } else if (hostname.endsWith('.egparts.store')) {
+      subdomain = hostname.slice(0, -('.egparts.store').length);
+    }
     let { data: store, error } = await supabase
       .from('stores')
       .select('id, store_name, custom_domain, subdomain, status, plan_id')

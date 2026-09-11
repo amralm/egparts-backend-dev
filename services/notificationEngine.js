@@ -60,8 +60,8 @@ async function getMailTransport() {
     const host = config.smtp_host || process.env.SMTP_HOST;
     const port = parseInt(config.smtp_port || process.env.SMTP_PORT || '587', 10);
     const user = config.smtp_user || process.env.SMTP_USER;
-    const pass = config.smtp_pass || process.env.SMTP_PASS;
-    const from = config.smtp_from || user || process.env.SMTP_FROM || 'no-reply@egparts.store';
+    const defaultFrom = `no-reply@${process.env.PRIMARY_DOMAIN || 'egpos.store'}`;
+    const from = config.smtp_from || user || process.env.SMTP_FROM || defaultFrom;
 
     if (host && user && pass) {
       const transport = nodemailer.createTransport({
@@ -89,7 +89,7 @@ async function getMailTransport() {
       pass: testAccount.pass
     }
   });
-  return { transport, from: 'no-reply@egparts.store', isMock: true, testAccount };
+  return { transport, from: defaultFrom, isMock: true, testAccount };
 }
 
 // ============================================================

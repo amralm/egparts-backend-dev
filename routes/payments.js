@@ -544,7 +544,7 @@ router.post('/webhook', verifyPaymobHMAC, async (req, res) => {
 });
 
 function getStoreUrl(store) {
-  const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
+  const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egpos.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
   const target = Array.isArray(store) ? store[0] : store;
   if (!target) return `https://${primaryDomain}`;
   if (target.custom_domain) return `https://${target.custom_domain}`;
@@ -562,7 +562,7 @@ router.get('/verify-redirect', async (req, res) => {
 
   if (!paymobOrderId || !receivedHmac) {
     if (isBrowserNavigation) {
-      const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
+      const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egpos.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
       return res.redirect(302, `https://${primaryDomain}/payment/fail?error=missing_parameters`);
     }
     return apiError(res, 400, 'Missing parameters', `HTTP_400`);
@@ -579,7 +579,7 @@ router.get('/verify-redirect', async (req, res) => {
 
     if (!order) {
       if (isBrowserNavigation) {
-        const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
+        const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egpos.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
         return res.redirect(302, `https://${primaryDomain}/payment/fail?error=order_not_found`);
       }
       return apiError(res, 404, 'Order not found', `HTTP_404`);
@@ -724,7 +724,7 @@ router.get('/verify-redirect', async (req, res) => {
   } catch (err) {
     console.error('Verify Redirect Error:', err.message);
     if (isBrowserNavigation) {
-      const fallbackDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
+      const fallbackDomain = (process.env.PRIMARY_DOMAIN || 'egpos.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
       const targetBase = storeUrl || `https://${fallbackDomain}`;
       // Fallback: If payment actually succeeded or was updated in DB despite a non-fatal exception, redirect to success!
       if (currentOrderId) {

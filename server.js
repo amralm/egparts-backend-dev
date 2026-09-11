@@ -202,10 +202,16 @@ app.use(async (req, res, next) => {
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
           isAllowed = true;
         }
-        // 2. Main domain and tenant subdomains
+        // 2. Main domains (Production & Dev) and tenant subdomains
         else if (
-          hostname === (process.env.PRIMARY_DOMAIN || 'egparts.store') ||
-          hostname.endsWith(`.${process.env.PRIMARY_DOMAIN || 'egparts.store'}`)
+          hostname === 'egpos.store' ||
+          hostname.endsWith('.egpos.store') ||
+          hostname === 'egparts.store' ||
+          hostname.endsWith('.egparts.store') ||
+          (process.env.PRIMARY_DOMAIN && (
+            hostname === process.env.PRIMARY_DOMAIN.toLowerCase() ||
+            hostname.endsWith(`.${process.env.PRIMARY_DOMAIN.toLowerCase()}`)
+          ))
         ) {
           isAllowed = true;
         }

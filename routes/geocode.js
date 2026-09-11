@@ -45,7 +45,7 @@ router.get('/reverse', geocodeLimiter, async (req, res) => {
   try {
     const response = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&accept-language=ar`,
-      { headers: { 'User-Agent': 'EGParts-Store/1.0 (contact@egparts.store)' } }
+      { headers: { 'User-Agent': `EGPOS-Store/1.0 (contact@${process.env.PRIMARY_DOMAIN || 'egpos.store'})` } }
     );
     if (response.ok) {
       const data = await response.json();

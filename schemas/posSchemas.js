@@ -77,24 +77,22 @@ const updateCashierSchema = z.object({
 }).strip();
 
 const switchCashierSchema = z.object({
-  email: z.string().email({ message: 'البريد الإلكتروني غير صالح' }).optional(),
-  password: z.string().min(6, { message: 'كلمة المرور يجب ألا تقل عن 6 أحرف' }).optional(),
-  pin: z.string().trim().regex(/^\d{4,6}$/, { message: 'رمز PIN يجب أن يتكون من 4 إلى 6 أرقام' }).optional()
-}).refine(data => (data.email && data.password) || data.pin, {
-  message: 'يرجى إدخال البريد الإلكتروني وكلمة المرور'
+  email: z.string().trim().email({ message: 'البريد الإلكتروني غير صالح' }),
+  password: z.string().min(6, { message: 'كلمة المرور يجب ألا تقل عن 6 أحرف' })
 }).strip();
 
 const switchStaffSchema = z.object({
-  email: z.string().email({ message: 'البريد الإلكتروني غير صالح' }),
+  email: z.string().trim().email({ message: 'البريد الإلكتروني غير صالح' }),
   password: z.string().min(6, { message: 'كلمة المرور يجب ألا تقل عن 6 أحرف' })
 }).strip();
 
 const managerPinSchema = z.object({
-  email: z.string().email({ message: 'البريد الإلكتروني غير صالح' }).optional(),
-  password: z.string().min(6, { message: 'كلمة المرور يجب ألا تقل عن 6 أحرف' }).optional(),
-  pin: z.string().trim().regex(/^\d{4,6}$/, { message: 'رمز PIN المدير يجب أن يتكون من 4 إلى 6 أرقام' }).optional()
-}).refine(data => (data.email && data.password) || data.pin, {
-  message: 'يرجى إدخال البريد الإلكتروني وكلمة المرور للمدير'
+  email: z.string().trim().email({ message: 'البريد الإلكتروني غير صالح' }),
+  password: z.string().min(6, { message: 'كلمة المرور يجب ألا تقل عن 6 أحرف' })
+}).strip();
+
+const setManagerPinSchema = z.object({
+  pin: z.string().trim().regex(/^\d{4,6}$/, { message: 'رمز PIN المدير يجب أن يتكون من 4 إلى 6 أرقام' })
 }).strip();
 
 module.exports = {
@@ -108,5 +106,6 @@ module.exports = {
   updateCashierSchema,
   switchCashierSchema,
   switchStaffSchema,
-  managerPinSchema
+  managerPinSchema,
+  setManagerPinSchema
 };

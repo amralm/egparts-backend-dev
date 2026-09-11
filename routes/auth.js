@@ -618,7 +618,7 @@ router.get('/oauth/login', async (req, res) => {
       return apiError(res, 404, 'Store not found for OAuth login', `HTTP_404`);
     }
 
-    const platformDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase();
+    const platformDomain = (process.env.PRIMARY_DOMAIN || 'egpos.store').replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase();
     const canonicalHost = targetStore.custom_domain || `${targetStore.subdomain}.${platformDomain}`;
     
     // Validate origin host to prevent open redirects
@@ -634,7 +634,7 @@ router.get('/oauth/login', async (req, res) => {
     const isFrontendUrl = normalizedOrigin === frontendUrlHost || normalizedOrigin.endsWith('.' + frontendUrlHost);
     const isCanonical = normalizedOrigin === canonicalHost.replace(/^www\./, '');
     const isPlatform = normalizedOrigin.endsWith('.' + platformDomain) || normalizedOrigin === platformDomain;
-    const isNewDomain = normalizedOrigin === 'egparts.store' || normalizedOrigin.endsWith('.egparts.store');
+    const isNewDomain = normalizedOrigin === 'egpos.store' || normalizedOrigin.endsWith('.egpos.store') || normalizedOrigin === 'egparts.store' || normalizedOrigin.endsWith('.egparts.store');
     
     const allowedOrigin = normalizedOrigin && (isLocalhost || isFrontendUrl || isCanonical || isPlatform || isNewDomain);
 
@@ -812,7 +812,7 @@ router.get('/oauth/callback', async (req, res) => {
     const safeRedirect = typeof stateData.redirect_to === 'string' && stateData.redirect_to.startsWith('/') && !stateData.redirect_to.startsWith('//')
       ? stateData.redirect_to
       : '/';
-    const platformDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase();
+    const platformDomain = (process.env.PRIMARY_DOMAIN || 'egpos.store').replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase();
     const canonicalHost = store.custom_domain || `${store.subdomain}.${platformDomain}`;
     
     let targetHost = `https://${canonicalHost}`;
@@ -910,7 +910,7 @@ router.post('/oauth/implicit-callback', async (req, res) => {
     const safeRedirect = typeof stateData.redirect_to === 'string' && stateData.redirect_to.startsWith('/') && !stateData.redirect_to.startsWith('//')
       ? stateData.redirect_to
       : '/';
-    const platformDomain = (process.env.PRIMARY_DOMAIN || 'egparts.store').replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase();
+    const platformDomain = (process.env.PRIMARY_DOMAIN || 'egpos.store').replace(/^https?:\/\//i, '').split('/')[0].split(':')[0].toLowerCase();
     const canonicalHost = store.custom_domain || `${store.subdomain}.${platformDomain}`;
     
     let targetHost = `https://${canonicalHost}`;

@@ -144,7 +144,8 @@ async function generateReceiptPdf({ order, store, cashierName = 'الكاشير'
     const height = footerText2Y + 40;
 
     // Generate QR Code SVG (nested with proper coordinates and viewBox preserved)
-    const trackingHost = store?.subdomain ? `${store.subdomain}.egparts.store` : 'egparts.store';
+    const primaryDomain = (process.env.PRIMARY_DOMAIN || 'egpos.store').toLowerCase().replace(/^https?:\/\//i, '').split('/')[0];
+    const trackingHost = store?.subdomain ? `${store.subdomain}.${primaryDomain}` : primaryDomain;
     const qrData = `https://${trackingHost}/track-order?id=${order.id || order.order_number}`;
     const qrSvgRaw = await QRCode.toString(qrData, {
       type: 'svg',

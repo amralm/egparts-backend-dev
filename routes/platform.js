@@ -328,7 +328,7 @@ router.delete('/themes/:id', async (req, res) => {
 const IMPERSONATION_TTL_SECONDS = 60 * 60;
 
 function canonicalDomain() {
-  return process.env.PRIMARY_DOMAIN || 'egparts.store';
+  return process.env.PRIMARY_DOMAIN || 'egpos.store';
 }
 
 function normalizeDomain(domain) {
@@ -1370,7 +1370,7 @@ router.get('/storage/analytics', verifyPlatformAdmin, async (req, res) => {
       store_breakdown: {},
       configured: Boolean(process.env.R2_BUCKET_NAME && process.env.R2_ACCOUNT_ID),
       bucket_name: process.env.R2_BUCKET_NAME || null,
-      cdn_url: process.env.CDN_URL || 'https://media.egparts.store'
+      cdn_url: process.env.CDN_URL || (process.env.R2_PUBLIC_DOMAIN ? (process.env.R2_PUBLIC_DOMAIN.startsWith('http') ? process.env.R2_PUBLIC_DOMAIN : `https://${process.env.R2_PUBLIC_DOMAIN}`) : `https://media.${process.env.PRIMARY_DOMAIN || 'egpos.store'}`)
     };
 
     if (r2Stats.configured) {
@@ -2054,7 +2054,7 @@ router.post('/users/:user_id/reset-link', verifyPlatformAdmin, async (req, res) 
       type: 'recovery',
       email: userAuth.user.email,
       options: {
-        redirectTo: `${process.env.FRONTEND_URL || 'https://egparts.store'}/reset-password`
+        redirectTo: `${process.env.FRONTEND_URL || `https://${process.env.PRIMARY_DOMAIN || 'egpos.store'}`}/reset-password`
       }
     });
 
@@ -2748,7 +2748,7 @@ router.post('/invitations', verifyPlatformAdmin, validateBody(managerInviteCreat
     let whatsapp = { status: 'not_requested' };
     const { data: storeInfo } = await supabase.from('stores').select('name, subdomain').eq('id', store_id).single();
     const storeSubdomain = storeInfo?.subdomain || 'admin';
-    const baseDomain = process.env.PRIMARY_DOMAIN || 'egparts.store';
+    const baseDomain = process.env.PRIMARY_DOMAIN || 'egpos.store';
     const activationLink = `https://${storeSubdomain}.${baseDomain}/accept-invitation?token=${token}`;
 
     if (email && email.trim()) {
@@ -2813,7 +2813,7 @@ router.post('/invitations/:id/resend', verifyPlatformAdmin, validateParams(invit
 
     const { data: storeInfo } = await supabase.from('stores').select('name, subdomain').eq('id', invite.store_id).single();
     const storeSubdomain = storeInfo?.subdomain || 'admin';
-    const baseDomain = process.env.PRIMARY_DOMAIN || 'egparts.store';
+    const baseDomain = process.env.PRIMARY_DOMAIN || 'egpos.store';
     const activationLink = `https://${storeSubdomain}.${baseDomain}/accept-invitation?token=${token}`;
     
     let whatsapp = { status: 'not_requested' };

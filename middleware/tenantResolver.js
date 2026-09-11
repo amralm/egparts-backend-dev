@@ -4,8 +4,11 @@ const { supabase } = require('../services/supabase');
 // Load reserved subdomains from env or fallback list
 const reservedEnv = process.env.RESERVED_SUBDOMAINS || 'media,api,admin,www,cdn,assets,status,docs,mail,smtp';
 const RESERVED_SUBDOMAINS = reservedEnv.split(',').map(s => s.trim().toLowerCase());
-const PRIMARY_DOMAIN = (process.env.PRIMARY_DOMAIN || 'egparts.store').toLowerCase();
-const DEFAULT_STORE_SUBDOMAIN = (process.env.DEFAULT_STORE_SUBDOMAIN || 'egparts').toLowerCase();
+const PROD_DOMAIN = 'egpos.store';
+const DEV_DOMAIN = 'egparts.store';
+const PRIMARY_DOMAIN = (process.env.PRIMARY_DOMAIN || PROD_DOMAIN).toLowerCase();
+const SUPPORTED_DOMAINS = Array.from(new Set([PROD_DOMAIN, DEV_DOMAIN, PRIMARY_DOMAIN])).filter(Boolean);
+const DEFAULT_STORE_SUBDOMAIN = (process.env.DEFAULT_STORE_SUBDOMAIN || (PRIMARY_DOMAIN.includes('egparts') ? 'egparts' : 'egpos')).toLowerCase();
 
 module.exports = async function tenantResolver(req, res, next) {
   try {
@@ -33,8 +36,9 @@ module.exports = async function tenantResolver(req, res, next) {
       }
       if (!cleanHost) return null;
 
-      const isPlatformDomain = cleanHost === PRIMARY_DOMAIN || cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost === 'onrender.com';
-      const isPlatformSubdomain = cleanHost.endsWith(`.${PRIMARY_DOMAIN}`) || cleanHost.endsWith('.localhost') || cleanHost.endsWith('.onrender.com');
+      const isPlatformDomain = SUPPORTED_DOMAINS.includes(cleanHost) || cleanHost === 'localhost' || cleanHost === '127.0.0.1' || cleanHost === 'onrender.com';
+      const matchedDomain = SUPPORTED_DOMAINS.find(d => cleanHost.endsWith(`.${d}`));
+      const isPlatformSubdomain = Boolean(matchedDomain) || cleanHost.endsWith('.localhost') || cleanHost.endsWith('.onrender.com');
 
       if (isPlatformDomain) {
         return DEFAULT_STORE_SUBDOMAIN;

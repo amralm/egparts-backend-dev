@@ -109,11 +109,17 @@ async function runPosVerification() {
   const validUpdateCashier = updateCashierSchema.safeParse({ name: 'كاشير معدل', is_active: false });
   assert(validUpdateCashier.success, 'Update cashier schema should pass');
 
-  const validSwitchPin = switchCashierSchema.safeParse({ pin: '5678' });
-  assert(validSwitchPin.success, 'Switch cashier schema should pass');
+  const validSwitch = switchCashierSchema.safeParse({ email: 'cashier@store.com', password: 'password123' });
+  assert(validSwitch.success, 'Switch cashier schema with email/password should pass');
 
-  const validManagerPin = managerPinSchema.safeParse({ pin: '9876' });
-  assert(validManagerPin.success, 'Manager pin schema should pass');
+  const rejectedSwitchPin = switchCashierSchema.safeParse({ pin: '5678' });
+  assert(!rejectedSwitchPin.success, 'Switch cashier with only PIN must now be rejected');
+
+  const validManager = managerPinSchema.safeParse({ email: 'manager@store.com', password: 'password123' });
+  assert(validManager.success, 'Manager unlock schema with email/password should pass');
+
+  const rejectedManagerPin = managerPinSchema.safeParse({ pin: '9876' });
+  assert(!rejectedManagerPin.success, 'Manager unlock with only PIN must now be rejected');
 
   console.log('  ✓ All 10 POS Zod schemas verified against strict constraints.');
 
