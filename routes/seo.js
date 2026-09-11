@@ -123,9 +123,10 @@ router.get(['/llms.txt', '/api/seo/llms.txt'], async (req, res) => {
 
     const categories = [...new Set((products || []).map(p => p.category).filter(Boolean))];
 
+    const platformBrandName = PRIMARY_DOMAIN.includes('egparts') ? 'EG-Parts Cloud' : 'EGPOS CLOUD';
     const storeContent = `# ${store.name} — المتجر الإلكتروني الرسمي
 
-> متجر تجاري سحابي يقدم أفضل المنتجات والخدمات عبر منصة EG-Parts Cloud في جمهورية مصر العربية.
+> متجر تجاري سحابي يقدم أفضل المنتجات والخدمات عبر منصة ${platformBrandName} في جمهورية مصر العربية.
 
 ## معلومات المتجر
 - **الاسم:** ${store.name}

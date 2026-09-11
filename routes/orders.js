@@ -122,29 +122,56 @@ router.get('/my', verifyUser, async (req, res) => {
   }
 });
 
-router.get('/:id/tracking', verifyUser, async (req, res) => {
+router.get('/:id/tracking', optionalAuth, async (req, res) => {
   if (!req.store?.id) return apiError(res, 400, 'Tenant context required', `HTTP_400`);
 
+  const rawQuery = String(req.params.id || '').trim();
+  if (!rawQuery) return apiError(res, 400, 'Order ID is required', `HTTP_400`);
+
   try {
-    const { data: order, error: orderError } = await supabase
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawQuery);
+    const numericMatch = rawQuery.match(/\d+/);
+    const orderNum = numericMatch ? parseInt(numericMatch[0], 10) : null;
+
+    let queryBuilder = supabase
       .from('orders')
       .select('*')
-      .eq('id', req.params.id)
-      .eq('store_id', req.store.id)
-      .eq('user_id', req.user.sub)
-      .maybeSingle();
+      .eq('store_id', req.store.id);
+
+    if (isUuid) {
+      queryBuilder = queryBuilder.eq('id', rawQuery);
+    } else if (orderNum) {
+      queryBuilder = queryBuilder.eq('order_number', orderNum);
+    } else {
+      queryBuilder = queryBuilder.eq('id', rawQuery);
+    }
+
+    const { data: order, error: orderError } = await queryBuilder.maybeSingle();
 
     if (orderError) throw orderError;
-    if (!order) return apiError(res, 404, 'Order not found', `HTTP_404`);
+    if (!order) return apiError(res, 404, 'الطلب غير موجود، يرجى التأكد من الرقم الصحيح', `HTTP_404`);
 
     const { data: tracking, error: trackingError } = await supabase
       .from('order_tracking')
       .select('*')
-      .eq('order_id', req.params.id)
+      .eq('order_id', order.id)
       .order('created_at', { ascending: true });
 
     if (trackingError) throw trackingError;
-    sendSuccess(res, { order: enrichOrderItems(order), tracking: tracking || [] });
+
+    const isOwner = req.user?.sub && order.user_id === req.user.sub;
+    
+    // If not authenticated owner, mask phone & detailed address to safeguard customer privacy
+    let outputOrder = enrichOrderItems(order);
+    if (!isOwner) {
+      outputOrder = {
+        ...outputOrder,
+        phone: order.phone ? order.phone.replace(/(\d{3})\d{4,6}(\d{3})/, '$1****$2') : '',
+        address: order.city || 'العنوان محمي',
+      };
+    }
+
+    sendSuccess(res, { order: outputOrder, tracking: tracking || [] });
   } catch (error) {
     console.error('Customer order tracking error:', error.message);
     apiError(res, 500, 'Failed to load order tracking', `HTTP_500`);
