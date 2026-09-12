@@ -544,6 +544,13 @@ router.post('/settings', verifyPlatformAdmin, validateBody(platformSettingsSchem
     }
   }
 
+  // Security Safeguard: Prevent enabling dev_mode_enabled on production backend instance
+  const isProdBackend = process.env.NODE_ENV === 'production' && 
+    (process.env.BACKEND_PUBLIC_URL?.includes('egparts-backend.onrender.com') || process.env.PRIMARY_DOMAIN?.includes('egpos'));
+  if (isProdBackend && (settings.dev_mode_enabled === 'true' || settings.dev_mode_enabled === true)) {
+    return apiError(res, 403, 'لا يمكن تفعيل وضع التطوير (Development Mode) على بيئة الإنتاج المباشرة (Production). متاح فقط على بيئة التطوير.', 'DEV_MODE_FORBIDDEN_ON_PROD');
+  }
+
   try {
     const requestedKeys = Object.keys(settings);
     const { data: previousRows, error: previousError } = await supabase
