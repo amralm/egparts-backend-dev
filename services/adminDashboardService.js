@@ -60,14 +60,14 @@ function calculateDelta(current, prev) {
 async function getDashboard(storeId, settings = {}, period = '30d') {
   const { currentStart, prevStart, prevEnd, now } = getDateRange(period);
 
-  const [productsResult, ordersResult, profilesResult, analyticsResult] = await Promise.all([
+  const [productsResult, ordersResult, profilesResult, analyticsResult, posReturnsResult] = await Promise.all([
     supabase
       .from('products')
       .select('id, name, image, price, cost_price, stock_quantity, low_stock_threshold')
       .eq('store_id', storeId),
     supabase
       .from('orders')
-      .select('id, total, status, items, user_id, created_at, phone, payment_method, metadata')
+      .select('id, total, subtotal, discount, discount_amount, status, items, user_id, created_at, phone, payment_method, metadata')
       .eq('store_id', storeId)
       .order('created_at', { ascending: false })
       .limit(1000),
@@ -80,7 +80,12 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
       .select('event_type, created_at')
       .eq('store_id', storeId)
       .order('created_at', { ascending: false })
-      .limit(3000)
+      .limit(3000),
+    supabase
+      .from('pos_returns')
+      .select('id, order_id, return_number, items, total_refund, refund_method, created_at')
+      .eq('store_id', storeId)
+      .order('created_at', { ascending: false })
   ]);
 
   if (productsResult.error) throw productsResult.error;
@@ -92,19 +97,35 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
   const profiles = profilesResult.data || [];
   const profileMap = new Map(profiles.map((profile) => [profile.user_id, profile]));
   const allEvents = analyticsResult.data || [];
+  const allReturns = posReturnsResult?.data || [];
 
   // Filter orders by period
   const orders = currentStart
     ? allOrders.filter(o => new Date(o.created_at) >= currentStart)
     : allOrders;
 
-  // Previous period orders for growth comparison
+  // Filter returns by period
+  const returns = currentStart
+    ? allReturns.filter(r => new Date(r.created_at) >= currentStart)
+    : allReturns;
+
+  // Previous period orders and returns for growth comparison
   const prevOrders = (prevStart && prevEnd)
     ? allOrders.filter(o => {
         const d = new Date(o.created_at);
         return d >= prevStart && d < prevEnd;
       })
     : [];
+
+  const prevReturns = (prevStart && prevEnd)
+    ? allReturns.filter(r => {
+        const d = new Date(r.created_at);
+        return d >= prevStart && d < prevEnd;
+      })
+    : [];
+
+  const totalRefunds = returns.reduce((acc, r) => acc + parseNum(r.total_refund), 0);
+  const prevTotalRefunds = prevReturns.reduce((acc, r) => acc + parseNum(r.total_refund), 0);
 
   // Filter analytics events by period
   const events = currentStart
@@ -140,17 +161,19 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
     ? Math.round((productsWithCostCount / products.length) * 100)
     : 100;
 
-  // Revenue in current period
-  const revenue = orders.reduce((acc, order) => {
+  // Gross and Net Revenue in current period
+  const grossRevenue = orders.reduce((acc, order) => {
     if (order.status !== 'delivered') return acc;
     return acc + parseNum(order.total);
   }, 0);
+  const revenue = Math.max(0, grossRevenue - totalRefunds);
 
-  // Revenue in previous period
-  const prevRevenue = prevOrders.reduce((acc, order) => {
+  // Previous period revenue
+  const prevGrossRevenue = prevOrders.reduce((acc, order) => {
     if (order.status !== 'delivered') return acc;
     return acc + parseNum(order.total);
   }, 0);
+  const prevRevenue = Math.max(0, prevGrossRevenue - prevTotalRefunds);
 
   const revenueGrowth = calculateDelta(revenue, prevRevenue);
   const ordersGrowth = calculateDelta(orders.length, prevOrders.length);
@@ -201,8 +224,8 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
   const productProfitMap = {};
   const productCostMap = new Map(products.map((p) => [p.id.toString(), parseNum(p.cost_price)]));
 
-  let cogs = 0;
-  let netProfit = 0;
+  let grossCogs = 0;
+  let grossItemProfit = 0;
 
   for (const item of orderItems) {
     const pid = item.product_id ? item.product_id.toString() : null;
@@ -222,7 +245,7 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
         : (productCostMap.get(pid) || 0);
 
       const itemCost = unitCost * qty;
-      cogs += itemCost;
+      grossCogs += itemCost;
 
       let itemProfit = 0;
       if (item.gross_profit !== null && item.gross_profit !== undefined && !Number.isNaN(parseFloat(item.gross_profit))) {
@@ -232,14 +255,52 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
         itemProfit = (salePrice - unitCost) * qty;
       }
 
-      netProfit += itemProfit;
+      grossItemProfit += itemProfit;
       productProfitMap[pid] = (productProfitMap[pid] || 0) + itemProfit;
     }
   }
 
-  if (netProfit === 0 && revenue > 0 && cogs > 0) {
-    netProfit = revenue - cogs;
+  // Calculate restocked return items (sound condition returns restock inventory and reverse COGS)
+  let returnedCogs = 0;
+  const returnedQtyByProduct = {};
+  const returnedRefundByProduct = {};
+
+  for (const ret of returns) {
+    if (Array.isArray(ret.items)) {
+      for (const item of ret.items) {
+        const pid = (item.product_id || item.id)?.toString();
+        const qty = Math.max(1, parseInt(item.qty || item.quantity, 10) || 1);
+        if (pid) {
+          returnedQtyByProduct[pid] = (returnedQtyByProduct[pid] || 0) + qty;
+          const unitPrice = parseNum(item.price);
+          returnedRefundByProduct[pid] = (returnedRefundByProduct[pid] || 0) + (unitPrice * qty);
+
+          if (item.condition !== 'scrap') {
+            const unitCost = productCostMap.get(pid) || 0;
+            returnedCogs += unitCost * qty;
+          }
+        }
+      }
+    }
   }
+
+  // Net COGS = gross COGS - returned restocked items
+  const cogs = Math.max(0, grossCogs - returnedCogs);
+
+  // Adjust product-level sales and profits for returns
+  for (const [pid, retQty] of Object.entries(returnedQtyByProduct)) {
+    if (productSales[pid] !== undefined) {
+      productSales[pid] = Math.max(0, productSales[pid] - retQty);
+    }
+    const refundVal = returnedRefundByProduct[pid] || 0;
+    const restoredCost = (productCostMap.get(pid) || 0) * retQty;
+    if (productProfitMap[pid] !== undefined) {
+      productProfitMap[pid] = Math.max(0, productProfitMap[pid] - (refundVal - restoredCost));
+    }
+  }
+
+  // Net Profit: Authoritative Net Revenue minus Net COGS
+  let netProfit = Math.max(0, revenue - cogs);
 
   const profitMargin = revenue > 0
     ? Math.min(100, Math.max(-100, Math.round((netProfit / revenue) * 100)))
@@ -319,6 +380,14 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
         }
       }
     }
+
+    for (const ret of returns) {
+      const isoDay = ret.created_at ? ret.created_at.split('T')[0] : null;
+      if (isoDay && timelineMap.has(isoDay)) {
+        const slot = timelineMap.get(isoDay);
+        slot.revenue = Math.max(0, slot.revenue - parseNum(ret.total_refund));
+      }
+    }
   }
 
   const timeline = Array.from(timelineMap.values()).map(slot => ({
@@ -357,6 +426,10 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
     } else if (order.status !== 'cancelled' && order.status !== 'rejected') {
       paymentBreakdown[methodKey].pending_total = (paymentBreakdown[methodKey].pending_total || 0) + parseNum(order.total);
     }
+  }
+
+  if (paymentBreakdown['pos_cashier'] && totalRefunds > 0) {
+    paymentBreakdown['pos_cashier'].total = Math.max(0, paymentBreakdown['pos_cashier'].total - totalRefunds);
   }
 
   const paymentBreakdownList = Object.entries(paymentBreakdown).map(([key, data]) => ({
@@ -430,6 +503,7 @@ async function getDashboard(storeId, settings = {}, period = '30d') {
       cogs: Math.round(cogs),
       netProfit: Math.round(netProfit),
       profitMargin,
+      totalRefunds: Math.round(totalRefunds),
       costCoveragePercent,
       productsWithCostCount,
       users: profilesResult.count ?? new Set(allOrders.map((order) => order.user_id).filter(Boolean)).size

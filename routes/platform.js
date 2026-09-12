@@ -138,35 +138,50 @@ const impersonationControlLimiter = rateLimit({
   handler: (req, res) => apiError(res, 429, 'Too many impersonation requests. Try again later.', 'IMPERSONATION_RATE_LIMITED')
 });
 
+const r2AccountId = process.env.R2_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID;
 const s3Client = new S3Client({
   region: 'auto',
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  endpoint: r2AccountId ? `https://${r2AccountId}.r2.cloudflarestorage.com` : 'https://missing-r2-account-id.r2.cloudflarestorage.com',
   forcePathStyle: true,
   credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    accessKeyId: process.env.R2_ACCESS_KEY_ID || 'missing',
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || 'missing',
   },
+  maxAttempts: 2,
 });
 
-async function emptyS3Directory(bucket, dir) {
-  const listParams = { Bucket: bucket, Prefix: dir };
-  let listedObjects;
-  let deletedCount = 0;
-  let deletedBytes = 0;
-  do {
-    listedObjects = await s3Client.send(new ListObjectsV2Command(listParams));
-    if (listedObjects.Contents?.length > 0) {
-      const deleteParams = { Bucket: bucket, Delete: { Objects: [] } };
-      listedObjects.Contents.forEach(({ Key, Size = 0 }) => {
-        deleteParams.Delete.Objects.push({ Key });
-        deletedCount += 1;
-        deletedBytes += Number(Size) || 0;
-      });
-      await s3Client.send(new DeleteObjectsCommand(deleteParams));
-    }
-    listParams.ContinuationToken = listedObjects.NextContinuationToken;
-  } while (listedObjects.IsTruncated);
-  return { deletedCount, deletedBytes };
+async function emptyS3Directory(bucket, dir, timeoutMs = 4000) {
+  if (!bucket || !dir || !r2AccountId || !process.env.R2_ACCESS_KEY_ID || !process.env.R2_SECRET_ACCESS_KEY) {
+    logger.warn(`[emptyS3Directory] R2 credentials or configuration missing. Skipping wipe for prefix: ${dir}`);
+    return { deletedCount: 0, deletedBytes: 0 };
+  }
+
+  const wipePromise = (async () => {
+    const listParams = { Bucket: bucket, Prefix: dir };
+    let listedObjects;
+    let deletedCount = 0;
+    let deletedBytes = 0;
+    do {
+      listedObjects = await s3Client.send(new ListObjectsV2Command(listParams));
+      if (listedObjects.Contents?.length > 0) {
+        const deleteParams = { Bucket: bucket, Delete: { Objects: [] } };
+        listedObjects.Contents.forEach(({ Key, Size = 0 }) => {
+          deleteParams.Delete.Objects.push({ Key });
+          deletedCount += 1;
+          deletedBytes += Number(Size) || 0;
+        });
+        await s3Client.send(new DeleteObjectsCommand(deleteParams));
+      }
+      listParams.ContinuationToken = listedObjects.NextContinuationToken;
+    } while (listedObjects.IsTruncated);
+    return { deletedCount, deletedBytes };
+  })();
+
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`R2 wipe timed out after ${timeoutMs}ms for ${dir}`)), timeoutMs)
+  );
+
+  return Promise.race([wipePromise, timeoutPromise]);
 }
 
 async function listS3Objects(bucket, prefix) {
@@ -327,8 +342,27 @@ router.delete('/themes/:id', async (req, res) => {
 
 const IMPERSONATION_TTL_SECONDS = 60 * 60;
 
-function canonicalDomain() {
+function canonicalDomain(req = null) {
+  if (req) {
+    const origin = req.headers?.origin || req.headers?.referer;
+    if (origin) {
+      try {
+        const url = new URL(origin);
+        const host = url.hostname.toLowerCase();
+        if (host === 'egparts.store' || host.endsWith('.egparts.store')) return 'egparts.store';
+        if (host === 'egpos.store' || host.endsWith('.egpos.store')) return 'egpos.store';
+      } catch {}
+    }
+    const host = (req.hostname || req.headers?.host || '').toLowerCase().split(':')[0];
+    if (host === 'egparts.store' || host.endsWith('.egparts.store')) return 'egparts.store';
+    if (host === 'egpos.store' || host.endsWith('.egpos.store')) return 'egpos.store';
+  }
   return process.env.PRIMARY_DOMAIN || 'egpos.store';
+}
+
+function getPlatformBrandName(domain) {
+  const d = (domain || '').toLowerCase();
+  return d.includes('egparts') ? 'EG-PARTS Cloud' : 'EGPOS Cloud';
 }
 
 function normalizeDomain(domain) {
@@ -523,6 +557,20 @@ router.get('/settings', verifyPlatformAdmin, async (req, res) => {
         settings[item.key] = item.value;
       });
     }
+
+    // Dynamic Host & Environment Resolution:
+    // primary_domain and platform_name must match the active environment / requesting host,
+    // not static cross-environment database rows.
+    const activeDomain = canonicalDomain(req);
+    const activePlatformName = getPlatformBrandName(activeDomain);
+
+    if (!settings.primary_domain || settings.primary_domain === 'egparts.store' || settings.primary_domain === 'egpos.store') {
+      settings.primary_domain = activeDomain;
+    }
+    if (!settings.platform_name || settings.platform_name === 'EG-PARTS Cloud' || settings.platform_name === 'EGPOS Cloud') {
+      settings.platform_name = activePlatformName;
+    }
+
     sendSuccess(res, settings);
   } catch (err) {
     logger.error('Failed to get system settings:', err.message);
@@ -1589,17 +1637,19 @@ router.delete('/stores/:id', verifyPlatformAdmin, async (req, res) => {
     }
 
     const confirmation = typeof req.body?.confirmation === 'string' ? req.body.confirmation.trim() : '';
-    if (!confirmation || confirmation !== oldStore.name.trim()) {
-      return apiError(res, 409, 'يرجى كتابة اسم المتجر بدقة لتأكيد الحذف النهائي.', 'DELETE_CONFIRMATION_REQUIRED');
+    const matchesName = oldStore.name && confirmation === oldStore.name.trim();
+    const matchesSubdomain = oldStore.subdomain && confirmation === oldStore.subdomain.trim();
+    if (!confirmation || (!matchesName && !matchesSubdomain)) {
+      return apiError(res, 409, 'يرجى كتابة اسم المتجر أو رابطه بدقة لتأكيد الحذف النهائي.', 'DELETE_CONFIRMATION_REQUIRED');
     }
 
-    // 1. Wipe all files associated with the store from R2 across all prefixes
+    // 1. Wipe all files associated with the store from R2 across all prefixes (with timeout safeguard)
     let storageResult = { deletedCount: 0, deletedBytes: 0 };
     if (process.env.R2_BUCKET_NAME) {
       const dirsToWipe = [`stores/${id}/`, `payment-proofs/${id}/`, `support/${id}/`, `abuse-reports/${id}/`, `subscription-proofs/${id}/`];
       for (const dir of dirsToWipe) {
         try {
-          const resDir = await emptyS3Directory(process.env.R2_BUCKET_NAME, dir);
+          const resDir = await emptyS3Directory(process.env.R2_BUCKET_NAME, dir, 3000);
           storageResult.deletedCount += resDir.deletedCount || 0;
           storageResult.deletedBytes += resDir.deletedBytes || 0;
         } catch (dirErr) {
@@ -1642,7 +1692,7 @@ router.delete('/stores/:id', verifyPlatformAdmin, async (req, res) => {
     if (oldStore.subdomain) tenantCache.delete(oldStore.subdomain);
     if (oldStore.custom_domain) tenantCache.delete(oldStore.custom_domain);
 
-    await auditPlatform(req, 'platform.store.delete_hard', 'store', id, oldStore, { storageResult }, id);
+    await auditPlatform(req, 'platform.store.delete_hard', 'store', id, oldStore, { storageResult }, null);
     sendSuccess(res, { message: 'تم حذف المتجر وبياناته بالكامل بنجاح.', storage: storageResult });
   } catch (err) {
     logger.error('Failed to hard delete store:', err.message);

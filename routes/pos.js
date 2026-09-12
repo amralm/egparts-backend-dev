@@ -942,22 +942,14 @@ const handleStaffSwitch = async (req, res) => {
     const userId = authUser.id;
     const userName = authUser.user_metadata?.full_name || authUser.user_metadata?.name || normalizedEmail.split('@')[0];
 
-    // Check if store owner
-    const { data: storeRow } = await supabase
-      .from('stores')
-      .select('id, owner_id, name')
-      .eq('id', req.store.id)
-      .maybeSingle();
-
-    const isStoreOwner = storeRow && storeRow.owner_id === userId;
-
-    // Check if platform super_admin
+    // Check user_roles (relational roles table)
     const { data: roleRows } = await supabase
       .from('user_roles')
-      .select('role')
+      .select('user_id, store_id, role_id, roles(name)')
       .eq('user_id', userId);
 
-    const isSuperAdmin = (roleRows || []).some(r => r.role === 'super_admin');
+    const isSuperAdmin = (roleRows || []).some(r => r.roles?.name === 'super_admin' || r.roles?.name === 'superadmin');
+    const isStoreOwnerRole = (roleRows || []).some(r => (['owner', 'admin'].includes(r.roles?.name)) && (r.store_id === req.store.id || !r.store_id));
 
     // Check store_staff
     const { data: staffRow } = await supabase
@@ -966,6 +958,9 @@ const handleStaffSwitch = async (req, res) => {
       .eq('store_id', req.store.id)
       .eq('user_id', userId)
       .maybeSingle();
+
+    const isStaffManager = staffRow && staffRow.is_active && ['store_manager', 'manager', 'admin', 'owner'].includes(staffRow.role_name);
+    const isStoreOwner = isStoreOwnerRole || isStaffManager;
 
     if (!isStoreOwner && !isSuperAdmin && !staffRow) {
       return apiError(res, 403, 'هذا الحساب ليس لديه صلاحية العمل في هذا المتجر', 'FORBIDDEN_STORE_ACCESS');
@@ -1044,15 +1039,15 @@ router.post('/terminal/unlock', staffAuthLimiter, optionalAuth, async (req, res)
     const userId = authData.user.id;
 
     // Verify owner or superadmin or store_manager
-    const [{ data: storeRow }, { data: roleRows }, { data: staffRow }] = await Promise.all([
-      supabase.from('stores').select('id, owner_id').eq('id', req.store.id).maybeSingle(),
-      supabase.from('user_roles').select('role').eq('user_id', userId),
+    const [{ data: roleRows }, { data: staffRow }] = await Promise.all([
+      supabase.from('user_roles').select('user_id, store_id, role_id, roles(name)').eq('user_id', userId),
       supabase.from('store_staff').select('id, role_name, is_active').eq('store_id', req.store.id).eq('user_id', userId).maybeSingle()
     ]);
 
-    const isStoreOwner = storeRow && storeRow.owner_id === userId;
-    const isSuperAdmin = (roleRows || []).some(r => r.role === 'super_admin');
-    const isManagerStaff = staffRow && staffRow.is_active && ['store_manager', 'manager', 'admin'].includes(staffRow.role_name);
+    const isSuperAdmin = (roleRows || []).some(r => r.roles?.name === 'super_admin' || r.roles?.name === 'superadmin');
+    const isStoreOwnerRole = (roleRows || []).some(r => (['owner', 'admin'].includes(r.roles?.name)) && (r.store_id === req.store.id || !r.store_id));
+    const isManagerStaff = staffRow && staffRow.is_active && ['store_manager', 'manager', 'admin', 'owner'].includes(staffRow.role_name);
+    const isStoreOwner = isStoreOwnerRole || isManagerStaff;
 
     if (!isStoreOwner && !isSuperAdmin && !isManagerStaff) {
       return apiError(res, 403, 'هذا الحساب لا يملك صلاحية إدارة المتجر لإلغاء القفل', 'NOT_A_MANAGER');
